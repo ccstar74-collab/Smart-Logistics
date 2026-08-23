@@ -11,27 +11,30 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - Spring Boot 后端基础工程
 - MySQL 数据库连接
 - MyBatis-Plus 数据访问
-- Vehicle 车辆管理模块
+- Vehicle 车辆管理 V1
+- Cargo 货物管理 V1
 - REST API 统一响应结构
-- DTO
+- DTO 请求与响应模型
 - Validation 参数校验
-- 分页与状态筛选
+- 分页
+- keyword 搜索
+- 状态筛选
 - 全局异常处理
-- Vehicle 模块自动化测试
+- Vehicle / Cargo 自动化测试
 
 ### 开发中
 
-- Cargo 货物管理
 - CargoItem
 - TransportTask 运输任务
+- CargoStatusRecord
 - MQTT 实时数据接入
 - GPS 模拟
 - WebSocket
-- 运输轨迹
+- Track 运输轨迹
 - ETA
-- 异常告警
-- 调度
-- 物流智能问答
+- Alarm 异常告警
+- Dispatch 调度
+- AI Agent 物流智能问答
 
 ## 技术栈
 
@@ -84,7 +87,7 @@ Smart-Logistics/
 
 REST API 统一前缀：`/api/v1/**`
 
-Vehicle 车辆接口示例：
+Vehicle 车辆接口：
 
 ```http
 GET    /api/v1/vehicles
@@ -93,6 +96,16 @@ GET    /api/v1/vehicles/{id}
 PUT    /api/v1/vehicles/{id}
 DELETE /api/v1/vehicles/{id}
 ```
+
+Cargo 货物接口：
+
+```http
+POST /api/v1/cargos
+GET  /api/v1/cargos
+GET  /api/v1/cargos/{id}
+```
+
+Cargo 列表接口支持 `page`、`pageSize`、`keyword` 和 `status` 查询参数。
 
 - 普通业务接口使用 REST API。
 - 实时位置、告警等信息计划由 WebSocket 推送。
