@@ -18,10 +18,9 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - 分页与状态筛选
 - 全局异常处理
 - Vehicle 模块自动化测试
+- Cargo货物管理
 
 ### 开发中
-
-- Cargo 货物管理
 - CargoItem
 - TransportTask 运输任务
 - MQTT 实时数据接入
