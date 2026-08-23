@@ -11,8 +11,12 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - Spring Boot 后端基础工程
 - MySQL 数据库连接
 - MyBatis-Plus 数据访问
-- Vehicle 车辆管理 V1
-- Cargo 货物管理 V1
+- Vehicle 车辆管理 V1 ✅
+- Cargo 货物管理 V1 ✅
+- CargoItem 货物明细管理 V1 ✅
+- CargoItem REST API V1 ✅
+- CargoItem Entity / DTO / Mapper / Service / Validation
+- Cargo 从属资源查询与 CargoItem 归属校验
 - REST API 统一响应结构
 - DTO 请求与响应模型
 - Validation 参数校验
@@ -20,12 +24,11 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - keyword 搜索
 - 状态筛选
 - 全局异常处理
-- Vehicle / Cargo 自动化测试
+- Vehicle / Cargo / CargoItem 自动化测试
 
 ### 开发中
 
-- CargoItem
-- TransportTask 运输任务
+- TransportTask 运输任务 V1（并行开发中）
 - CargoStatusRecord
 - MQTT 实时数据接入
 - GPS 模拟
@@ -106,6 +109,18 @@ GET  /api/v1/cargos/{id}
 ```
 
 Cargo 列表接口支持 `page`、`pageSize`、`keyword` 和 `status` 查询参数。
+
+CargoItem 货物明细接口：
+
+```http
+POST /api/v1/cargos/{cargoId}/items
+GET  /api/v1/cargos/{cargoId}/items
+GET  /api/v1/cargos/{cargoId}/items/{itemId}
+```
+
+CargoItem 是 Cargo 的从属资源，当前未提供 CargoItem 的 PUT 和 DELETE 接口。
+
+Cargo 与 CargoItem 的关系为 `1:N`。`Cargo.weight` 和 `Cargo.volume` 代表整票 Cargo 的运输总重量和总体积，CargoItem 代表该 Cargo 内具体包含的货物明细。CargoItem 操作不会自动修改 `Cargo.weight`、`Cargo.volume` 或 `Cargo.status`。
 
 - 普通业务接口使用 REST API。
 - 实时位置、告警等信息计划由 WebSocket 推送。
