@@ -104,9 +104,27 @@ Vehicle 模块已经包含：
 - 软停用
 - 全局异常处理
 - 自动化测试
+  
+Cargo模块已包含：
+
+- Cargo Entity
+- CargoStatus
+- Cargo DTO
+- Validation
+- CargoMapper
+- CargoService
+- CargoController
+- POST /api/v1/cargos
+- GET /api/v1/cargos
+- GET /api/v1/cargos/{id}
+- 分页
+- keyword 搜索
+- status 筛选
+- cargoNo 唯一性检查
+- Not Found 处理
+- 数据冲突处理
+- 自动化测试
 
 后续计划：
-
-- Cargo
 - CargoItem
 - TransportTask
