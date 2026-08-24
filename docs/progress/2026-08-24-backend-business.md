@@ -42,10 +42,20 @@ PUT  /api/v1/transport-tasks/{id}/status
 
 ### 团队协作进度
 
-- Alarm API 已由队友完成并上传到 `origin/feature/alarm-dispatch`，对应提交为 `d51d26e`
-- 该远程分支当前最新提交为 `aa5b57b`（Dispatch command query foundation）
-- Alarm 尚未在本次 TransportTask 提交中 merge
-- 后续需要单独评审提交边界并执行 TransportTask / Alarm 受控集成
+- 已在 `feature/backend-business` 按 TransportTask、Alarm 的顺序完成受控集成
+- TransportTask 来源为 `origin/feature/transport-task`，Alarm 来源为 `origin/feature/alarm-dispatch`
+- Alarm 对应提交为 `d51d26e`，该远程分支最新提交 `aa5b57b` 同时包含 Dispatch command query foundation
+- 两次 merge 均无冲突，TransportTask 的 Cargo / Vehicle 状态联动逻辑完整保留
+- Alarm 仅实现自身查询和状态处理，未修改 Cargo、Vehicle 或 TransportTask，也未引入 MQTT / GPS / WebSocket 联动
+- 仓库未提供 `alarm` 表建表 SQL；Alarm Java API 已集成，但真实数据库 API 验收被 schema 缺失阻塞
+
+### 集成验证
+
+- 全项目 143 项自动化测试通过，Failures = 0、Errors = 0、Skipped = 0
+- `clean test` 与 `clean compile` 均为 `BUILD SUCCESS`
+- Spring Boot 已在本地 8080 端口启动成功
+- 当前终端未设置 `DB_PASSWORD`，本地 MySQL 拒绝空密码连接，因此 Vehicle / Cargo / TransportTask 数据接口未完成本轮运行验收
+- 同一数据库连接阻塞导致无法确认本地是否存在 `alarm` 表；仓库侧仍明确缺少 Alarm schema，未执行 Alarm 详情或状态更新接口
 
 ## 当前进度
 
@@ -54,12 +64,11 @@ Vehicle V1                 ✅
 Cargo V1                   ✅
 CargoItem V1 + REST API V1 ✅
 TransportTask V1 + REST API V1 ✅
-Alarm API                  ✅ 队友已上传，尚未集成到当前分支
+Alarm Java API V1          ✅ 已集成（数据库 schema 尚待补齐）
 ```
 
 ## 下一步计划
 
-- 评审 `origin/feature/alarm-dispatch` 的 Alarm / Dispatch 提交边界
-- 设计 TransportTask / Alarm 向业务集成分支的合并顺序
-- 在独立集成阶段执行全项目回归测试
+- 补充并评审独立 Alarm schema，不修改既有 `001_core_schema.sql`
+- 在本地数据库具备 `alarm` 表后完成 Alarm REST API 真实验收
 - 继续推进 TrackPoint、latest location、Dispatch、Auth 和 Agent 等后续模块

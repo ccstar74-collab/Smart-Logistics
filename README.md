@@ -25,6 +25,9 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - TransportTask 预留 ETA 字段，ETA 计算由后续实时模块实现
 - TransportTask 自动化测试通过
 - TransportTask 已通过真实 Apifox + Spring Boot + MySQL API 验收
+- Alarm 异常告警 Java API V1 ✅
+- Alarm 查询、详情与状态处理自动化测试
+- Alarm 数据库 schema 尚待补齐，尚未完成真实数据库 API 验收
 - REST API 统一响应结构
 - DTO 请求与响应模型
 - Validation 参数校验
@@ -42,7 +45,7 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - WebSocket
 - Track 运输轨迹
 - ETA
-- Alarm 异常告警
+- Alarm 数据库 schema 与真实数据库 API 验收
 - Dispatch 调度
 - AI Agent 物流智能问答
 
@@ -137,6 +140,16 @@ GET  /api/v1/transport-tasks
 GET  /api/v1/transport-tasks/{id}
 PUT  /api/v1/transport-tasks/{id}/status
 ```
+
+Alarm 异常告警接口：
+
+```http
+GET /api/v1/alarms
+GET /api/v1/alarms/{id}
+PUT /api/v1/alarms/{id}/status
+```
+
+Alarm Java API 已集成；仓库当前未提供 `alarm` 表 schema，因此真实数据库 API 验收尚未完成。
 
 - 普通业务接口使用 REST API。
 - 实时位置、告警等信息计划由 WebSocket 推送。

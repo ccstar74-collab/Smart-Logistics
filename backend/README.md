@@ -65,6 +65,8 @@ COLLATE utf8mb4_unicode_ci;
 
 新成员应在自己的本地 `smart_logistics` 数据库执行这份 SQL。不要各自在 DBeaver 中维护不同版本的表结构；结构变化必须统一更新 SQL 文件并提交到 Git。
 
+当前 `001_core_schema.sql` 尚未包含 `alarm` 表。Alarm Java API 已集成，但在补充并评审 Alarm schema 前，不能进行真实数据库 API 验收，也不要根据 Entity 临时猜建表语句。
+
 ### 5. 配置本地数据库环境变量
 
 数据库密码绝不能提交到 GitHub。Windows PowerShell 示例：
@@ -181,6 +183,16 @@ PUT  /api/v1/transport-tasks/{id}/status
 
 TransportTask 状态为 `WAITING`、`TRANSPORTING`、`COMPLETED`、`ABNORMAL`、`CANCELLED`。支持的状态转换为 `WAITING → TRANSPORTING`、`TRANSPORTING → COMPLETED`、`TRANSPORTING → ABNORMAL` 和 `WAITING → CANCELLED`，并同步维护 Cargo / Vehicle 相关状态。
 
+当前已完成 Alarm 异常告警 Java 接口：
+
+```http
+GET /api/v1/alarms
+GET /api/v1/alarms/{id}
+PUT /api/v1/alarms/{id}/status
+```
+
+Alarm 状态为 `UNHANDLED`、`PROCESSING`、`RESOLVED`。当前仓库缺少 `alarm` 表 schema，因此尚未完成真实数据库 API 验收。
+
 ## 当前后端模块
 
 当前主要包结构：
@@ -248,8 +260,17 @@ TransportTask V1 + REST API V1 已完成：
 - 预留 `estimatedArrivalTime` 字段；当前不实现 ETA 算法
 - 自动化测试及真实 Apifox + Spring Boot + MySQL API 验收通过
 
+Alarm V1 Java API 已完成：
+
+- 分页、keyword、status、level、alarmType 查询
+- 告警详情查询
+- `UNHANDLED → PROCESSING / RESOLVED`、`PROCESSING → RESOLVED` 状态处理
+- DTO / Mapper / Service / Controller
+- 自动化测试
+- 数据库 schema 尚待补齐，真实数据库 API 验收未完成
+
 下一阶段：
 
-- 单独确认并执行 TransportTask / Alarm 安全集成
-- 集成后执行全项目回归测试
+- 补充并评审独立 Alarm schema
+- 完成 Alarm 真实数据库 API 验收
 - CargoStatusRecord
