@@ -3,6 +3,7 @@ package com.smart_logistics.backend.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -77,6 +79,31 @@ class CargoServiceTest {
 
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getErrorCode());
         assertEquals("cargo not found", exception.getMessage());
+    }
+
+    @Test
+    void updateStatusForTransportUsesExpectedStatusGuard() {
+        when(cargoMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        cargoService.updateStatusForTransport(
+                1L, CargoStatus.WAITING, CargoStatus.TRANSPORTING);
+
+        ArgumentCaptor<LambdaUpdateWrapper<Cargo>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(cargoMapper).update(isNull(), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("status"));
+        assertTrue(captor.getValue().getSqlSet().contains("updated_at"));
+    }
+
+    @Test
+    void updateStatusForTransportRejectsConcurrentStatusChange() {
+        when(cargoMapper.update(isNull(), any(Wrapper.class))).thenReturn(0);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> cargoService.updateStatusForTransport(
+                        1L, CargoStatus.WAITING, CargoStatus.TRANSPORTING));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
     }
 
     @Test

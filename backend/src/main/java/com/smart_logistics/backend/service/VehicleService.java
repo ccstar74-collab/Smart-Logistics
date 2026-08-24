@@ -55,6 +55,23 @@ public class VehicleService {
         return toResponse(getRequiredVehicle(id));
     }
 
+    public Vehicle getVehicleForTransport(Long id) {
+        return getRequiredVehicle(id);
+    }
+
+    @Transactional
+    public void updateStatusForTransport(Long id, VehicleStatus expectedStatus,
+                                         VehicleStatus targetStatus) {
+        LambdaUpdateWrapper<Vehicle> update = new LambdaUpdateWrapper<Vehicle>()
+                .eq(Vehicle::getId, id)
+                .eq(Vehicle::getStatus, expectedStatus.name())
+                .set(Vehicle::getStatus, targetStatus.name())
+                .set(Vehicle::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
+        if (vehicleMapper.update(null, update) != 1) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "vehicle status conflict");
+        }
+    }
+
     @Transactional
     public VehicleResponse createVehicle(VehicleCreateRequest request) {
         String plateNumber = request.getPlateNumber().trim();

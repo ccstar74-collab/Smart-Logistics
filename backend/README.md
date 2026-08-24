@@ -160,6 +160,27 @@ GET  /api/v1/cargos/{id}
 
 Cargo 列表支持 `page`、`pageSize`、`keyword` 和 `status` 查询参数。
 
+当前已完成 CargoItem 货物明细接口：
+
+```http
+POST /api/v1/cargos/{cargoId}/items
+GET  /api/v1/cargos/{cargoId}/items
+GET  /api/v1/cargos/{cargoId}/items/{itemId}
+```
+
+CargoItem 是 Cargo 的从属资源，当前没有 PUT 或 DELETE CargoItem 接口。Cargo 与 CargoItem 的关系为 `1:N`：`Cargo.weight` 和 `Cargo.volume` 是整票运输总量，CargoItem 只描述票内货物明细，不会自动修改 Cargo 的重量、体积或状态。
+
+当前已完成 TransportTask 运输任务接口：
+
+```http
+POST /api/v1/transport-tasks
+GET  /api/v1/transport-tasks
+GET  /api/v1/transport-tasks/{id}
+PUT  /api/v1/transport-tasks/{id}/status
+```
+
+TransportTask 状态为 `WAITING`、`TRANSPORTING`、`COMPLETED`、`ABNORMAL`、`CANCELLED`。支持的状态转换为 `WAITING → TRANSPORTING`、`TRANSPORTING → COMPLETED`、`TRANSPORTING → ABNORMAL` 和 `WAITING → CANCELLED`，并同步维护 Cargo / Vehicle 相关状态。
+
 ## 当前后端模块
 
 当前主要包结构：
@@ -203,9 +224,32 @@ Cargo V1 已完成：
 - Not Found
 - 自动化测试
 
+CargoItem V1 + REST API V1 已完成：
+
+- 创建 CargoItem
+- 查询某 Cargo 的全部 Item
+- 查询某 Cargo 下单条 Item
+- Cargo 存在校验
+- CargoItem 资源归属校验
+- Cargo 存在但无 Item 时返回空列表
+- Validation
+- DTO / Mapper / Service / Controller
+- 自动化测试
+
+TransportTask V1 + REST API V1 已完成：
+
+- 创建运输任务并绑定 Cargo / Vehicle
+- 分页、status、keyword 查询与任务详情
+- 后端生成唯一 taskNo
+- Cargo / Vehicle 状态与活动任务冲突检查
+- TransportTask 状态转换及 Cargo / Vehicle 状态联动
+- `actualStartTime` / `actualEndTime`
+- Spring Transaction 事务边界
+- 预留 `estimatedArrivalTime` 字段；当前不实现 ETA 算法
+- 自动化测试及真实 Apifox + Spring Boot + MySQL API 验收通过
+
 下一阶段：
 
-- CargoItem
-- TransportTask
-- Cargo / Vehicle / Task 状态联动
+- 单独确认并执行 TransportTask / Alarm 安全集成
+- 集成后执行全项目回归测试
 - CargoStatusRecord

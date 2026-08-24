@@ -1,6 +1,7 @@
 package com.smart_logistics.backend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.CargoCreateRequest;
@@ -55,6 +56,23 @@ public class CargoService {
 
     public CargoResponse getCargo(Long id) {
         return toResponse(getRequiredCargo(id));
+    }
+
+    public Cargo getCargoForTransport(Long id) {
+        return getRequiredCargo(id);
+    }
+
+    @Transactional
+    public void updateStatusForTransport(Long id, CargoStatus expectedStatus,
+                                         CargoStatus targetStatus) {
+        LambdaUpdateWrapper<Cargo> update = new LambdaUpdateWrapper<Cargo>()
+                .eq(Cargo::getId, id)
+                .eq(Cargo::getStatus, expectedStatus.name())
+                .set(Cargo::getStatus, targetStatus.name())
+                .set(Cargo::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
+        if (cargoMapper.update(null, update) != 1) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "cargo status conflict");
+        }
     }
 
     @Transactional
