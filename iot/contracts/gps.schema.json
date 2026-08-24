@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-logistics.local/schemas/gps.schema.json",
+  "title": "智慧物流车辆 GPS 消息",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "vehicle_id",
+    "timestamp",
+    "lat",
+    "lon",
+    "speed_kmh",
+    "heading",
+    "transport_status",
+    "coordinate_system"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "vehicle_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO 8601 时间，推荐以 Z 结尾"
+    },
+    "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+    "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+    "speed_kmh": { "type": "number", "minimum": 0 },
+    "heading": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMaximum": 360
+    },
+    "transport_status": {
+      "type": "string",
+      "enum": ["待装货", "已装货", "运输中", "已送达"]
+    },
+    "coordinate_system": { "const": "WGS84" }
+  }
+}

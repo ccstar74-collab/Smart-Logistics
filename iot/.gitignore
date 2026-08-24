@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+samples/generated_*.jsonl
+evidence/*.tmp

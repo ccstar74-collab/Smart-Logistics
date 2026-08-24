@@ -1,0 +1,613 @@
+# -*- coding: utf-8 -*-
+"""智慧物流批量随机车队数据发生器。
+
+不依赖 CARLA，可生成任意数量车辆的连续 GPS 流，直接发布到 MQTT，
+并可将完全相同的数据保存成兼容 mqtt_replay.py 的 JSONL 文件。
+"""
+import argparse
+import datetime
+import json
+import math
+import pathlib
+import queue
+import random
+import threading
+import time
+import urllib.parse
+import urllib.request
+
+import paho.mqtt.client as mqtt
+
+from mqtt_credentials import load_mqtt_credentials
+
+
+EARTH_RADIUS_M = 6_371_000.0
+
+
+def now_iso():
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def move_point(lat, lon, distance_m, heading_deg):
+    """按距离和航向移动 WGS84 点，适用于本项目短距离模拟。"""
+    angular_distance = distance_m / EARTH_RADIUS_M
+    heading = math.radians(heading_deg)
+    lat1 = math.radians(lat)
+    lon1 = math.radians(lon)
+    lat2 = math.asin(
+        math.sin(lat1) * math.cos(angular_distance)
+        + math.cos(lat1) * math.sin(angular_distance) * math.cos(heading)
+    )
+    lon2 = lon1 + math.atan2(
+        math.sin(heading) * math.sin(angular_distance) * math.cos(lat1),
+        math.cos(angular_distance) - math.sin(lat1) * math.sin(lat2),
+    )
+    return math.degrees(lat2), math.degrees(lon2)
+
+
+def distance_between(lat1, lon1, lat2, lon2):
+    """计算两个短距离 WGS84 点之间的米数。"""
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    return EARTH_RADIUS_M * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def bearing_between(lat1, lon1, lat2, lon2):
+    """计算起点朝向终点的方位角。"""
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    dlon = math.radians(lon2 - lon1)
+    y = math.sin(dlon) * math.cos(lat2_rad)
+    x = (
+        math.cos(lat1_rad) * math.sin(lat2_rad)
+        - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon)
+    )
+    return math.degrees(math.atan2(y, x)) % 360.0
+
+
+def load_road_route(route_text):
+    """调用 OSRM，把经纬度途经点转换成沿真实道路的往返路线。"""
+    coordinates = []
+    try:
+        for item in route_text.split(";"):
+            lon, lat = (float(value) for value in item.split(","))
+            coordinates.append((lon, lat))
+    except ValueError:
+        raise ValueError("--road-route 格式应为 经度,纬度;经度,纬度")
+    if len(coordinates) < 2:
+        raise ValueError("--road-route 至少需要起点和终点")
+
+    coordinate_text = ";".join("%.6f,%.6f" % item for item in coordinates)
+    query = urllib.parse.urlencode({"overview": "full", "geometries": "geojson"})
+    url = "https://router.project-osrm.org/route/v1/driving/%s?%s" % (
+        coordinate_text,
+        query,
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": "smart-logistics-demo/1.0"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if result.get("code") != "Ok" or not result.get("routes"):
+        raise RuntimeError("道路规划失败：%s" % result.get("message", result.get("code")))
+
+    route = result["routes"][0]
+    forward_points = [(lat, lon) for lon, lat in route["geometry"]["coordinates"]]
+    if len(forward_points) < 2:
+        raise RuntimeError("道路规划返回的轨迹点不足")
+    # 回程使用反向路线，避免到达终点后瞬移回起点。
+    round_trip = forward_points + list(reversed(forward_points[1:-1]))
+    print(
+        "[路线] 已加载真实道路：%.2f km，%d 个轨迹节点（往返循环）"
+        % (route["distance"] / 1000.0, len(round_trip))
+    )
+    return round_trip
+
+
+def advance_on_route(vehicle, route_points, distance_m):
+    """让车辆沿规划路线前进指定距离。"""
+    while distance_m > 0:
+        next_index = vehicle["route_next_index"]
+        target_lat, target_lon = route_points[next_index]
+        segment_m = distance_between(
+            vehicle["lat"], vehicle["lon"], target_lat, target_lon
+        )
+        if segment_m < 0.05:
+            vehicle["route_next_index"] = (next_index + 1) % len(route_points)
+            continue
+
+        vehicle["heading"] = bearing_between(
+            vehicle["lat"], vehicle["lon"], target_lat, target_lon
+        )
+        if distance_m >= segment_m:
+            vehicle["lat"], vehicle["lon"] = target_lat, target_lon
+            vehicle["route_next_index"] = (next_index + 1) % len(route_points)
+            distance_m -= segment_m
+        else:
+            ratio = distance_m / segment_m
+            vehicle["lat"] += (target_lat - vehicle["lat"]) * ratio
+            vehicle["lon"] += (target_lon - vehicle["lon"]) * ratio
+            distance_m = 0
+
+
+def make_vehicle(index, vehicle_count, origin_lat, origin_lon, rng, route_points=None):
+    if route_points:
+        route_index = (len(route_points) * index // vehicle_count) % len(route_points)
+        lat, lon = route_points[route_index]
+        next_index = (route_index + 1) % len(route_points)
+        heading = bearing_between(lat, lon, *route_points[next_index])
+    else:
+        lat, lon = move_point(origin_lat, origin_lon, rng.uniform(0, 2500), rng.uniform(0, 360))
+        next_index = None
+        heading = rng.uniform(0, 360)
+
+    vehicle = {
+        "vehicle_id": f"sim_{index:03d}",
+        "lat": lat,
+        "lon": lon,
+        "speed_kmh": rng.uniform(20, 55),
+        "heading": heading,
+        "transport_status": rng.choice(["已装货", "运输中", "运输中", "运输中"]),
+        "anomaly": None,
+        "anomaly_ticks": 0,
+    }
+    if route_points:
+        vehicle["route_next_index"] = next_index
+        vehicle["route_points"] = route_points
+    else:
+        vehicle["route_points"] = None
+    return vehicle
+
+
+def main():
+    parser = argparse.ArgumentParser(description="批量生成并发布随机车辆 MQTT 数据")
+    parser.add_argument("--vehicles", type=int, default=20, help="车辆数，默认 20")
+    parser.add_argument("--duration", type=float, default=60,
+                        help="运行秒数；0 表示直到 Ctrl+C")
+    parser.add_argument("--interval", type=float, default=1.0,
+                        help="每批 GPS 发布间隔秒数，默认 1")
+    parser.add_argument("--origin", default="106.55,29.56",
+                        help="中心点，经度,纬度，默认重庆")
+    parser.add_argument("--road-route",
+                        help="沿真实道路循环行驶，格式：起点经度,纬度;终点经度,纬度，可含途经点")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="随机种子；相同种子可复现相同车流")
+    parser.add_argument("--anomaly-rate", type=float, default=0.0,
+                        help="每车每批触发异常的概率，建议 0~0.02")
+    parser.add_argument(
+        "--demo-anomaly",
+        choices=("stop", "drift", "open"),
+        help="启动后在 sim_000 上确定性注入一次异常，便于演示和验收",
+    )
+    parser.add_argument("--alert-mode", choices=("precomputed", "raw"),
+                        default="precomputed")
+    parser.add_argument("--host", default="localhost", help="MQTT Broker 地址")
+    parser.add_argument("--port", type=int, default=1883, help="MQTT Broker 端口")
+    parser.add_argument("--credentials", type=pathlib.Path,
+                        help="MQTT 凭据 env 文件；会自动读取云端地址、端口和账号密码")
+    parser.add_argument("--username", help="MQTT 用户名")
+    parser.add_argument("--password", help="MQTT 密码（推荐改用 --credentials）")
+    parser.add_argument("--prefix", default="iot/carla", help="MQTT 主题前缀")
+    parser.add_argument("--qos", type=int, choices=(0, 1, 2), default=1)
+    parser.add_argument("--output", help="可选：同时保存成可回放 JSONL")
+    args = parser.parse_args()
+
+    if args.credentials:
+        credentials = load_mqtt_credentials(args.credentials)
+        if args.host == "localhost":
+            args.host = credentials["MQTT_HOST"]
+        if args.port == 1883:
+            args.port = int(credentials["MQTT_EXTERNAL_PORT"])
+        args.username = args.username or credentials["MQTT_USERNAME"]
+        args.password = args.password or credentials["MQTT_PASSWORD"]
+
+    if args.vehicles <= 0:
+        parser.error("--vehicles 必须大于 0")
+    if args.duration < 0:
+        parser.error("--duration 不能小于 0")
+    if args.interval <= 0:
+        parser.error("--interval 必须大于 0")
+    if not 0 <= args.anomaly_rate <= 1:
+        parser.error("--anomaly-rate 必须在 0 到 1 之间")
+    if args.demo_anomaly == "open" and args.alert_mode == "raw":
+        parser.error("异常开箱没有 GPS 原始特征，请使用 --alert-mode precomputed")
+    try:
+        origin_lon, origin_lat = (float(item) for item in args.origin.split(","))
+    except ValueError:
+        parser.error("--origin 格式应为 经度,纬度")
+
+    rng = random.Random(args.seed)
+    route_points = None
+    if args.road_route:
+        try:
+            route_points = load_road_route(args.road_route)
+        except Exception as exc:
+            parser.error("真实道路加载失败：%s" % exc)
+    vehicles = [
+        make_vehicle(
+            i,
+            args.vehicles,
+            origin_lat,
+            origin_lon,
+            rng,
+            route_points=route_points,
+        )
+        for i in range(args.vehicles)
+    ]
+    vehicles_by_id = {vehicle["vehicle_id"]: vehicle for vehicle in vehicles}
+    connected = threading.Event()
+    command_queue = queue.Queue()
+    route_result_queue = queue.Queue()
+    command_topic = f"{args.prefix}/vehicle/+/command"
+    client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        client_id=f"smart-logistics-generator-{int(time.time())}",
+    )
+    if args.username:
+        client.username_pw_set(args.username, args.password)
+
+    def on_connect(client_obj, userdata, flags, reason_code, properties):
+        if reason_code == 0:
+            client_obj.subscribe(command_topic, qos=args.qos)
+            connected.set()
+        else:
+            print(f"[错误] Broker 拒绝连接：{reason_code}")
+
+    def on_message(client_obj, userdata, message):
+        # MQTT 网络线程只负责入队；路线加载和车辆状态更新由主循环执行。
+        command_queue.put((message.topic, bytes(message.payload)))
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(args.host, args.port, keepalive=30)
+    client.loop_start()
+    if not connected.wait(timeout=5):
+        client.disconnect()
+        client.loop_stop()
+        raise TimeoutError("等待 MQTT CONNACK 超时")
+
+    output_stream = None
+    last_output_at = None
+    if args.output:
+        output_path = pathlib.Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_stream = output_path.open("w", encoding="utf-8", newline="\n")
+
+    published = 0
+    alert_count = 0
+    command_count = 0
+    command_failure_count = 0
+    processed_commands = {}
+    active_commands = set()
+
+    def publish(topic, payload, retain=False):
+        nonlocal published, last_output_at
+        full_topic = f"{args.prefix}/{topic}"
+        info = client.publish(
+            full_topic,
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            qos=args.qos,
+            retain=retain,
+        )
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            raise RuntimeError(f"发布失败：topic={full_topic}, rc={info.rc}")
+        published += 1
+        if output_stream is not None:
+            current = time.monotonic()
+            delay_ms = 0 if last_output_at is None else round((current - last_output_at) * 1000)
+            event = {
+                "delay_ms": delay_ms,
+                "topic": full_topic,
+                "qos": args.qos,
+                "retain": retain,
+                "payload": payload,
+            }
+            output_stream.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+            output_stream.flush()
+            last_output_at = current
+        return info
+
+    def publish_status(vehicle, online):
+        return publish(f"vehicle/{vehicle['vehicle_id']}/status", {
+            "schema_version": "1.0",
+            "vehicle_id": vehicle["vehicle_id"],
+            "timestamp": now_iso(),
+            "online": online,
+            "transport_status": vehicle["transport_status"],
+        }, retain=True)
+
+    def publish_alert(vehicle, alert_type, description):
+        nonlocal alert_count
+        if args.alert_mode == "raw":
+            return
+        publish("alert", {
+            "schema_version": "1.0",
+            "vehicle_id": vehicle["vehicle_id"],
+            "alert_type": alert_type,
+            "description": description,
+            "timestamp": now_iso(),
+            "source": "simulator",
+        })
+        alert_count += 1
+
+    def start_anomaly(vehicle, anomaly_type):
+        """在指定车辆上启动一个可观察、可复现的异常场景。"""
+        vehicle["anomaly"] = anomaly_type
+        if anomaly_type == "异常停留":
+            vehicle["speed_kmh"] = 0.0
+            vehicle["anomaly_ticks"] = max(2, round(8 / args.interval))
+            publish_alert(vehicle, "异常停留", "车辆异常停留（批量模拟）")
+        elif anomaly_type == "偏航":
+            vehicle["heading"] = (vehicle["heading"] + rng.uniform(60, 120)) % 360
+            vehicle["anomaly_ticks"] = max(2, round(5 / args.interval))
+            publish_alert(vehicle, "偏航", "车辆偏离规划路线（批量模拟）")
+        elif anomaly_type == "异常开箱":
+            vehicle["anomaly_ticks"] = max(2, round(5 / args.interval))
+            publish_alert(vehicle, "异常开箱", "运输途中检测到箱门开启（批量模拟）")
+        else:
+            raise ValueError(f"不支持的异常类型：{anomaly_type}")
+
+    def publish_command_ack(command_id, vehicle_id, status, message, route_point_count=None):
+        payload = {
+            "schema_version": "1.0",
+            "command_id": command_id,
+            "vehicle_id": vehicle_id,
+            "command_type": "ROUTE_CHANGE",
+            "status": status,
+            "message": message,
+            "timestamp": now_iso(),
+        }
+        if route_point_count is not None:
+            payload["route_point_count"] = route_point_count
+        publish(f"vehicle/{vehicle_id}/command/ack", payload)
+        return payload
+
+    def fail_command(command_id, vehicle_id, message):
+        nonlocal command_failure_count
+        command_failure_count += 1
+        if command_id:
+            active_commands.discard(command_id)
+        print(f"[指令失败] command_id={command_id}，vehicle_id={vehicle_id}：{message}")
+        if command_id and vehicle_id:
+            ack = publish_command_ack(command_id, vehicle_id, "FAILED", message)
+            processed_commands[command_id] = ack
+
+    def process_command(topic, raw_payload):
+        nonlocal command_count
+        topic_parts = topic.split("/")
+        topic_vehicle_id = topic_parts[-2] if len(topic_parts) >= 2 else ""
+        try:
+            command = json.loads(raw_payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            fail_command(None, topic_vehicle_id, f"JSON解析失败：{exc}")
+            return
+
+        if not isinstance(command, dict):
+            fail_command(None, topic_vehicle_id, "Payload必须是JSON对象")
+            return
+
+        command_id = command.get("command_id")
+        vehicle_id = command.get("vehicle_id")
+        if not isinstance(command_id, str) or not command_id.strip():
+            fail_command(None, topic_vehicle_id, "缺少有效的command_id")
+            return
+        command_id = command_id.strip()
+
+        # QoS 1 或后端重试可能造成重复消息；原样重发首次 ACK，不重复切路线。
+        if command_id in processed_commands:
+            ack = processed_commands[command_id]
+            publish(f"vehicle/{ack['vehicle_id']}/command/ack", ack)
+            print(f"[重复指令] command_id={command_id}，已重发原ACK")
+            return
+        if command_id in active_commands:
+            print(f"[重复指令] command_id={command_id}仍在规划中，等待首次ACK")
+            return
+
+        if not isinstance(vehicle_id, str) or not vehicle_id:
+            fail_command(command_id, topic_vehicle_id, "缺少有效的vehicle_id")
+            return
+        if topic_vehicle_id != vehicle_id:
+            fail_command(command_id, topic_vehicle_id, "Topic中的车辆编号与Payload.vehicle_id不一致")
+            return
+        if command.get("schema_version") != "1.0":
+            fail_command(command_id, vehicle_id, "schema_version必须为1.0")
+            return
+        if command.get("command_type") != "ROUTE_CHANGE":
+            fail_command(command_id, vehicle_id, "当前仅支持ROUTE_CHANGE")
+            return
+        vehicle = vehicles_by_id.get(vehicle_id)
+        if vehicle is None:
+            fail_command(command_id, vehicle_id, "模拟器中不存在该车辆")
+            return
+
+        route = command.get("route")
+        if not isinstance(route, dict) or route.get("coordinate_system") != "WGS84":
+            fail_command(command_id, vehicle_id, "route.coordinate_system必须为WGS84")
+            return
+        waypoints = route.get("waypoints")
+        if not isinstance(waypoints, list) or len(waypoints) < 2:
+            fail_command(command_id, vehicle_id, "route.waypoints至少需要2个点")
+            return
+
+        coordinates = [(vehicle["lon"], vehicle["lat"])]
+        for index, waypoint in enumerate(waypoints):
+            if not isinstance(waypoint, dict):
+                fail_command(command_id, vehicle_id, f"waypoints[{index}]必须是对象")
+                return
+            lon = waypoint.get("lon")
+            lat = waypoint.get("lat")
+            if (
+                isinstance(lon, bool) or not isinstance(lon, (int, float))
+                or isinstance(lat, bool) or not isinstance(lat, (int, float))
+                or not -180 <= lon <= 180
+                or not -90 <= lat <= 90
+            ):
+                fail_command(command_id, vehicle_id, f"waypoints[{index}]经纬度无效")
+                return
+            if distance_between(coordinates[-1][1], coordinates[-1][0], lat, lon) >= 0.5:
+                coordinates.append((float(lon), float(lat)))
+
+        if len(coordinates) < 2:
+            fail_command(command_id, vehicle_id, "新路线与车辆当前位置重合")
+            return
+
+        route_text = ";".join(f"{lon:.6f},{lat:.6f}" for lon, lat in coordinates)
+        active_commands.add(command_id)
+
+        def load_route_in_background():
+            try:
+                points = load_road_route(route_text)
+                route_result_queue.put((command_id, vehicle_id, points, None))
+            except Exception as exc:
+                route_result_queue.put((command_id, vehicle_id, None, str(exc)))
+
+        threading.Thread(
+            target=load_route_in_background,
+            name=f"route-{command_id}",
+            daemon=True,
+        ).start()
+        print(f"[指令接收] command_id={command_id}，vehicle_id={vehicle_id}，正在后台规划道路")
+
+    def apply_route_result(command_id, vehicle_id, new_route_points, error):
+        nonlocal command_count
+        if error:
+            fail_command(command_id, vehicle_id, f"道路路线加载失败：{error}")
+            return
+        vehicle = vehicles_by_id.get(vehicle_id)
+        if vehicle is None:
+            fail_command(command_id, vehicle_id, "路线加载完成时车辆已不存在")
+            return
+
+        # 车辆在后台规划期间仍持续行驶；应用路线时重新使用其最新位置，避免瞬移。
+        new_route_points[0] = (vehicle["lat"], vehicle["lon"])
+        vehicle["route_points"] = new_route_points
+        vehicle["route_next_index"] = 1
+        vehicle["anomaly"] = None
+        vehicle["anomaly_ticks"] = 0
+        vehicle["speed_kmh"] = max(20.0, vehicle["speed_kmh"])
+        vehicle["active_command_id"] = command_id
+
+        active_commands.discard(command_id)
+        command_count += 1
+        ack = publish_command_ack(
+            command_id,
+            vehicle_id,
+            "EXECUTED",
+            "新路线已加载，车辆开始沿调整后路线行驶",
+            route_point_count=len(new_route_points),
+        )
+        processed_commands[command_id] = ack
+        if len(processed_commands) > 1000:
+            processed_commands.pop(next(iter(processed_commands)))
+        print(
+            f"[指令执行] command_id={command_id}，vehicle_id={vehicle_id}，"
+            f"新路线节点={len(new_route_points)}"
+        )
+
+    def drain_commands():
+        while True:
+            try:
+                topic, raw_payload = command_queue.get_nowait()
+            except queue.Empty:
+                break
+            process_command(topic, raw_payload)
+        while True:
+            try:
+                result = route_result_queue.get_nowait()
+            except queue.Empty:
+                return
+            apply_route_result(*result)
+
+    for vehicle in vehicles:
+        publish_status(vehicle, True)
+
+    started = time.monotonic()
+    batch = 0
+    print(
+        f"[启动] {args.vehicles} 辆车，间隔 {args.interval}s，"
+        f"Broker={args.host}:{args.port}，异常概率={args.anomaly_rate}"
+    )
+    print(f"[订阅] {command_topic}（接收路线调整指令）")
+    try:
+        while args.duration == 0 or time.monotonic() - started < args.duration:
+            batch_started = time.monotonic()
+            batch += 1
+            drain_commands()
+            for vehicle in vehicles:
+                if vehicle["anomaly_ticks"] > 0:
+                    vehicle["anomaly_ticks"] -= 1
+                    if vehicle["anomaly_ticks"] == 0:
+                        vehicle["anomaly"] = None
+                        vehicle["speed_kmh"] = rng.uniform(20, 45)
+                elif batch == 1 and vehicle["vehicle_id"] == "sim_000" and args.demo_anomaly:
+                    demo_types = {
+                        "stop": "异常停留",
+                        "drift": "偏航",
+                        "open": "异常开箱",
+                    }
+                    start_anomaly(vehicle, demo_types[args.demo_anomaly])
+                elif rng.random() < args.anomaly_rate:
+                    anomaly_types = ["异常停留", "偏航"]
+                    if args.alert_mode == "precomputed":
+                        anomaly_types.append("异常开箱")
+                    start_anomaly(vehicle, rng.choice(anomaly_types))
+
+                if vehicle["anomaly"] != "异常停留":
+                    vehicle["speed_kmh"] = min(70, max(5, vehicle["speed_kmh"] + rng.uniform(-2, 2)))
+                    distance_m = vehicle["speed_kmh"] / 3.6 * args.interval
+                    vehicle_route = vehicle.get("route_points")
+                    if vehicle_route:
+                        advance_on_route(vehicle, vehicle_route, distance_m)
+                    else:
+                        if vehicle["anomaly"] != "偏航":
+                            vehicle["heading"] = (vehicle["heading"] + rng.uniform(-4, 4)) % 360
+                        vehicle["lat"], vehicle["lon"] = move_point(
+                            vehicle["lat"], vehicle["lon"], distance_m, vehicle["heading"]
+                        )
+
+                publish(f"vehicle/{vehicle['vehicle_id']}/gps", {
+                    "schema_version": "1.0",
+                    "vehicle_id": vehicle["vehicle_id"],
+                    "timestamp": now_iso(),
+                    "lat": round(vehicle["lat"], 6),
+                    "lon": round(vehicle["lon"], 6),
+                    "speed_kmh": round(vehicle["speed_kmh"], 1),
+                    "heading": round(vehicle["heading"], 1),
+                    "transport_status": vehicle["transport_status"],
+                    "coordinate_system": "WGS84",
+                })
+
+            print(f"[批次 {batch}] 已发布 {args.vehicles} 条 GPS，累计告警 {alert_count}")
+            remaining = args.interval - (time.monotonic() - batch_started)
+            if remaining > 0:
+                time.sleep(remaining)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        offline_infos = [publish_status(vehicle, False) for vehicle in vehicles]
+        for info in offline_infos:
+            try:
+                info.wait_for_publish(timeout=2)
+            except RuntimeError:
+                pass
+        if output_stream is not None:
+            output_stream.close()
+        client.disconnect()
+        client.loop_stop()
+
+    elapsed = time.monotonic() - started
+    print(
+        f"[完成] 运行 {elapsed:.1f}s，共发布 {published} 条消息、{alert_count} 条告警，"
+        f"执行指令 {command_count} 条、失败 {command_failure_count} 条"
+    )
+    if args.output:
+        print(f"[文件] {pathlib.Path(args.output).resolve()}")
+
+
+if __name__ == "__main__":
+    main()

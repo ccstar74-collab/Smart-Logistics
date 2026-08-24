@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "checks": {
+    "schema_valid": true,
+    "vehicle_count": true,
+    "gps_rate": true,
+    "alert_count": true
+  },
+  "expected_vehicles": 1,
+  "observed_vehicles": [
+    "sim_000"
+  ],
+  "gps_rates_hz": {
+    "sim_000": 0.99
+  },
+  "alert_count": 0,
+  "message_counts": {
+    "iot/carla/vehicle/sim_000/gps": 4,
+    "iot/carla/vehicle/sim_000/status": 3
+  },
+  "errors": []
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-logistics.local/schemas/command.schema.json",
+  "title": "智慧物流车辆调度指令",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command_id",
+    "vehicle_id",
+    "command_type",
+    "route",
+    "timestamp"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "command_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "vehicle_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "task_id": { "type": "integer", "minimum": 1 },
+    "command_type": { "const": "ROUTE_CHANGE" },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinate_system", "waypoints"],
+      "properties": {
+        "coordinate_system": { "const": "WGS84" },
+        "waypoints": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lon", "lat"],
+            "properties": {
+              "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+              "lat": { "type": "number", "minimum": -90, "maximum": 90 }
+            }
+          }
+        }
+      }
+    },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

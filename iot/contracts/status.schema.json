@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-logistics.local/schemas/status.schema.json",
+  "title": "智慧物流车辆在线状态消息",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "vehicle_id",
+    "timestamp",
+    "online",
+    "transport_status"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "vehicle_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "online": { "type": "boolean" },
+    "transport_status": {
+      "type": "string",
+      "enum": ["待装货", "已装货", "运输中", "已送达"]
+    }
+  }
+}

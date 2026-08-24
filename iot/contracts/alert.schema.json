@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-logistics.local/schemas/alert.schema.json",
+  "title": "智慧物流异常告警消息",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "vehicle_id",
+    "alert_type",
+    "description",
+    "timestamp",
+    "source"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "vehicle_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "alert_type": {
+      "type": "string",
+      "enum": ["偏航", "异常停留", "异常开箱"]
+    },
+    "description": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "string",
+      "enum": ["simulator", "backend", "device"]
+    }
+  }
+}

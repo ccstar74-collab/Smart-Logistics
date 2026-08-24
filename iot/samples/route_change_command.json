@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "command_id": "CMD_DEMO_001",
+  "vehicle_id": "sim_000",
+  "task_id": 1001,
+  "command_type": "ROUTE_CHANGE",
+  "route": {
+    "coordinate_system": "WGS84",
+    "waypoints": [
+      {
+        "lon": 106.750000,
+        "lat": 29.613500
+      },
+      {
+        "lon": 106.770000,
+        "lat": 29.614500
+      },
+      {
+        "lon": 106.790000,
+        "lat": 29.615000
+      }
+    ]
+  },
+  "timestamp": "2026-08-22T08:00:00.000Z"
+}

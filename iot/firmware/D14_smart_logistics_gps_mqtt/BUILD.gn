@@ -1,0 +1,28 @@
+static_library("smart_logistics_gps_mqtt") {
+    sources = [
+        "smart_logistics_gps_mqtt.c",
+        "gps_reader.c",
+        "../D5_iot_mqtt/src/wifi_connect.c",
+    ]
+
+    cflags = [
+        "-Wno-unused-variable",
+        "-Wno-unused-but-set-variable",
+    ]
+
+    include_dirs = [
+        "//utils/native/lite/include",
+        "//kernel/liteos_m/components/cmsis/2.0",
+        "//base/iot_hardware/interfaces/kits/wifiiot_lite",
+        "//foundation/communication/interfaces/kits/wifi_lite/wifiservice",
+        "//vendor/hisi/hi3861/hi3861/third_party/lwip_sack/include/",
+        "//third_party/paho_mqtt/MQTTPacket/src",
+        "//third_party/paho_mqtt/MQTTClient-C/src",
+        "../D5_iot_mqtt/include",
+        ".",
+    ]
+
+    deps = [
+        "//third_party/paho_mqtt:pahomqtt_static",
+    ]
+}

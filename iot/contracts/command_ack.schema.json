@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-logistics.local/schemas/command_ack.schema.json",
+  "title": "智慧物流车辆调度指令执行回执",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command_id",
+    "vehicle_id",
+    "command_type",
+    "status",
+    "message",
+    "timestamp"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "command_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "vehicle_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "command_type": { "const": "ROUTE_CHANGE" },
+    "status": {
+      "type": "string",
+      "enum": ["EXECUTED", "FAILED"]
+    },
+    "message": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "route_point_count": { "type": "integer", "minimum": 2 },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}
