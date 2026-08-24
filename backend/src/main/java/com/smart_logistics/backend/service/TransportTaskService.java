@@ -26,7 +26,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -35,21 +34,19 @@ public class TransportTaskService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter TASK_NO_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
-    private static final Set<String> ACTIVE_STATUSES = Set.of(
-            TransportTaskStatus.WAITING.name(),
-            TransportTaskStatus.TRANSPORTING.name()
-    );
-
     private final TransportTaskMapper transportTaskMapper;
     private final CargoService cargoService;
     private final VehicleService vehicleService;
+    private final TransportTaskAvailabilityService availabilityService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
                                 CargoService cargoService,
-                                VehicleService vehicleService) {
+                                VehicleService vehicleService,
+                                TransportTaskAvailabilityService availabilityService) {
         this.transportTaskMapper = transportTaskMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
+        this.availabilityService = availabilityService;
     }
 
     @Transactional
@@ -59,8 +56,8 @@ public class TransportTaskService {
         Vehicle vehicle = vehicleService.getVehicleForTransport(request.getVehicleId());
         requireCargoStatus(cargo, CargoStatus.WAITING);
         requireVehicleStatus(vehicle, VehicleStatus.IDLE);
-        ensureCargoAvailable(request.getCargoId());
-        ensureVehicleAvailable(request.getVehicleId());
+        availabilityService.ensureCargoAvailable(request.getCargoId());
+        availabilityService.ensureVehicleAvailable(request.getVehicleId());
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         String taskNo = generateTaskNo(now);
@@ -142,26 +139,6 @@ public class TransportTaskService {
                 && request.getPlanEndTime().isBefore(request.getPlanStartTime())) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
                     "planEndTime must not be before planStartTime");
-        }
-    }
-
-    private void ensureCargoAvailable(Long cargoId) {
-        LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<TransportTask>()
-                .eq(TransportTask::getCargoId, cargoId)
-                .in(TransportTask::getStatus, ACTIVE_STATUSES);
-        if (transportTaskMapper.selectCount(query) > 0) {
-            throw new BusinessException(ErrorCode.DATA_CONFLICT,
-                    "cargo already has an active transport task");
-        }
-    }
-
-    private void ensureVehicleAvailable(Long vehicleId) {
-        LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<TransportTask>()
-                .eq(TransportTask::getVehicleId, vehicleId)
-                .in(TransportTask::getStatus, ACTIVE_STATUSES);
-        if (transportTaskMapper.selectCount(query) > 0) {
-            throw new BusinessException(ErrorCode.DATA_CONFLICT,
-                    "vehicle already has an active transport task");
         }
     }
 

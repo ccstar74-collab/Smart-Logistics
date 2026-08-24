@@ -121,6 +121,15 @@ class VehicleControllerTest {
         verify(vehicleService).listVehicles(2, 5, "沪A", VehicleStatus.IDLE);
     }
 
+    @Test
+    void availableEndpointReturnsEnrichedVehicles() throws Exception {
+        when(vehicleService.listAvailableVehicles()).thenReturn(List.of(response()));
+        mockMvc.perform(get("/api/v1/vehicles/available"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(1))
+                .andExpect(jsonPath("$.data[0].driverName").value("Driver Name"));
+    }
+
     private VehicleResponse response() {
         return new VehicleResponse(
                 1L,
@@ -129,6 +138,7 @@ class VehicleControllerTest {
                 BigDecimal.TEN,
                 VehicleStatus.IDLE,
                 null,
+                "Driver Name",
                 OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
                 null,

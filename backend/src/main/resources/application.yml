@@ -16,5 +16,8 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    expires-seconds: ${JWT_EXPIRES_SECONDS:28800}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}

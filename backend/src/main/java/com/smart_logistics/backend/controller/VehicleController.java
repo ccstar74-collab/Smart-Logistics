@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Validated
 @RestController
 @RequestMapping("/api/v1/vehicles")
@@ -46,6 +48,11 @@ public class VehicleController {
     @GetMapping("/{id}")
     public ApiResponse<VehicleResponse> getVehicle(@PathVariable @Positive Long id) {
         return ApiResponse.success(vehicleService.getVehicle(id));
+    }
+
+    @GetMapping("/available")
+    public ApiResponse<List<VehicleResponse>> listAvailableVehicles() {
+        return ApiResponse.success(vehicleService.listAvailableVehicles());
     }
 
     @PostMapping

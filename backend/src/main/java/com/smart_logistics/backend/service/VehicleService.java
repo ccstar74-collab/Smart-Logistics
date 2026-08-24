@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class VehicleService {
@@ -28,9 +30,15 @@ public class VehicleService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final VehicleMapper vehicleMapper;
+    private final UserDisplayNameService userDisplayNameService;
+    private final TransportTaskAvailabilityService availabilityService;
 
-    public VehicleService(VehicleMapper vehicleMapper) {
+    public VehicleService(VehicleMapper vehicleMapper,
+                          UserDisplayNameService userDisplayNameService,
+                          TransportTaskAvailabilityService availabilityService) {
         this.vehicleMapper = vehicleMapper;
+        this.userDisplayNameService = userDisplayNameService;
+        this.availabilityService = availabilityService;
     }
 
     public PageResult<VehicleResponse> listVehicles(long page, long pageSize,
@@ -45,14 +53,24 @@ public class VehicleService {
         query.orderByDesc(Vehicle::getId);
 
         Page<Vehicle> entityPage = vehicleMapper.selectPage(new Page<>(page, pageSize), query);
-        List<VehicleResponse> records = entityPage.getRecords().stream()
-                .map(this::toResponse)
-                .toList();
+        List<VehicleResponse> records = toResponses(entityPage.getRecords());
         return new PageResult<>(records, entityPage.getTotal(), page, pageSize);
     }
 
     public VehicleResponse getVehicle(Long id) {
         return toResponse(getRequiredVehicle(id));
+    }
+
+    public List<VehicleResponse> listAvailableVehicles() {
+        List<Vehicle> idleVehicles = vehicleMapper.selectList(
+                new LambdaQueryWrapper<Vehicle>()
+                        .eq(Vehicle::getStatus, VehicleStatus.IDLE.name())
+                        .orderByAsc(Vehicle::getId));
+        Set<Long> occupiedIds = availabilityService.findActiveVehicleIds(
+                idleVehicles.stream().map(Vehicle::getId).toList());
+        return toResponses(idleVehicles.stream()
+                .filter(vehicle -> !occupiedIds.contains(vehicle.getId()))
+                .toList());
     }
 
     public Vehicle getVehicleForTransport(Long id) {
@@ -172,7 +190,25 @@ public class VehicleService {
         return exception;
     }
 
+    private List<VehicleResponse> toResponses(List<Vehicle> vehicles) {
+        Map<Long, String> driverNames = userDisplayNameService.getDriverNames(
+                vehicles.stream().map(Vehicle::getDriverId).toList());
+        return vehicles.stream()
+                .map(vehicle -> toResponse(vehicle, vehicle.getDriverId() == null
+                        ? null : driverNames.get(vehicle.getDriverId())))
+                .toList();
+    }
+
     private VehicleResponse toResponse(Vehicle vehicle) {
+        String driverName = null;
+        if (vehicle.getDriverId() != null) {
+            driverName = userDisplayNameService.getDriverNames(List.of(vehicle.getDriverId()))
+                    .get(vehicle.getDriverId());
+        }
+        return toResponse(vehicle, driverName);
+    }
+
+    private VehicleResponse toResponse(Vehicle vehicle, String driverName) {
         return new VehicleResponse(
                 vehicle.getId(),
                 vehicle.getPlateNumber(),
@@ -180,6 +216,7 @@ public class VehicleService {
                 vehicle.getCapacity(),
                 parseStatus(vehicle.getStatus()),
                 vehicle.getDriverId(),
+                driverName,
                 toOffsetDateTime(vehicle.getCreatedAt()),
                 toOffsetDateTime(vehicle.getUpdatedAt()),
                 vehicle.getLastLongitude(),

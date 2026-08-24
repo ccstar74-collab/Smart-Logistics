@@ -20,6 +20,8 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class CargoService {
@@ -27,9 +29,15 @@ public class CargoService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final CargoMapper cargoMapper;
+    private final UserDisplayNameService userDisplayNameService;
+    private final TransportTaskAvailabilityService availabilityService;
 
-    public CargoService(CargoMapper cargoMapper) {
+    public CargoService(CargoMapper cargoMapper,
+                        UserDisplayNameService userDisplayNameService,
+                        TransportTaskAvailabilityService availabilityService) {
         this.cargoMapper = cargoMapper;
+        this.userDisplayNameService = userDisplayNameService;
+        this.availabilityService = availabilityService;
     }
 
     public PageResult<CargoResponse> listCargos(long page, long pageSize,
@@ -48,14 +56,24 @@ public class CargoService {
         query.orderByDesc(Cargo::getId);
 
         Page<Cargo> entityPage = cargoMapper.selectPage(new Page<>(page, pageSize), query);
-        List<CargoResponse> records = entityPage.getRecords().stream()
-                .map(this::toResponse)
-                .toList();
+        List<CargoResponse> records = toResponses(entityPage.getRecords());
         return new PageResult<>(records, entityPage.getTotal(), page, pageSize);
     }
 
     public CargoResponse getCargo(Long id) {
         return toResponse(getRequiredCargo(id));
+    }
+
+    public List<CargoResponse> listAvailableCargos() {
+        List<Cargo> waitingCargos = cargoMapper.selectList(
+                new LambdaQueryWrapper<Cargo>()
+                        .eq(Cargo::getStatus, CargoStatus.WAITING.name())
+                        .orderByAsc(Cargo::getId));
+        Set<Long> occupiedIds = availabilityService.findActiveCargoIds(
+                waitingCargos.stream().map(Cargo::getId).toList());
+        return toResponses(waitingCargos.stream()
+                .filter(cargo -> !occupiedIds.contains(cargo.getId()))
+                .toList());
     }
 
     public Cargo getCargoForTransport(Long id) {
@@ -127,7 +145,22 @@ public class CargoService {
         return exception;
     }
 
+    private List<CargoResponse> toResponses(List<Cargo> cargos) {
+        Map<Long, String> ownerNames = userDisplayNameService.getOwnerNames(
+                cargos.stream().map(Cargo::getOwnerId).toList());
+        return cargos.stream()
+                .map(cargo -> toResponse(cargo, ownerNames.get(cargo.getOwnerId())))
+                .toList();
+    }
+
     private CargoResponse toResponse(Cargo cargo) {
+        String ownerName = userDisplayNameService.getOwnerNames(
+                cargo.getOwnerId() == null ? List.of() : List.of(cargo.getOwnerId()))
+                .get(cargo.getOwnerId());
+        return toResponse(cargo, ownerName);
+    }
+
+    private CargoResponse toResponse(Cargo cargo, String ownerName) {
         return new CargoResponse(
                 cargo.getId(),
                 cargo.getCargoNo(),
@@ -136,6 +169,7 @@ public class CargoService {
                 cargo.getWeight(),
                 cargo.getVolume(),
                 cargo.getOwnerId(),
+                ownerName,
                 parseStatus(cargo.getStatus()),
                 toOffsetDateTime(cargo.getCreatedAt()),
                 toOffsetDateTime(cargo.getUpdatedAt())

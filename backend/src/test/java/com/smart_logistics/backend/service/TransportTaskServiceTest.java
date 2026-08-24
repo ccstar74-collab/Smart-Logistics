@@ -59,6 +59,9 @@ class TransportTaskServiceTest {
     @Mock
     private VehicleService vehicleService;
 
+    @Mock
+    private TransportTaskAvailabilityService availabilityService;
+
     private TransportTaskService service;
 
     @BeforeEach
@@ -67,7 +70,8 @@ class TransportTaskServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "transport-task-test"),
                 TransportTask.class
         );
-        service = new TransportTaskService(transportTaskMapper, cargoService, vehicleService);
+        service = new TransportTaskService(
+                transportTaskMapper, cargoService, vehicleService, availabilityService);
     }
 
     @Test
@@ -151,32 +155,35 @@ class TransportTaskServiceTest {
     @Test
     void createRejectsCargoOccupiedByWaitingOrTransportingTask() {
         stubCreateAssociations();
-        when(transportTaskMapper.selectCount(any())).thenReturn(1L);
+        org.mockito.Mockito.doThrow(new BusinessException(
+                        ErrorCode.DATA_CONFLICT,
+                        "cargo already has an active transport task"))
+                .when(availabilityService).ensureCargoAvailable(10L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.createTransportTask(createRequest()));
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("cargo already has an active transport task", exception.getMessage());
-        ArgumentCaptor<LambdaQueryWrapper<TransportTask>> captor = wrapperCaptor();
-        verify(transportTaskMapper).selectCount(captor.capture());
-        captor.getValue().getSqlSegment();
-        assertTrue(captor.getValue().getParamNameValuePairs()
-                .containsValue(TransportTaskStatus.WAITING.name()));
-        assertTrue(captor.getValue().getParamNameValuePairs()
-                .containsValue(TransportTaskStatus.TRANSPORTING.name()));
+        verify(availabilityService).ensureCargoAvailable(10L);
+        verify(availabilityService, never()).ensureVehicleAvailable(any());
     }
 
     @Test
     void createRejectsVehicleOccupiedByWaitingOrTransportingTask() {
         stubCreateAssociations();
-        when(transportTaskMapper.selectCount(any())).thenReturn(0L, 1L);
+        org.mockito.Mockito.doThrow(new BusinessException(
+                        ErrorCode.DATA_CONFLICT,
+                        "vehicle already has an active transport task"))
+                .when(availabilityService).ensureVehicleAvailable(20L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.createTransportTask(createRequest()));
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("vehicle already has an active transport task", exception.getMessage());
+        verify(availabilityService).ensureCargoAvailable(10L);
+        verify(availabilityService).ensureVehicleAvailable(20L);
     }
 
     @Test
@@ -192,7 +199,7 @@ class TransportTaskServiceTest {
     @Test
     void createRejectsGeneratedTaskNumberAlreadyPresentAtPrecheck() {
         stubCreateAssociations();
-        when(transportTaskMapper.selectCount(any())).thenReturn(0L, 0L, 1L);
+        when(transportTaskMapper.selectCount(any())).thenReturn(1L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.createTransportTask(createRequest()));

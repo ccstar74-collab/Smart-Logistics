@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Validated
 @RestController
 @RequestMapping("/api/v1/cargos")
@@ -43,6 +45,11 @@ public class CargoController {
     @GetMapping("/{id}")
     public ApiResponse<CargoResponse> getCargo(@PathVariable @Positive Long id) {
         return ApiResponse.success(cargoService.getCargo(id));
+    }
+
+    @GetMapping("/available")
+    public ApiResponse<List<CargoResponse>> listAvailableCargos() {
+        return ApiResponse.success(cargoService.listAvailableCargos());
     }
 
     @PostMapping

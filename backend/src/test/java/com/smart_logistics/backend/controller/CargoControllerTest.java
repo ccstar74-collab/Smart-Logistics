@@ -175,6 +175,15 @@ class CargoControllerTest {
                 .andExpect(jsonPath("$.message").value("invalid request parameter or body"));
     }
 
+    @Test
+    void availableEndpointReturnsEnrichedCargos() throws Exception {
+        when(cargoService.listAvailableCargos()).thenReturn(List.of(response()));
+        mockMvc.perform(get("/api/v1/cargos/available"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(1))
+                .andExpect(jsonPath("$.data[0].ownerName").value("Owner Name"));
+    }
+
     private String validRequestJson() {
         return """
                 {"cargoNo":"CGO-001","name":"Medical supplies","description":"Fragile",
@@ -191,6 +200,7 @@ class CargoControllerTest {
                 new BigDecimal("12.50"),
                 new BigDecimal("3.20"),
                 100L,
+                "Owner Name",
                 CargoStatus.WAITING,
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00")

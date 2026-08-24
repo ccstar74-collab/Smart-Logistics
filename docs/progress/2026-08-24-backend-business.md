@@ -72,3 +72,14 @@ Alarm Java API V1          ✅ 已集成（数据库 schema 尚待补齐）
 - 补充并评审独立 Alarm schema，不修改既有 `001_core_schema.sql`
 - 在本地数据库具备 `alarm` 表后完成 Alarm REST API 真实验收
 - 继续推进 TrackPoint、latest location、Dispatch、Auth 和 Agent 等后续模块
+
+## Phase 0 / Phase 1 frontend P0 API increment
+
+- Froze `UserStatus` as `ACTIVE / DISABLED` and `UserRole` as `OWNER / DRIVER / WAREHOUSE_MANAGER / DISPATCHER / ADMIN`.
+- Kept the Alarm filter name as `alarmType` and Dispatch status as `PENDING / EXECUTED / CANCELLED / FAILED`.
+- Added `POST /api/v1/auth/login` and authenticated `GET /api/v1/users/me` using stateless JWT and BCrypt. Existing business APIs remain temporarily `permitAll`.
+- Runtime deployment must provide a strong `JWT_SECRET`; `JWT_EXPIRES_SECONDS` defaults to 28800.
+- Added active Driver/Owner option APIs and `driverName` / `ownerName` response enrichment with batched relationship lookups.
+- Added Vehicle/Cargo available APIs using the same `WAITING / TRANSPORTING` active-task definition as TransportTask creation.
+- Did not add Cargo direct status, bindings, Dispatch V1 expansion, dashboard, RBAC, refresh/logout, or realtime backend features.
+- Final verification: 185 tests, Failures 0, Errors 0, Skipped 0; `clean test` and `clean compile` both succeeded with the repository Maven Wrapper on Windows.

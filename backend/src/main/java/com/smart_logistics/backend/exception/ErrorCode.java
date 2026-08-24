@@ -4,6 +4,8 @@ import org.springframework.http.HttpStatus;
 
 public enum ErrorCode {
     INVALID_PARAMETER(40001, HttpStatus.BAD_REQUEST),
+    UNAUTHORIZED(40101, HttpStatus.UNAUTHORIZED),
+    FORBIDDEN(40301, HttpStatus.FORBIDDEN),
     RESOURCE_NOT_FOUND(40401, HttpStatus.NOT_FOUND),
     DATA_CONFLICT(40901, HttpStatus.CONFLICT),
     STATE_CONFLICT(40902, HttpStatus.CONFLICT),

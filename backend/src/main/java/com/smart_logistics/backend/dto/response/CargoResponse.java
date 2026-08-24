@@ -14,13 +14,14 @@ public class CargoResponse {
     private final BigDecimal weight;
     private final BigDecimal volume;
     private final Long ownerId;
+    private final String ownerName;
     private final CargoStatus status;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime updatedAt;
 
     public CargoResponse(Long id, String cargoNo, String name, String description,
                          BigDecimal weight, BigDecimal volume, Long ownerId,
-                         CargoStatus status, OffsetDateTime createdAt,
+                         String ownerName, CargoStatus status, OffsetDateTime createdAt,
                          OffsetDateTime updatedAt) {
         this.id = id;
         this.cargoNo = cargoNo;
@@ -29,6 +30,7 @@ public class CargoResponse {
         this.weight = weight;
         this.volume = volume;
         this.ownerId = ownerId;
+        this.ownerName = ownerName;
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -60,6 +62,10 @@ public class CargoResponse {
 
     public Long getOwnerId() {
         return ownerId;
+    }
+
+    public String getOwnerName() {
+        return ownerName;
     }
 
     public CargoStatus getStatus() {

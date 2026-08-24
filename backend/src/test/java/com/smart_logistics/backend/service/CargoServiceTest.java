@@ -26,6 +26,8 @@ import org.springframework.dao.DuplicateKeyException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -43,6 +45,12 @@ class CargoServiceTest {
     @Mock
     private CargoMapper cargoMapper;
 
+    @Mock
+    private UserDisplayNameService userDisplayNameService;
+
+    @Mock
+    private TransportTaskAvailabilityService availabilityService;
+
     private CargoService cargoService;
 
     @BeforeEach
@@ -51,7 +59,10 @@ class CargoServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "cargo-test"),
                 Cargo.class
         );
-        cargoService = new CargoService(cargoMapper);
+        org.mockito.Mockito.lenient().when(userDisplayNameService.getOwnerNames(any()))
+                .thenReturn(Map.of());
+        cargoService = new CargoService(
+                cargoMapper, userDisplayNameService, availabilityService);
     }
 
     @Test
@@ -168,6 +179,8 @@ class CargoServiceTest {
     @SuppressWarnings("unchecked")
     void listCargosReturnsPageAndAppliesKeywordAndStatusFilters() {
         Cargo cargo = cargo(1L, "CGO-001", "Medical supplies", CargoStatus.WAITING);
+        when(userDisplayNameService.getOwnerNames(any()))
+                .thenReturn(Map.of(100L, "Owner Name"));
         when(cargoMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenAnswer(invocation -> {
                     Page<Cargo> page = invocation.getArgument(0);
@@ -184,6 +197,7 @@ class CargoServiceTest {
         assertEquals(1, result.getTotal());
         assertEquals(2, result.getPage());
         assertEquals(5, result.getPageSize());
+        assertEquals("Owner Name", result.getRecords().getFirst().getOwnerName());
 
         ArgumentCaptor<LambdaQueryWrapper<Cargo>> wrapperCaptor =
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
@@ -194,6 +208,39 @@ class CargoServiceTest {
         assertTrue(query.getSqlSegment().contains("status"));
         assertTrue(query.getParamNameValuePairs().containsValue("%Medical%"));
         assertTrue(query.getParamNameValuePairs().containsValue(CargoStatus.WAITING.name()));
+    }
+
+    @Test
+    void getCargoEnrichesOwnerNameThroughRelationshipLookup() {
+        Cargo cargo = cargo(1L, "CGO-001", "Medical supplies", CargoStatus.WAITING);
+        when(cargoMapper.selectById(1L)).thenReturn(cargo);
+        when(userDisplayNameService.getOwnerNames(List.of(100L)))
+                .thenReturn(Map.of(100L, "Current Owner"));
+        assertEquals("Current Owner", cargoService.getCargo(1L).getOwnerName());
+    }
+
+    @Test
+    void availableReturnsWaitingCargosWithoutActiveTaskAndIncludesOwnerName() {
+        Cargo available = cargo(1L, "CGO-001", "One", CargoStatus.WAITING);
+        Cargo occupied = cargo(2L, "CGO-002", "Two", CargoStatus.WAITING);
+        Cargo historicalOnly = cargo(3L, "CGO-003", "Three", CargoStatus.WAITING);
+        when(cargoMapper.selectList(any())).thenReturn(
+                List.of(available, occupied, historicalOnly));
+        when(availabilityService.findActiveCargoIds(List.of(1L, 2L, 3L)))
+                .thenReturn(Set.of(2L));
+        when(userDisplayNameService.getOwnerNames(any()))
+                .thenReturn(Map.of(100L, "Owner Name"));
+
+        List<CargoResponse> result = cargoService.listAvailableCargos();
+
+        assertEquals(List.of(1L, 3L), result.stream().map(CargoResponse::getId).toList());
+        assertEquals("Owner Name", result.getFirst().getOwnerName());
+        ArgumentCaptor<LambdaQueryWrapper<Cargo>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(cargoMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("status"));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(CargoStatus.WAITING.name()));
     }
 
     private Cargo cargo(Long id, String cargoNo, String name, CargoStatus status) {

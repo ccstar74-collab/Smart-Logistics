@@ -339,6 +339,7 @@ class CargoItemServiceTest {
                 new BigDecimal("120.50"),
                 new BigDecimal("1.80"),
                 100L,
+                null,
                 CargoStatus.WAITING,
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00")

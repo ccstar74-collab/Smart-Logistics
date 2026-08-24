@@ -27,6 +27,8 @@ import org.springframework.dao.DuplicateKeyException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -44,6 +46,12 @@ class VehicleServiceTest {
     @Mock
     private VehicleMapper vehicleMapper;
 
+    @Mock
+    private UserDisplayNameService userDisplayNameService;
+
+    @Mock
+    private TransportTaskAvailabilityService availabilityService;
+
     private VehicleService vehicleService;
 
     @BeforeEach
@@ -52,7 +60,10 @@ class VehicleServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "vehicle-test"),
                 Vehicle.class
         );
-        vehicleService = new VehicleService(vehicleMapper);
+        org.mockito.Mockito.lenient().when(userDisplayNameService.getDriverNames(any()))
+                .thenReturn(Map.of());
+        vehicleService = new VehicleService(
+                vehicleMapper, userDisplayNameService, availabilityService);
     }
 
     @Test
@@ -211,6 +222,9 @@ class VehicleServiceTest {
     @SuppressWarnings("unchecked")
     void listVehiclesReturnsPageAndAppliesStatusFilter() {
         Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setDriverId(3L);
+        when(userDisplayNameService.getDriverNames(any()))
+                .thenReturn(Map.of(3L, "Driver Name"));
         when(vehicleMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenAnswer(invocation -> {
                     Page<Vehicle> page = invocation.getArgument(0);
@@ -227,12 +241,48 @@ class VehicleServiceTest {
         assertEquals(1, result.getTotal());
         assertEquals(1, result.getPage());
         assertEquals(10, result.getPageSize());
+        assertEquals("Driver Name", result.getRecords().getFirst().getDriverName());
 
         ArgumentCaptor<LambdaQueryWrapper<Vehicle>> wrapperCaptor =
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(vehicleMapper).selectPage(any(Page.class), wrapperCaptor.capture());
         assertTrue(wrapperCaptor.getValue().getSqlSegment().contains("status"));
         assertTrue(wrapperCaptor.getValue().getParamNameValuePairs().containsValue("IDLE"));
+    }
+
+    @Test
+    void getVehicleEnrichesDriverNameThroughRelationshipLookup() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setDriverId(37L);
+        when(vehicleMapper.selectById(1L)).thenReturn(vehicle);
+        when(userDisplayNameService.getDriverNames(List.of(37L)))
+                .thenReturn(Map.of(37L, "Current Driver"));
+        assertEquals("Current Driver", vehicleService.getVehicle(1L).getDriverName());
+    }
+
+    @Test
+    void availableReturnsIdleVehiclesWithoutActiveTaskAndIncludesDriverName() {
+        Vehicle available = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        available.setDriverId(3L);
+        Vehicle occupied = vehicle(2L, "沪A10002", VehicleStatus.IDLE);
+        Vehicle historicalOnly = vehicle(3L, "沪A10003", VehicleStatus.IDLE);
+        when(vehicleMapper.selectList(any())).thenReturn(
+                List.of(available, occupied, historicalOnly));
+        when(availabilityService.findActiveVehicleIds(List.of(1L, 2L, 3L)))
+                .thenReturn(Set.of(2L));
+        when(userDisplayNameService.getDriverNames(any()))
+                .thenReturn(Map.of(3L, "Driver Name"));
+
+        List<VehicleResponse> result = vehicleService.listAvailableVehicles();
+
+        assertEquals(List.of(1L, 3L), result.stream().map(VehicleResponse::getId).toList());
+        assertEquals("Driver Name", result.getFirst().getDriverName());
+        ArgumentCaptor<LambdaQueryWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(vehicleMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("status"));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(VehicleStatus.IDLE.name()));
     }
 
     private Vehicle vehicle(Long id, String plateNumber, VehicleStatus status) {
