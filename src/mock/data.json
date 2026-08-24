@@ -1,0 +1,536 @@
+{
+  "summary": {
+    "vehicleTotal": 12,
+    "transportingVehicles": 7,
+    "activeTasks": 9,
+    "todayCompleted": 18,
+    "unhandledAlarms": 3
+  },
+  "vehicles": [
+    {
+      "vehicleId": 1,
+      "plateNumber": "渝A12345",
+      "type": "厢式货车",
+      "capacity": 5000,
+      "status": "TRANSPORTING",
+      "driverName": "张师傅",
+      "taskId": 15,
+      "longitude": 106.4723,
+      "latitude": 29.5632,
+      "speed": 42.5,
+      "direction": 95,
+      "recordedAt": "2026-08-22T10:30:00+08:00",
+      "mapX": 45.0,
+      "mapY": 42.9,
+      "mapSource": "CARLA_TOWN10HD"
+    },
+    {
+      "vehicleId": 2,
+      "plateNumber": "渝B58210",
+      "type": "冷链车",
+      "capacity": 3500,
+      "status": "TRANSPORTING",
+      "driverName": "李师傅",
+      "taskId": 16,
+      "longitude": 106.4881,
+      "latitude": 29.552,
+      "speed": 35.2,
+      "direction": 120,
+      "recordedAt": "2026-08-22T10:30:02+08:00",
+      "mapX": 58.5,
+      "mapY": 65.2,
+      "mapSource": "CARLA_TOWN10HD"
+    },
+    {
+      "vehicleId": 3,
+      "plateNumber": "渝D77902",
+      "type": "普通货车",
+      "capacity": 8000,
+      "status": "IDLE",
+      "driverName": "王师傅",
+      "taskId": null,
+      "longitude": 106.452,
+      "latitude": 29.574,
+      "speed": 0,
+      "direction": 0,
+      "recordedAt": "2026-08-22T10:29:50+08:00",
+      "mapX": 50.5,
+      "mapY": 95.0,
+      "mapSource": "CARLA_TOWN10HD"
+    },
+    {
+      "vehicleId": 4,
+      "plateNumber": "渝C66331",
+      "type": "厢式货车",
+      "capacity": 6000,
+      "status": "TRANSPORTING",
+      "driverName": "赵师傅",
+      "taskId": 18,
+      "longitude": 106.506,
+      "latitude": 29.567,
+      "speed": 28.7,
+      "direction": 60,
+      "recordedAt": "2026-08-22T10:30:01+08:00",
+      "mapX": 74.5,
+      "mapY": 43.0,
+      "mapSource": "CARLA_TOWN10HD"
+    }
+  ],
+  "cargos": [
+    {
+      "id": 10,
+      "cargoNo": "CG20260822001",
+      "name": "生鲜水果",
+      "ownerName": "重庆鲜配商贸",
+      "weight": 780,
+      "volume": 5.2,
+      "status": "TRANSPORTING"
+    },
+    {
+      "id": 11,
+      "cargoNo": "CG20260822002",
+      "name": "电子元件",
+      "ownerName": "西部电子科技",
+      "weight": 320,
+      "volume": 2.1,
+      "status": "WAITING"
+    },
+    {
+      "id": 12,
+      "cargoNo": "CG20260822003",
+      "name": "日用品",
+      "ownerName": "山城商贸",
+      "weight": 1250,
+      "volume": 8.6,
+      "status": "COMPLETED"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 15,
+      "taskNo": "T20260822001",
+      "cargoId": 10,
+      "cargoName": "生鲜水果",
+      "vehicleId": 1,
+      "plateNumber": "渝A12345",
+      "startLocation": "仓库A",
+      "endLocation": "配送点B",
+      "planStartTime": "2026-08-22T10:00:00+08:00",
+      "planEndTime": "2026-08-22T11:00:00+08:00",
+      "estimatedArrivalTime": "2026-08-22T10:52:00+08:00",
+      "status": "TRANSPORTING",
+      "progress": 68
+    },
+    {
+      "id": 16,
+      "taskNo": "T20260822002",
+      "cargoId": 11,
+      "cargoName": "电子元件",
+      "vehicleId": 2,
+      "plateNumber": "渝B58210",
+      "startLocation": "仓库C",
+      "endLocation": "配送点D",
+      "planStartTime": "2026-08-22T10:10:00+08:00",
+      "planEndTime": "2026-08-22T11:20:00+08:00",
+      "estimatedArrivalTime": "2026-08-22T11:08:00+08:00",
+      "status": "TRANSPORTING",
+      "progress": 51
+    },
+    {
+      "id": 17,
+      "taskNo": "T20260822003",
+      "cargoId": 12,
+      "cargoName": "日用品",
+      "vehicleId": 4,
+      "plateNumber": "渝C66331",
+      "startLocation": "仓库A",
+      "endLocation": "配送点E",
+      "planStartTime": "2026-08-22T09:00:00+08:00",
+      "planEndTime": "2026-08-22T10:00:00+08:00",
+      "estimatedArrivalTime": "2026-08-22T09:48:00+08:00",
+      "status": "COMPLETED",
+      "progress": 100
+    }
+  ],
+  "alarms": [
+    {
+      "id": 101,
+      "taskId": 16,
+      "vehicleId": 2,
+      "plateNumber": "渝B58210",
+      "alarmType": "ABNORMAL_STOP",
+      "level": "HIGH",
+      "message": "车辆连续停留超过预设阈值",
+      "status": "UNHANDLED",
+      "createdAt": "2026-08-22T10:24:00+08:00"
+    },
+    {
+      "id": 102,
+      "taskId": 18,
+      "vehicleId": 4,
+      "plateNumber": "渝C66331",
+      "alarmType": "ROUTE_DEVIATION",
+      "level": "MEDIUM",
+      "message": "车辆偏离计划路线约 420 米",
+      "status": "PROCESSING",
+      "createdAt": "2026-08-22T10:18:00+08:00"
+    },
+    {
+      "id": 103,
+      "taskId": 15,
+      "vehicleId": 1,
+      "plateNumber": "渝A12345",
+      "alarmType": "ABNORMAL_OPEN",
+      "level": "LOW",
+      "message": "检测到货箱开箱事件，等待确认",
+      "status": "RESOLVED",
+      "createdAt": "2026-08-22T09:56:00+08:00"
+    }
+  ],
+  "commands": [
+    {
+      "id": 201,
+      "taskId": 16,
+      "vehicleId": 2,
+      "plateNumber": "渝B58210",
+      "toUser": "李师傅",
+      "commandType": "ROUTE_CHANGE",
+      "content": "切换至备用路线B",
+      "status": "PENDING",
+      "sentAt": "2026-08-22T10:31:00+08:00"
+    },
+    {
+      "id": 202,
+      "taskId": 15,
+      "vehicleId": 1,
+      "plateNumber": "渝A12345",
+      "toUser": "张师傅",
+      "commandType": "CONTACT_DRIVER",
+      "content": "确认货箱状态并反馈",
+      "status": "EXECUTED",
+      "sentAt": "2026-08-22T10:05:00+08:00"
+    }
+  ],
+  "trackPoints": [
+    {
+      "taskId": 15,
+      "x": 12,
+      "y": 74,
+      "speed": 28,
+      "recordedAt": "10:00"
+    },
+    {
+      "taskId": 15,
+      "x": 24,
+      "y": 64,
+      "speed": 35,
+      "recordedAt": "10:10"
+    },
+    {
+      "taskId": 15,
+      "x": 38,
+      "y": 52,
+      "speed": 42,
+      "recordedAt": "10:20"
+    },
+    {
+      "taskId": 15,
+      "x": 55,
+      "y": 45,
+      "speed": 45,
+      "recordedAt": "10:25"
+    },
+    {
+      "taskId": 15,
+      "x": 72,
+      "y": 30,
+      "speed": 41,
+      "recordedAt": "10:30"
+    }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "username": "owner01",
+      "name": "王明辉",
+      "role": "OWNER",
+      "label": "货主"
+    },
+    {
+      "id": 2,
+      "username": "driver01",
+      "name": "张师傅",
+      "role": "DRIVER",
+      "label": "司机"
+    },
+    {
+      "id": 3,
+      "username": "warehouse01",
+      "name": "小张",
+      "role": "WAREHOUSE",
+      "label": "仓库管理员"
+    },
+    {
+      "id": 4,
+      "username": "dispatcher01",
+      "name": "李明",
+      "role": "DISPATCHER",
+      "label": "调度员"
+    },
+    {
+      "id": 5,
+      "username": "admin01",
+      "name": "系统管理员",
+      "role": "ADMIN",
+      "label": "系统管理员"
+    }
+  ],
+  "vehicleSnapshots": [
+    {
+      "vehicle_id": "sim_000",
+      "online": true,
+      "transport_status": "已装货",
+      "status_timestamp": "2026-08-22T06:48:44.544Z",
+      "gps": {
+        "lat": 29.573811,
+        "lon": 106.552515,
+        "speed_kmh": 0.0,
+        "heading": 190.2,
+        "coordinate_system": "WGS84",
+        "timestamp": "2026-08-22T06:48:57.677Z"
+      },
+      "has_active_alert": true,
+      "latest_alert": {
+        "alert_type": "异常停留",
+        "description": "车辆异常停留（批量模拟）",
+        "timestamp": "2026-08-22T06:48:50.595Z",
+        "source": "simulator"
+      },
+      "display": {
+        "plate_number": "渝A·SIM00",
+        "driver_name": "张师傅",
+        "vehicle_type": "厢式货车",
+        "task_no": "T20260822001",
+        "cargo_name": "生鲜水果",
+        "eta": "15:38",
+        "map_x": 450,
+        "map_y": 279,
+        "route_progress": 68
+      }
+    },
+    {
+      "vehicle_id": "sim_001",
+      "online": true,
+      "transport_status": "运输中",
+      "status_timestamp": "2026-08-22T06:48:45.208Z",
+      "gps": {
+        "lat": 29.574126,
+        "lon": 106.553082,
+        "speed_kmh": 34.8,
+        "heading": 82.5,
+        "coordinate_system": "WGS84",
+        "timestamp": "2026-08-22T06:48:57.882Z"
+      },
+      "has_active_alert": false,
+      "latest_alert": null,
+      "display": {
+        "plate_number": "渝A·SIM01",
+        "driver_name": "李师傅",
+        "vehicle_type": "冷链车",
+        "task_no": "T20260822002",
+        "cargo_name": "电子元件",
+        "eta": "15:46",
+        "map_x": 585,
+        "map_y": 424,
+        "route_progress": 52
+      }
+    },
+    {
+      "vehicle_id": "sim_002",
+      "online": true,
+      "transport_status": "运输中",
+      "status_timestamp": "2026-08-22T06:48:46.102Z",
+      "gps": {
+        "lat": 29.572965,
+        "lon": 106.55187,
+        "speed_kmh": 41.6,
+        "heading": 31.4,
+        "coordinate_system": "WGS84",
+        "timestamp": "2026-08-22T06:48:58.014Z"
+      },
+      "has_active_alert": true,
+      "latest_alert": {
+        "alert_type": "路线偏离",
+        "description": "车辆偏离计划路线约 260 米",
+        "timestamp": "2026-08-22T06:48:53.741Z",
+        "source": "simulator"
+      },
+      "display": {
+        "plate_number": "渝A·SIM02",
+        "driver_name": "王师傅",
+        "vehicle_type": "普通货车",
+        "task_no": "T20260822003",
+        "cargo_name": "日用品",
+        "eta": "15:51",
+        "map_x": 745,
+        "map_y": 280,
+        "route_progress": 44
+      }
+    },
+    {
+      "vehicle_id": "sim_003",
+      "online": false,
+      "transport_status": "待运输",
+      "status_timestamp": "2026-08-22T06:45:12.051Z",
+      "gps": {
+        "lat": 29.573298,
+        "lon": 106.550944,
+        "speed_kmh": 0.0,
+        "heading": 0.0,
+        "coordinate_system": "WGS84",
+        "timestamp": "2026-08-22T06:45:13.010Z"
+      },
+      "has_active_alert": false,
+      "latest_alert": null,
+      "display": {
+        "plate_number": "渝A·SIM03",
+        "driver_name": "赵师傅",
+        "vehicle_type": "厢式货车",
+        "task_no": null,
+        "cargo_name": "暂无任务",
+        "eta": "--",
+        "map_x": 505,
+        "map_y": 515,
+        "route_progress": 0
+      }
+    }
+  ],
+  "realtimeSummary": {
+    "snapshot_count": 4,
+    "online_count": 3,
+    "transporting_count": 3,
+    "active_alert_count": 2
+  },
+  "warehouseBindings": [
+    {
+      "id": 1,
+      "cargo": "生鲜水果",
+      "cargoNo": "CG20260822001",
+      "plateNumber": "渝A12345",
+      "driver": "张师傅",
+      "operator": "小张",
+      "time": "2026-08-22 10:30:45"
+    },
+    {
+      "id": 2,
+      "cargo": "电子元件",
+      "cargoNo": "CG20260822002",
+      "plateNumber": "渝B58210",
+      "driver": "李师傅",
+      "operator": "小张",
+      "time": "2026-08-22 09:45:12"
+    },
+    {
+      "id": 3,
+      "cargo": "日用品",
+      "cargoNo": "CG20260822003",
+      "plateNumber": "渝C66331",
+      "driver": "赵师傅",
+      "operator": "小张",
+      "time": "2026-08-22 08:20:36"
+    }
+  ],
+  "warehouseRecords": [
+    {
+      "id": 1,
+      "type": "IN",
+      "cargo": "生鲜水果",
+      "quantity": "780 kg",
+      "time": "2026-08-22 08:10",
+      "operator": "小张"
+    },
+    {
+      "id": 2,
+      "type": "OUT",
+      "cargo": "电子元件",
+      "quantity": "320 kg",
+      "time": "2026-08-22 09:12",
+      "operator": "小张"
+    },
+    {
+      "id": 3,
+      "type": "OUT",
+      "cargo": "日用品",
+      "quantity": "1250 kg",
+      "time": "2026-08-22 10:05",
+      "operator": "小张"
+    }
+  ],
+  "notifications": [
+    {
+      "id": 1,
+      "title": "调度指令更新",
+      "content": "请注意前方施工路段，建议按备用路线绕行。",
+      "time": "10:31",
+      "role": "DRIVER"
+    },
+    {
+      "id": 2,
+      "title": "异常告警",
+      "content": "渝B58210 出现异常停留，请及时查看。",
+      "time": "10:24",
+      "role": "DISPATCHER"
+    },
+    {
+      "id": 3,
+      "title": "货物状态更新",
+      "content": "生鲜水果运输状态已更新为运输中。",
+      "time": "10:18",
+      "role": "OWNER"
+    },
+    {
+      "id": 4,
+      "title": "系统通知",
+      "content": "今日车辆在线率保持稳定。",
+      "time": "09:50",
+      "role": "ALL"
+    }
+  ],
+  "systemUsers": [
+    {
+      "id": 101,
+      "name": "王明辉",
+      "account": "owner01",
+      "role": "货主",
+      "status": "启用"
+    },
+    {
+      "id": 102,
+      "name": "王师傅",
+      "account": "driver01",
+      "role": "司机",
+      "status": "启用"
+    },
+    {
+      "id": 103,
+      "name": "小张",
+      "account": "warehouse01",
+      "role": "仓库管理员",
+      "status": "启用"
+    },
+    {
+      "id": 104,
+      "name": "李明",
+      "account": "dispatcher01",
+      "role": "调度员",
+      "status": "启用"
+    },
+    {
+      "id": 105,
+      "name": "系统管理员",
+      "account": "admin01",
+      "role": "系统管理员",
+      "status": "启用"
+    }
+  ]
+}

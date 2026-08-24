@@ -1,0 +1,10 @@
+<script setup>
+import data from '../mock/data.json'
+import PageHeader from '../components/PageHeader.vue'
+</script>
+<template>
+  <PageHeader title="数据统计" subtitle="运输任务、车辆状态与告警数据统计分析"/>
+  <section class="stats-grid"><article class="stat-card"><div class="stat-label">在线车辆</div><div class="stat-value">128</div><div class="stat-foot">实时在线</div></article><article class="stat-card"><div class="stat-label">进行中任务</div><div class="stat-value">42</div><div class="stat-foot">运输任务</div></article><article class="stat-card"><div class="stat-label">今日告警</div><div class="stat-value">18</div><div class="stat-foot">异常事件</div></article><article class="stat-card"><div class="stat-label">已完成任务</div><div class="stat-value">24</div><div class="stat-foot">今日完成</div></article></section>
+  <section class="simple-card-grid"><article class="panel simple-card"><h3>车辆状态分布</h3><div class="detail-lines"><div><span>运输中</span><strong>82</strong></div><div><span>空闲/待命</span><strong>31</strong></div><div><span>告警车辆</span><strong>5</strong></div><div><span>离线</span><strong>10</strong></div></div></article><article class="panel simple-card"><h3>告警类型统计</h3><div class="detail-lines"><div><span>偏航告警</span><strong>8</strong></div><div><span>异常停留</span><strong>6</strong></div><div><span>异常开箱</span><strong>4</strong></div></div></article><article class="panel simple-card"><h3>任务执行情况</h3><div class="detail-lines"><div><span>准时率</span><strong>96%</strong></div><div><span>平均进度</span><strong>68%</strong></div><div><span>异常任务</span><strong>3</strong></div></div></article></section>
+  <section class="panel role-table-card"><div class="panel-title"><div><h2>任务明细</h2><span>用于调度分析的任务数据</span></div></div><div class="table-wrap"><table><thead><tr><th>任务</th><th>车辆</th><th>货物</th><th>进度</th><th>ETA</th><th>状态</th></tr></thead><tbody><tr v-for="t in data.tasks" :key="t.id"><td>{{t.taskNo}}</td><td>{{t.plateNumber}}</td><td>{{t.cargoName}}</td><td>{{t.progress}}%</td><td>{{t.estimatedArrivalTime.slice(11,16)}}</td><td>{{t.status}}</td></tr></tbody></table></div></section>
+</template>

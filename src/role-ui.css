@@ -1,0 +1,93 @@
+/* v1.0 角色化 UI 覆盖层：不修改原 style.css 的字号定义，不修改 AMapView.vue。 */
+body{background:#f6f4ef}
+.role-app-shell{display:grid;grid-template-columns:220px 1fr;grid-template-rows:64px minmax(calc(100vh - 64px),auto);min-height:100vh;background:#f6f4ef}
+.global-header{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:#fff;border-bottom:1px solid #e7e5df;position:sticky;top:0;z-index:40}
+.global-header-right{display:flex;align-items:center;gap:14px}.header-icon-btn,.header-user{border:0;background:transparent;cursor:pointer;color:#182230;display:flex;align-items:center;gap:9px;position:relative}.notify-count{position:absolute;top:-7px;right:-6px;background:#f04438;color:#fff;border-radius:99px;padding:1px 5px}.header-avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#eaf2ff;color:#2676ff}
+.dark-sidebar{grid-row:2;background:linear-gradient(180deg,#262626,#1f2022);color:#fff;min-height:calc(100vh - 64px);padding:20px 16px;position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column}
+.role-menu a{color:#f3f4f6;padding:13px 14px;border-radius:10px}.role-menu a:hover,.role-menu a.router-link-active{color:#fff;background:linear-gradient(90deg,#385c92,#314b72)}.menu-icon{width:22px;text-align:center;color:#fff}.sidebar-role-note{margin-top:auto;border:1px solid #3a3d42;border-radius:12px;padding:14px;color:#fff;background:#292b2f}.sidebar-role-note span{display:block;color:#b8bec8;margin-top:5px}
+.role-content{grid-column:2;grid-row:2;padding:18px 28px 34px;min-width:0}.role-view-badge{display:inline-flex;align-items:center;background:#1677ff;color:#fff;border-radius:9px;padding:8px 14px;margin-bottom:14px;font-weight:700}.role-content .topbar{margin-bottom:16px}.role-content .topbar h1{display:none}.role-content .topbar p{margin:0}
+.role-content .panel,.role-content .stat-card{border-color:#ebe8e1;box-shadow:0 8px 24px rgba(56,50,42,.06)}.role-content .panel{border-radius:16px}.role-content .stat-card{border-radius:16px;background:#fff}.role-content .stats-grid{gap:16px}.role-content .panel-title{border-bottom-color:#efede8}
+.home-map-panel .amap-container{height:360px}.home-map-panel .amap-shell{height:360px}.home-map-panel .amap-info-chip{display:none}.home-map-panel .amap-legend-custom{right:12px;bottom:12px}
+.owner-dashboard-grid,.dispatcher-bottom,.driver-top,.driver-bottom,.warehouse-main,.admin-bottom{display:grid;gap:16px;margin-bottom:16px}.owner-dashboard-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dispatcher-bottom{grid-template-columns:minmax(0,2fr) minmax(300px,.8fr)}.driver-top{grid-template-columns:minmax(360px,.8fr) minmax(620px,1.4fr)}.driver-bottom{grid-template-columns:minmax(420px,.8fr) minmax(620px,1.4fr)}.warehouse-main{grid-template-columns:minmax(580px,1.1fr) minmax(430px,.9fr)}.admin-bottom{grid-template-columns:1fr}
+.role-table-card{padding:0 16px 16px}.quick-actions{padding:14px;display:flex;flex-direction:column;gap:10px}.quick-action{border:1px solid #dce8fb;background:#f9fbff;border-radius:12px;padding:14px;cursor:pointer;color:#1769d2;text-align:left}.quick-action strong,.quick-action span{display:block}.quick-action span{color:#728097;margin-top:4px}
+.floating-agent{position:fixed;right:34px;bottom:28px;border:0;background:#1677ff;color:#fff;border-radius:99px;padding:14px 20px;box-shadow:0 10px 30px rgba(22,119,255,.32);cursor:pointer;z-index:30}.task-card{padding:22px}.task-card dl,.detail-lines{display:grid;gap:14px}.task-card dl div,.detail-lines div{display:grid;grid-template-columns:110px 1fr;gap:12px}.task-card dt,.detail-lines span{color:#77859a}.task-card dd{margin:0;font-weight:700}
+.status-choice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:16px}.status-choice{border:1px solid #dfe5ed;background:#fff;border-radius:14px;padding:20px 12px;cursor:pointer;text-align:center}.status-choice.current{border-color:#1677ff;background:#f4f8ff;color:#1677ff}.status-choice strong,.status-choice span{display:block}.status-choice span{color:#8b97a9;margin-top:7px}.command-cards{display:flex;flex-direction:column;gap:10px;padding:16px}.command-card{border:1px solid #dce8fb;background:#f8fbff;border-radius:12px;padding:14px}.command-card-head{display:flex;justify-content:space-between;align-items:center}.command-card p{margin-bottom:0}.binding-form{padding:18px;display:grid;gap:14px}.binding-form label{display:grid;grid-template-columns:100px 1fr;align-items:center;gap:12px}.binding-form select,.binding-form textarea,.binding-form input{width:100%;border:1px solid #d9e1ec;border-radius:8px;padding:10px 12px;background:#fff}.binding-form .primary{width:100%}.record-list{padding:0 16px 16px}
+.route-endpoint{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:13px;font-weight:800;border:3px solid #fff;box-shadow:0 5px 14px rgba(30,70,130,.28)}.route-endpoint.start{background:#2468e5}.route-endpoint.end{background:#ef4f4f}.empty-command{padding:34px;text-align:center;color:#93a0b2}
+.page-panel{min-height:520px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.muted-note{color:#8996a8}.section-note{color:#8996a8;margin:0 0 12px}.simple-card-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.simple-card{padding:18px}.simple-card h3{margin-top:0}.settings-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.setting-row{display:flex;justify-content:space-between;align-items:center;padding:15px 0;border-bottom:1px solid #edf1f6}.setting-row:last-child{border-bottom:0}
+.role-switch-modal{max-width:860px}.five-role-list{grid-template-columns:repeat(5,1fr)}.five-role-list .role-card{min-width:0}.five-role-list .role-card p,.five-role-list .role-card span{word-break:break-all}
+@media (max-width:1280px){.driver-top,.driver-bottom,.warehouse-main,.dispatcher-bottom{grid-template-columns:1fr}.five-role-list{grid-template-columns:repeat(3,1fr)}}
+
+/* ===== v1.1 页面美化：保留原字号体系与 AMap 调用逻辑 ===== */
+.ui-icon{width:22px;height:22px;display:block;flex:none}
+
+/* 顶部栏：不再显示“XX端（XX视图）”，身份通过账户区自然体现 */
+.global-header{box-shadow:0 1px 0 rgba(25,35,50,.03)}
+.header-icon-btn{width:40px;height:40px;justify-content:center;border-radius:12px!important;transition:.2s ease}
+.header-icon-btn:hover{background:#f3f6fa}
+.header-icon-btn .ui-icon{width:20px;height:20px}
+.header-user{padding:6px 8px;border-radius:14px!important;transition:.2s ease}
+.header-user:hover{background:#f4f7fb}
+.header-user-copy{display:flex;flex-direction:column;align-items:flex-start;line-height:1.25}
+.header-user-copy strong{font-weight:700}.header-user-copy small{color:#8a97aa}
+.header-chevron{color:#8b97a8;margin-left:2px}
+.header-avatar{background:linear-gradient(145deg,#eaf2ff,#dfeaff);box-shadow:inset 0 0 0 1px #d7e4fb;font-weight:800}
+
+/* 侧边账户卡：为将来登录 / 注册衔接预留身份入口 */
+.sidebar-account-card{margin-top:auto;width:100%;border:1px solid #3a3d42;border-radius:14px;padding:12px;background:linear-gradient(145deg,#2b2d31,#25272a);color:#fff;display:grid;grid-template-columns:38px minmax(0,1fr) 22px;align-items:center;gap:10px;text-align:left;cursor:pointer;transition:.2s ease}
+.sidebar-account-card:hover{border-color:#58677c;background:#30343a;transform:translateY(-1px)}
+.sidebar-account-avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#397fec,#265fbf);color:#fff;font-weight:800}
+.sidebar-account-copy{min-width:0;display:flex;flex-direction:column}.sidebar-account-copy strong,.sidebar-account-copy small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sidebar-account-copy small{color:#adb7c5;margin-top:3px}.sidebar-account-card .ui-icon{width:18px;height:18px;color:#9db7df}
+.sidebar-role-note{display:none}
+
+/* 首页标题改成功能语义，不再展示“XX端/XX视图”标签 */
+.role-content{padding-top:24px}.role-view-badge{display:none}
+.role-content .topbar{margin-bottom:18px}.role-content .topbar h1{display:block}
+.dashboard-heading{padding:0 2px}.dashboard-heading p{max-width:720px}
+.live-state-pill{padding:8px 12px;border:1px solid #e2e9f1;border-radius:99px;background:#fff;box-shadow:0 5px 18px rgba(48,65,88,.05)}
+
+/* 数据概览卡：保留原有 stat-label/stat-value/stat-foot 字号，仅增加图标和层次 */
+.enriched-stat-card{position:relative;overflow:hidden;display:grid;grid-template-columns:58px minmax(0,1fr);align-items:center;gap:16px;min-height:116px;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
+.enriched-stat-card:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(56,50,42,.09);border-color:#dfe6ef}
+.enriched-stat-card::after{content:"";position:absolute;width:92px;height:92px;border-radius:50%;right:-38px;top:-42px;background:var(--stat-glow);opacity:.55;pointer-events:none}
+.stat-icon-wrap{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:var(--stat-soft);color:var(--stat-main);box-shadow:inset 0 0 0 1px var(--stat-line)}
+.stat-icon-wrap .ui-icon{width:25px;height:25px}.stat-card-copy{position:relative;z-index:1;min-width:0}
+.tone-blue{--stat-main:#1f6fea;--stat-soft:#edf4ff;--stat-line:#dce9ff;--stat-glow:#dceaff}
+.tone-green{--stat-main:#20a766;--stat-soft:#edf9f2;--stat-line:#d9f0e3;--stat-glow:#dbf4e5}
+.tone-red{--stat-main:#ef4444;--stat-soft:#fff0f0;--stat-line:#ffdcdc;--stat-glow:#ffe0e0}
+.tone-amber{--stat-main:#f08a16;--stat-soft:#fff5e9;--stat-line:#ffe6c7;--stat-glow:#ffebcf}
+.tone-violet{--stat-main:#7357e7;--stat-soft:#f2efff;--stat-line:#e5defe;--stat-glow:#e6e0ff}
+
+/* 调度快捷入口 */
+.quick-action{display:grid;grid-template-columns:42px minmax(0,1fr) 24px;align-items:center;gap:12px;padding:12px 14px!important;background:linear-gradient(135deg,#fbfdff,#f5f9ff)!important;transition:.2s ease}
+.quick-action:hover{border-color:#aecbfa;background:#f1f6ff!important;transform:translateX(2px)}
+.quick-action-icon{width:42px;height:42px;border-radius:12px;display:grid!important;place-items:center;background:linear-gradient(145deg,#2d83ff,#1266df);color:#fff;box-shadow:0 7px 16px rgba(29,111,230,.2)}
+.quick-action-icon .ui-icon{width:20px;height:20px}.quick-action-copy{min-width:0}.quick-action-copy strong,.quick-action-copy>span{display:block}.quick-action-arrow{color:#7591b4!important;text-align:right}
+.floating-agent{display:flex;align-items:center;gap:8px}.floating-agent .ui-icon{width:19px;height:19px}
+
+/* 身份切换：采用卡片式身份入口，避免五列拥挤与文字纵向换行 */
+.role-switch-mask{background:rgba(18,28,42,.56);backdrop-filter:blur(7px)}
+.role-switch-modal{width:min(960px,calc(100vw - 44px));max-width:none;padding:0;border-radius:22px;overflow:hidden;border:1px solid rgba(255,255,255,.7);box-shadow:0 30px 90px rgba(12,26,48,.28)}
+.role-switch-head{padding:28px 30px 22px;margin:0;background:linear-gradient(135deg,#f7faff,#eef5ff);border-bottom:1px solid #e3ebf6}
+.role-switch-kicker{display:inline-flex;color:#2671dc;font-weight:800;letter-spacing:.08em;margin-bottom:8px}
+.role-switch-head .close-btn{width:40px;height:40px;border-radius:12px;background:#fff;border:1px solid #e0e7ef;box-shadow:0 5px 14px rgba(39,61,89,.06)}
+.five-role-list{grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;padding:22px 30px 24px;background:#fff}
+.five-role-list .role-select-card{min-width:0;grid-template-columns:50px minmax(0,1fr) 24px;gap:13px;min-height:126px;padding:16px;border-radius:16px;border:1px solid #e4e9f1;background:#fff;box-shadow:0 5px 18px rgba(43,59,78,.035);transition:.2s ease}
+.five-role-list .role-select-card:hover{transform:translateY(-2px);border-color:#b9d2f8;box-shadow:0 10px 24px rgba(38,82,145,.09);background:#fbfdff}
+.five-role-list .role-select-card.current{border-color:#6fa5f6;background:linear-gradient(145deg,#f6f9ff,#eef5ff);box-shadow:0 0 0 3px rgba(57,126,231,.08)}
+.role-icon-avatar{width:50px;height:50px;border-radius:15px;display:grid;place-items:center;background:#edf4ff;color:#246fdc;box-shadow:inset 0 0 0 1px #dae8fc}
+.role-icon-avatar .ui-icon{width:24px;height:24px}.role-card-main{min-width:0;display:block}.role-card-title-row{display:flex!important;align-items:center;gap:8px;justify-content:space-between}.role-card-title-row strong{white-space:nowrap}.role-card-title-row em{font-style:normal;color:#2370dd;background:#e5efff;border-radius:99px;padding:3px 7px;white-space:nowrap}
+.five-role-list .role-card p{word-break:normal;margin-top:5px;margin-bottom:7px}.five-role-list .role-card span{word-break:normal}.role-card-desc{display:block!important;line-height:1.55;color:#8090a5!important}.role-card-arrow{color:#7f94b1!important;align-self:center}.role-select-card.current .role-card-arrow{color:#2673e3!important}
+.role-switch-footer{display:flex;align-items:center;gap:10px;padding:15px 30px 18px;background:#f7f9fc;border-top:1px solid #e8edf3;color:#7e8b9d}.role-switch-footer .ui-icon{width:18px;height:18px;color:#4b78bb}
+
+@media (max-width:900px){
+  .five-role-list{grid-template-columns:1fr;padding:18px}
+  .role-switch-head{padding:22px 20px 18px}.role-switch-footer{padding:14px 20px}
+  .enriched-stat-card{grid-template-columns:50px minmax(0,1fr);gap:12px}.stat-icon-wrap{width:46px;height:46px}
+}
+
+/* 更多细节层次 */
+.role-content .panel-title h2{display:flex;align-items:center;gap:9px}.role-content .panel-title h2::before{content:"";width:4px;height:16px;border-radius:99px;background:linear-gradient(180deg,#2c83ff,#1a68dd);box-shadow:0 0 0 4px rgba(44,131,255,.07)}
+.role-content table th{background:linear-gradient(180deg,#fbfcfe,#f7f9fc)}
+.role-content tbody tr:hover{background:#f7faff}
+.status-choice{position:relative;overflow:hidden;transition:.2s ease}.status-choice:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(41,65,95,.07)}
+.status-choice-icon{width:46px;height:46px;border-radius:14px;display:grid!important;place-items:center;margin:0 auto 10px!important;background:#edf4ff;color:#2874e4;box-shadow:inset 0 0 0 1px #dce9fb}.status-choice-icon .ui-icon{width:22px;height:22px}.status-choice.current .status-choice-icon{background:linear-gradient(145deg,#2c83ff,#1268e4);color:#fff;box-shadow:0 8px 18px rgba(30,111,230,.2)}
