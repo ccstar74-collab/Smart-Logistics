@@ -8,12 +8,14 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.CargoCreateRequest;
+import com.smart_logistics.backend.dto.request.CargoUpdateRequest;
 import com.smart_logistics.backend.dto.response.CargoResponse;
 import com.smart_logistics.backend.entity.Cargo;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.CargoMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,9 @@ class CargoServiceTest {
     @Mock
     private TransportTaskAvailabilityService availabilityService;
 
+    @Mock
+    private BusinessDataScopeService dataScopeService;
+
     private CargoService cargoService;
 
     @BeforeEach
@@ -62,7 +67,7 @@ class CargoServiceTest {
         org.mockito.Mockito.lenient().when(userDisplayNameService.getOwnerNames(any()))
                 .thenReturn(Map.of());
         cargoService = new CargoService(
-                cargoMapper, userDisplayNameService, availabilityService);
+                cargoMapper, userDisplayNameService, availabilityService, dataScopeService);
     }
 
     @Test
@@ -241,6 +246,55 @@ class CargoServiceTest {
         assertTrue(captor.getValue().getSqlSegment().contains("status"));
         assertTrue(captor.getValue().getParamNameValuePairs()
                 .containsValue(CargoStatus.WAITING.name()));
+    }
+
+    @Test
+    void updateCargoChangesOnlyMutableBaseFieldsWhileWaiting() {
+        Cargo cargo = cargo(1L, "CGO-001", "Old", CargoStatus.WAITING);
+        when(cargoMapper.selectById(1L)).thenReturn(cargo);
+        when(cargoMapper.updateById(any(Cargo.class))).thenReturn(1);
+        CargoUpdateRequest request = new CargoUpdateRequest();
+        request.setName("Updated");
+        request.setDescription("New description");
+        request.setWeight(new BigDecimal("20.00"));
+        request.setVolume(new BigDecimal("4.00"));
+
+        CargoResponse response = cargoService.updateCargo(1L, request);
+
+        assertEquals("CGO-001", response.getCargoNo());
+        assertEquals(100L, response.getOwnerId());
+        assertEquals(CargoStatus.WAITING, response.getStatus());
+        assertEquals("Updated", response.getName());
+        verify(availabilityService).ensureCargoAvailable(1L);
+    }
+
+    @Test
+    void updateCargoRejectsNonWaitingCargo() {
+        when(cargoMapper.selectById(1L)).thenReturn(
+                cargo(1L, "CGO-001", "Cargo", CargoStatus.TRANSPORTING));
+        CargoUpdateRequest request = new CargoUpdateRequest();
+        request.setName("Updated");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> cargoService.updateCargo(1L, request));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(cargoMapper, never()).updateById(any(Cargo.class));
+    }
+
+    @Test
+    void listOwnerFilterIsComposedWithSecurityScope() {
+        when(cargoMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        cargoService.listCargos(1, 10, null, null, 3L);
+
+        verify(dataScopeService).applyCargoScope(any(), org.mockito.ArgumentMatchers.eq(3L));
+        ArgumentCaptor<LambdaQueryWrapper<Cargo>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(cargoMapper).selectPage(any(Page.class), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("owner_id"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(3L));
     }
 
     private Cargo cargo(Long id, String cargoNo, String name, CargoStatus status) {

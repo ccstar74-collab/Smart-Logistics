@@ -15,6 +15,7 @@ import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,9 @@ class AlarmServiceTest {
     @Mock
     private AlarmMapper alarmMapper;
 
+    @Mock
+    private BusinessDataScopeService dataScopeService;
+
     private AlarmService alarmService;
 
     @BeforeEach
@@ -49,7 +53,7 @@ class AlarmServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "alarm-test"),
                 Alarm.class
         );
-        alarmService = new AlarmService(alarmMapper);
+        alarmService = new AlarmService(alarmMapper, dataScopeService);
     }
 
     @Test
@@ -78,6 +82,26 @@ class AlarmServiceTest {
 
         assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getErrorCode());
         assertEquals("alarm not found", exception.getMessage());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void alarmTaskVehicleAndOwnerFiltersComposeWithSecurityScope() {
+        when(dataScopeService.taskIdsForVehicle(20L)).thenReturn(List.of(30L));
+        when(dataScopeService.taskIdsForOwner(3L)).thenReturn(List.of(30L));
+        when(alarmMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        alarmService.listAlarms(1, 10, null, null, null, null,
+                30L, 20L, 3L);
+
+        verify(dataScopeService).applyAlarmScope(any(),
+                org.mockito.ArgumentMatchers.eq(3L));
+        ArgumentCaptor<LambdaQueryWrapper<Alarm>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(alarmMapper).selectPage(any(Page.class), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("task_id"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(30L));
     }
 
     @Test

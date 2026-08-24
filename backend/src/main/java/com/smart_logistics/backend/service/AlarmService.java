@@ -12,6 +12,7 @@ import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -27,15 +28,26 @@ public class AlarmService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final AlarmMapper alarmMapper;
+    private final BusinessDataScopeService dataScopeService;
 
-    public AlarmService(AlarmMapper alarmMapper) {
+    public AlarmService(AlarmMapper alarmMapper, BusinessDataScopeService dataScopeService) {
         this.alarmMapper = alarmMapper;
+        this.dataScopeService = dataScopeService;
     }
 
     public PageResult<AlarmResponse> listAlarms(long page, long pageSize, String keyword,
                                                 AlarmStatus status, AlarmLevel level,
                                                 AlarmType alarmType) {
+        return listAlarms(page, pageSize, keyword, status, level, alarmType,
+                null, null, null);
+    }
+
+    public PageResult<AlarmResponse> listAlarms(long page, long pageSize, String keyword,
+                                                AlarmStatus status, AlarmLevel level,
+                                                AlarmType alarmType, Long taskId,
+                                                Long vehicleId, Long ownerId) {
         LambdaQueryWrapper<Alarm> query = new LambdaQueryWrapper<>();
+        dataScopeService.applyAlarmScope(query, ownerId);
         if (StringUtils.hasText(keyword)) {
             query.like(Alarm::getMessage, keyword.trim());
         }
@@ -48,6 +60,15 @@ public class AlarmService {
         if (alarmType != null) {
             query.eq(Alarm::getAlarmType, alarmType.name());
         }
+        if (taskId != null) {
+            query.eq(Alarm::getTaskId, taskId);
+        }
+        if (vehicleId != null) {
+            applyTaskIds(query, dataScopeService.taskIdsForVehicle(vehicleId));
+        }
+        if (ownerId != null) {
+            applyTaskIds(query, dataScopeService.taskIdsForOwner(ownerId));
+        }
         query.orderByDesc(Alarm::getCreatedAt).orderByDesc(Alarm::getId);
 
         Page<Alarm> entityPage = alarmMapper.selectPage(new Page<>(page, pageSize), query);
@@ -55,6 +76,11 @@ public class AlarmService {
                 .map(this::toResponse)
                 .toList();
         return new PageResult<>(records, entityPage.getTotal(), page, pageSize);
+    }
+
+    private void applyTaskIds(LambdaQueryWrapper<Alarm> query, List<Long> taskIds) {
+        if (taskIds.isEmpty()) query.eq(Alarm::getTaskId, -1L);
+        else query.in(Alarm::getTaskId, taskIds);
     }
 
     public AlarmResponse getAlarm(Long id) {
@@ -97,6 +123,7 @@ public class AlarmService {
         if (alarm == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "alarm not found");
         }
+        dataScopeService.requireAlarmAccess(alarm);
         return alarm;
     }
 

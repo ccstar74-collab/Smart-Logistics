@@ -54,7 +54,8 @@ class AlarmControllerTest {
     void listReturnsStandardPageAndPassesAllFilters() throws Exception {
         when(alarmService.listAlarms(
                 2, 5, "deviation", AlarmStatus.UNHANDLED,
-                AlarmLevel.HIGH, AlarmType.ROUTE_DEVIATION
+                AlarmLevel.HIGH, AlarmType.ROUTE_DEVIATION,
+                null, null, null
         )).thenReturn(new PageResult<>(List.of(response(AlarmStatus.UNHANDLED)), 6, 2, 5));
 
         mockMvc.perform(get("/api/v1/alarms")
@@ -76,7 +77,8 @@ class AlarmControllerTest {
 
         verify(alarmService).listAlarms(
                 2, 5, "deviation", AlarmStatus.UNHANDLED,
-                AlarmLevel.HIGH, AlarmType.ROUTE_DEVIATION
+                AlarmLevel.HIGH, AlarmType.ROUTE_DEVIATION,
+                null, null, null
         );
     }
 

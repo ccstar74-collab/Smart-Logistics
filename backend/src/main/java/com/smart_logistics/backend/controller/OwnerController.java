@@ -6,6 +6,7 @@ import com.smart_logistics.backend.service.OwnerService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 
@@ -20,6 +21,7 @@ public class OwnerController {
     }
 
     @GetMapping("/options")
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
     public ApiResponse<List<OwnerOptionResponse>> listOptions() {
         return ApiResponse.success(ownerService.listOptions());
     }

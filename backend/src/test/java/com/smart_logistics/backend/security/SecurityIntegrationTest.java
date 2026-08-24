@@ -1,13 +1,17 @@
 package com.smart_logistics.backend.security;
 
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
+import com.smart_logistics.backend.dto.response.RegisterResponse;
 import com.smart_logistics.backend.entity.User;
 import com.smart_logistics.backend.enums.UserRole;
 import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.service.UserService;
+import com.smart_logistics.backend.service.RegistrationService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -42,6 +46,7 @@ class SecurityIntegrationTest {
     @Autowired private PasswordEncoder passwordEncoder;
 
     @MockitoBean private UserService userService;
+    @MockitoBean private RegistrationService registrationService;
 
     @Test
     void loginSuccessReturnsBearerTokenAndNoPassword() throws Exception {
@@ -65,10 +70,41 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    void anonymousRegistrationIsAllowedAndReturnsNoToken() throws Exception {
+        when(registrationService.register(any())).thenReturn(
+                new RegisterResponse(10L, "owner001", UserRole.OWNER));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"owner001","password":"correct-password",
+                                 "name":"Owner One","role":"OWNER"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("registration successful"))
+                .andExpect(jsonPath("$.data.userId").value(10))
+                .andExpect(jsonPath("$.data.role").value("OWNER"))
+                .andExpect(jsonPath("$.data.accessToken").doesNotExist());
+    }
+
+    @Test
     void usersMeRejectsMissingToken() throws Exception {
         mockMvc.perform(get("/api/v1/users/me"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value(40101));
+                .andExpect(jsonPath("$.code").value(40101))
+                .andExpect(jsonPath("$.message").value("unauthorized"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/api/v1/vehicles", "/api/v1/cargos", "/api/v1/transport-tasks",
+            "/api/v1/alarms"
+    })
+    void businessApisRejectAnonymousRequests(String path) throws Exception {
+        mockMvc.perform(get(path))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40101))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test

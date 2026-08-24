@@ -6,6 +6,8 @@ import com.smart_logistics.backend.entity.Driver;
 import com.smart_logistics.backend.entity.User;
 import com.smart_logistics.backend.enums.UserRole;
 import com.smart_logistics.backend.enums.UserStatus;
+import com.smart_logistics.backend.exception.BusinessException;
+import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.DriverMapper;
 import com.smart_logistics.backend.mapper.UserMapper;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,19 @@ public class DriverService {
                             displayName(user));
                 })
                 .toList();
+    }
+
+    public Driver requireActiveDriver(Long driverId) {
+        Driver driver = driverMapper.selectById(driverId);
+        if (driver == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "driver not found");
+        }
+        User user = userMapper.selectById(driver.getUserId());
+        if (!isActiveDriver(user)) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "driver account must be active with DRIVER role");
+        }
+        return driver;
     }
 
     private boolean isActiveDriver(User user) {

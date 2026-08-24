@@ -4,6 +4,7 @@ import com.smart_logistics.backend.common.ApiResponse;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,32 +36,55 @@ public class TransportTaskController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<PageResult<TransportTaskResponse>> listTransportTasks(
             @RequestParam(defaultValue = "1") @Min(1) long page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) long pageSize,
             @RequestParam(required = false) @Size(max = 100) String keyword,
-            @RequestParam(required = false) TransportTaskStatus status) {
+            @RequestParam(required = false) TransportTaskStatus status,
+            @RequestParam(required = false) @Positive Long driverId,
+            @RequestParam(required = false) @Positive Long ownerId,
+            @RequestParam(required = false) @Positive Long vehicleId,
+            @RequestParam(required = false) @Positive Long cargoId) {
         return ApiResponse.success(
-                transportTaskService.listTransportTasks(page, pageSize, keyword, status));
+                transportTaskService.listTransportTasks(page, pageSize, keyword, status,
+                        driverId, ownerId, vehicleId, cargoId));
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public ApiResponse<TransportTaskResponse> createTransportTask(
             @Valid @RequestBody TransportTaskCreateRequest request) {
         return ApiResponse.success(transportTaskService.createTransportTask(request));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<TransportTaskResponse> getTransportTask(
             @PathVariable @Positive Long id) {
         return ApiResponse.success(transportTaskService.getTransportTask(id));
     }
 
+    @GetMapping("/current")
+    @PreAuthorize("hasRole('DRIVER')")
+    public ApiResponse<TransportTaskResponse> getCurrentTransportTask() {
+        return ApiResponse.success(transportTaskService.getCurrentTransportTask());
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
+    public ApiResponse<TransportTaskResponse> updateTransportTask(
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody TransportTaskUpdateRequest request) {
+        return ApiResponse.success(transportTaskService.updateTransportTask(id, request));
+    }
+
     @PutMapping("/{id}/status")
+    @PreAuthorize("hasRole('DRIVER')")
     public ApiResponse<TransportTaskResponse> updateTransportTaskStatus(
             @PathVariable @Positive Long id,
             @Valid @RequestBody TransportTaskStatusUpdateRequest request) {
         return ApiResponse.success(
-                transportTaskService.updateTransportTaskStatus(id, request));
+                transportTaskService.updateTransportTaskStatusForDriver(id, request));
     }
 }

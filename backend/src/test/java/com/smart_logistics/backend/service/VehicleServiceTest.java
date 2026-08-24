@@ -15,6 +15,7 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.VehicleMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +53,12 @@ class VehicleServiceTest {
     @Mock
     private TransportTaskAvailabilityService availabilityService;
 
+    @Mock
+    private BusinessDataScopeService dataScopeService;
+
+    @Mock
+    private DriverService driverService;
+
     private VehicleService vehicleService;
 
     @BeforeEach
@@ -63,7 +70,8 @@ class VehicleServiceTest {
         org.mockito.Mockito.lenient().when(userDisplayNameService.getDriverNames(any()))
                 .thenReturn(Map.of());
         vehicleService = new VehicleService(
-                vehicleMapper, userDisplayNameService, availabilityService);
+                vehicleMapper, userDisplayNameService, availabilityService, dataScopeService,
+                driverService);
     }
 
     @Test
@@ -283,6 +291,49 @@ class VehicleServiceTest {
         assertTrue(captor.getValue().getSqlSegment().contains("status"));
         assertTrue(captor.getValue().getParamNameValuePairs()
                 .containsValue(VehicleStatus.IDLE.name()));
+    }
+
+    @Test
+    void updateDriverBindingAcceptsActiveDriverAndSupportsUnbind() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setDriverId(3L);
+        Vehicle unbound = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        when(vehicleMapper.selectById(1L)).thenReturn(vehicle, unbound);
+        when(vehicleMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        VehicleResponse response = vehicleService.updateDriverBinding(1L, null);
+
+        assertEquals(null, response.getDriverId());
+        verify(vehicleMapper).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void updateDriverBindingRejectsDriverChangeWhileTransporting() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.TRANSPORTING);
+        vehicle.setDriverId(3L);
+        when(vehicleMapper.selectById(1L)).thenReturn(vehicle);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> vehicleService.updateDriverBinding(1L, 4L));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(driverService, never()).requireActiveDriver(4L);
+        verify(vehicleMapper, never()).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void listVehicleDriverFilterIsComposedWithSecurityScope() {
+        when(vehicleMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        vehicleService.listVehicles(1, 10, null, null, 9L);
+
+        verify(dataScopeService).applyVehicleScope(any(), org.mockito.ArgumentMatchers.eq(9L));
+        ArgumentCaptor<LambdaQueryWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(vehicleMapper).selectPage(any(Page.class), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("driver_id"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(9L));
     }
 
     private Vehicle vehicle(Long id, String plateNumber, VehicleStatus status) {

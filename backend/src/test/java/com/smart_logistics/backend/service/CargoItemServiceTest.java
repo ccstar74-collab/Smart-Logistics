@@ -64,7 +64,7 @@ class CargoItemServiceTest {
         CargoItemResponse response = cargoItemService.createCargoItem(1L, request);
 
         ArgumentCaptor<CargoItem> captor = ArgumentCaptor.forClass(CargoItem.class);
-        verify(cargoService).getCargo(1L);
+        verify(cargoService).requireCargoMutable(1L);
         verify(cargoItemMapper).insert(captor.capture());
         CargoItem inserted = captor.getValue();
         assertEquals(1L, inserted.getCargoId());
@@ -94,7 +94,7 @@ class CargoItemServiceTest {
                 ErrorCode.RESOURCE_NOT_FOUND,
                 "cargo not found"
         );
-        when(cargoService.getCargo(99999L)).thenThrow(notFound);
+        when(cargoService.requireCargoMutable(99999L)).thenThrow(notFound);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -108,7 +108,7 @@ class CargoItemServiceTest {
 
     @Test
     void createCargoItemReportsInsertFailure() {
-        when(cargoService.getCargo(1L)).thenReturn(cargoResponse());
+        when(cargoService.requireCargoMutable(1L)).thenReturn(null);
         when(cargoItemMapper.insert(any(CargoItem.class))).thenReturn(0);
 
         BusinessException exception = assertThrows(
@@ -268,7 +268,7 @@ class CargoItemServiceTest {
         cargoItemService.createCargoItem(1L, createRequest());
 
         assertEquals(new BigDecimal("120.50"), cargo.getWeight());
-        verify(cargoService).getCargo(1L);
+        verify(cargoService).requireCargoMutable(1L);
         verifyNoMoreInteractions(cargoService);
     }
 
@@ -280,7 +280,7 @@ class CargoItemServiceTest {
         cargoItemService.createCargoItem(1L, createRequest());
 
         assertEquals(new BigDecimal("1.80"), cargo.getVolume());
-        verify(cargoService).getCargo(1L);
+        verify(cargoService).requireCargoMutable(1L);
         verifyNoMoreInteractions(cargoService);
     }
 
@@ -292,13 +292,54 @@ class CargoItemServiceTest {
         cargoItemService.createCargoItem(1L, createRequest());
 
         assertEquals(CargoStatus.WAITING, cargo.getStatus());
-        verify(cargoService).getCargo(1L);
+        verify(cargoService).requireCargoMutable(1L);
         verifyNoMoreInteractions(cargoService);
+    }
+
+    @Test
+    void updateCargoItemRequiresMutableCargoAndKeepsCargoTotalsIndependent() {
+        CargoItem item = cargoItem(10L, "Old item");
+        when(cargoItemMapper.selectById(10L)).thenReturn(item);
+        when(cargoItemMapper.updateById(any(CargoItem.class))).thenReturn(1);
+        CargoItemCreateRequest request = createRequest();
+        request.setItemName("Updated item");
+
+        CargoItemResponse response = cargoItemService.updateCargoItem(1L, 10L, request);
+
+        assertEquals("Updated item", response.getItemName());
+        verify(cargoService).requireCargoMutable(1L);
+        verify(cargoItemMapper).updateById(item);
+        verifyNoMoreInteractions(cargoService);
+    }
+
+    @Test
+    void deleteCargoItemRequiresMutableParentAndMatchingCargo() {
+        CargoItem item = cargoItem(10L, "Item");
+        when(cargoItemMapper.selectById(10L)).thenReturn(item);
+        when(cargoItemMapper.deleteById(10L)).thenReturn(1);
+
+        cargoItemService.deleteCargoItem(1L, 10L);
+
+        verify(cargoService).requireCargoMutable(1L);
+        verify(cargoItemMapper).deleteById(10L);
+    }
+
+    @Test
+    void cargoStateFailureStopsItemUpdateBeforeMutation() {
+        when(cargoService.requireCargoMutable(1L)).thenThrow(
+                new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "only waiting cargo can be modified"));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> cargoItemService.updateCargoItem(1L, 10L, createRequest()));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verifyNoInteractions(cargoItemMapper);
     }
 
     private void stubSuccessfulCreate(CargoResponse cargo) {
         CargoItem[] insertedHolder = new CargoItem[1];
-        when(cargoService.getCargo(1L)).thenReturn(cargo);
+        when(cargoService.requireCargoMutable(1L)).thenReturn(null);
         when(cargoItemMapper.insert(any(CargoItem.class))).thenAnswer(invocation -> {
             CargoItem inserted = invocation.getArgument(0);
             inserted.setId(10L);

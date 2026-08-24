@@ -12,6 +12,7 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.VehicleMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 
 @Service
 public class VehicleService {
@@ -32,23 +34,39 @@ public class VehicleService {
     private final VehicleMapper vehicleMapper;
     private final UserDisplayNameService userDisplayNameService;
     private final TransportTaskAvailabilityService availabilityService;
+    private final BusinessDataScopeService dataScopeService;
+    private final DriverService driverService;
 
     public VehicleService(VehicleMapper vehicleMapper,
                           UserDisplayNameService userDisplayNameService,
-                          TransportTaskAvailabilityService availabilityService) {
+                          TransportTaskAvailabilityService availabilityService,
+                          BusinessDataScopeService dataScopeService,
+                          DriverService driverService) {
         this.vehicleMapper = vehicleMapper;
         this.userDisplayNameService = userDisplayNameService;
         this.availabilityService = availabilityService;
+        this.dataScopeService = dataScopeService;
+        this.driverService = driverService;
     }
 
     public PageResult<VehicleResponse> listVehicles(long page, long pageSize,
                                                      String keyword, VehicleStatus status) {
+        return listVehicles(page, pageSize, keyword, status, null);
+    }
+
+    public PageResult<VehicleResponse> listVehicles(long page, long pageSize,
+                                                     String keyword, VehicleStatus status,
+                                                     Long driverId) {
         LambdaQueryWrapper<Vehicle> query = new LambdaQueryWrapper<>();
+        dataScopeService.applyVehicleScope(query, driverId);
         if (StringUtils.hasText(keyword)) {
             query.like(Vehicle::getPlateNumber, keyword.trim());
         }
         if (status != null) {
             query.eq(Vehicle::getStatus, status.name());
+        }
+        if (driverId != null) {
+            query.eq(Vehicle::getDriverId, driverId);
         }
         query.orderByDesc(Vehicle::getId);
 
@@ -74,7 +92,7 @@ public class VehicleService {
     }
 
     public Vehicle getVehicleForTransport(Long id) {
-        return getRequiredVehicle(id);
+        return getRequiredVehicleRaw(id);
     }
 
     @Transactional
@@ -101,6 +119,7 @@ public class VehicleService {
         vehicle.setType(trimToNull(request.getType()));
         vehicle.setCapacity(request.getCapacity());
         vehicle.setDriverId(request.getDriverId());
+        requireActiveDriverIfPresent(request.getDriverId());
         vehicle.setStatus(VehicleStatus.IDLE.name());
         vehicle.setCreatedAt(now);
         vehicle.setUpdatedAt(now);
@@ -117,7 +136,8 @@ public class VehicleService {
 
     @Transactional
     public VehicleResponse updateVehicle(Long id, VehicleUpdateRequest request) {
-        getRequiredVehicle(id);
+        Vehicle current = getRequiredVehicle(id);
+        validateDriverChange(current, request.getDriverId());
         String plateNumber = request.getPlateNumber().trim();
         ensurePlateNumberAvailable(plateNumber, id);
 
@@ -135,6 +155,24 @@ public class VehicleService {
             }
         } catch (DuplicateKeyException exception) {
             throw duplicatePlateNumber(exception);
+        }
+        return toResponse(getRequiredVehicle(id));
+    }
+
+    @Transactional
+    public VehicleResponse updateDriverBinding(Long id, Long driverId) {
+        Vehicle vehicle = getRequiredVehicle(id);
+        if (Objects.equals(vehicle.getDriverId(), driverId)) {
+            return toResponse(vehicle);
+        }
+        validateDriverChange(vehicle, driverId);
+        LambdaUpdateWrapper<Vehicle> update = new LambdaUpdateWrapper<Vehicle>()
+                .eq(Vehicle::getId, id)
+                .set(Vehicle::getDriverId, driverId)
+                .set(Vehicle::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
+        if (vehicleMapper.update(null, update) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "failed to update vehicle driver");
         }
         return toResponse(getRequiredVehicle(id));
     }
@@ -163,11 +201,32 @@ public class VehicleService {
     }
 
     private Vehicle getRequiredVehicle(Long id) {
+        Vehicle vehicle = getRequiredVehicleRaw(id);
+        dataScopeService.requireVehicleAccess(vehicle);
+        return vehicle;
+    }
+
+    private Vehicle getRequiredVehicleRaw(Long id) {
         Vehicle vehicle = vehicleMapper.selectById(id);
         if (vehicle == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "vehicle not found");
         }
         return vehicle;
+    }
+
+    private void validateDriverChange(Vehicle vehicle, Long driverId) {
+        if (!Objects.equals(vehicle.getDriverId(), driverId)
+                && parseStatus(vehicle.getStatus()) == VehicleStatus.TRANSPORTING) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "transporting vehicle cannot change driver");
+        }
+        requireActiveDriverIfPresent(driverId);
+    }
+
+    private void requireActiveDriverIfPresent(Long driverId) {
+        if (driverId != null) {
+            driverService.requireActiveDriver(driverId);
+        }
     }
 
     private void ensurePlateNumberAvailable(String plateNumber, Long excludedId) {

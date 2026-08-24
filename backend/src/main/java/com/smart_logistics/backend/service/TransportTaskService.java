@@ -6,7 +6,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
@@ -16,6 +18,8 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,15 +42,21 @@ public class TransportTaskService {
     private final CargoService cargoService;
     private final VehicleService vehicleService;
     private final TransportTaskAvailabilityService availabilityService;
+    private final BusinessDataScopeService dataScopeService;
+    private final CurrentUserService currentUserService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
                                 CargoService cargoService,
                                 VehicleService vehicleService,
-                                TransportTaskAvailabilityService availabilityService) {
+                                TransportTaskAvailabilityService availabilityService,
+                                BusinessDataScopeService dataScopeService,
+                                CurrentUserService currentUserService) {
         this.transportTaskMapper = transportTaskMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
         this.availabilityService = availabilityService;
+        this.dataScopeService = dataScopeService;
+        this.currentUserService = currentUserService;
     }
 
     @Transactional
@@ -89,7 +99,17 @@ public class TransportTaskService {
     public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
                                                                  String keyword,
                                                                  TransportTaskStatus status) {
+        return listTransportTasks(page, pageSize, keyword, status,
+                null, null, null, null);
+    }
+
+    public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
+                                                                 String keyword,
+                                                                 TransportTaskStatus status,
+                                                                 Long driverId, Long ownerId,
+                                                                 Long vehicleId, Long cargoId) {
         LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<>();
+        dataScopeService.applyTaskScope(query, driverId, ownerId);
         if (StringUtils.hasText(keyword)) {
             String normalizedKeyword = keyword.trim();
             query.and(wrapper -> wrapper
@@ -101,6 +121,18 @@ public class TransportTaskService {
         }
         if (status != null) {
             query.eq(TransportTask::getStatus, status.name());
+        }
+        if (driverId != null) {
+            applyVehicleIds(query, dataScopeService.vehicleIdsForDriver(driverId));
+        }
+        if (ownerId != null) {
+            applyCargoIds(query, dataScopeService.cargoIdsForOwner(ownerId));
+        }
+        if (vehicleId != null) {
+            query.eq(TransportTask::getVehicleId, vehicleId);
+        }
+        if (cargoId != null) {
+            query.eq(TransportTask::getCargoId, cargoId);
         }
         query.orderByDesc(TransportTask::getId);
 
@@ -116,10 +148,65 @@ public class TransportTaskService {
         return toResponse(getRequiredTransportTask(id));
     }
 
+    public TransportTaskResponse getCurrentTransportTask() {
+        UserIdentityResponse current = currentUserService.getCurrentUser();
+        Long driverId = current.getDriverId();
+        if (driverId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "driver identity is missing");
+        }
+        List<Long> vehicleIds = dataScopeService.vehicleIdsForDriver(driverId);
+        if (vehicleIds.isEmpty()) {
+            return null;
+        }
+        TransportTask task = findCurrentTask(vehicleIds, TransportTaskStatus.TRANSPORTING);
+        if (task == null) {
+            task = findCurrentTask(vehicleIds, TransportTaskStatus.WAITING);
+        }
+        return task == null ? null : toResponse(task);
+    }
+
+    @Transactional
+    public TransportTaskResponse updateTransportTask(Long id,
+                                                     TransportTaskUpdateRequest request) {
+        validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+        TransportTask task = getRequiredTransportTask(id);
+        if (parseStatus(task.getStatus()) != TransportTaskStatus.WAITING) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "only waiting transport task can be modified");
+        }
+        task.setStartLocation(request.getStartLocation().trim());
+        task.setEndLocation(request.getEndLocation().trim());
+        task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
+        task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
+        task.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
+        if (transportTaskMapper.updateById(task) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "failed to update transport task");
+        }
+        return toResponse(getRequiredTransportTask(id));
+    }
+
+    @Transactional
+    public TransportTaskResponse updateTransportTaskStatusForDriver(
+            Long id, TransportTaskStatusUpdateRequest request) {
+        TransportTask task = getRequiredTransportTask(id);
+        TransportTaskStatus currentStatus = parseStatus(task.getStatus());
+        TransportTaskStatus targetStatus = request.getStatus();
+        boolean allowed = currentStatus == TransportTaskStatus.WAITING
+                && targetStatus == TransportTaskStatus.TRANSPORTING
+                || currentStatus == TransportTaskStatus.TRANSPORTING
+                && targetStatus == TransportTaskStatus.COMPLETED;
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "driver is not allowed to report this task status transition");
+        }
+        return updateTransportTaskStatus(id, request);
+    }
+
     @Transactional
     public TransportTaskResponse updateTransportTaskStatus(
             Long id, TransportTaskStatusUpdateRequest request) {
-        TransportTask task = getRequiredTransportTask(id);
+        TransportTask task = getRequiredTransportTaskRaw(id);
         TransportTaskStatus currentStatus = parseStatus(task.getStatus());
         TransportTaskStatus targetStatus = request.getStatus();
         validateTransition(currentStatus, targetStatus);
@@ -131,15 +218,39 @@ public class TransportTaskService {
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         updateTaskStatus(task, currentStatus, targetStatus, now);
         applyAssociatedStatusChanges(task, currentStatus, targetStatus);
-        return toResponse(getRequiredTransportTask(id));
+        return toResponse(getRequiredTransportTaskRaw(id));
     }
 
     private void validatePlanTimes(TransportTaskCreateRequest request) {
-        if (request.getPlanStartTime() != null && request.getPlanEndTime() != null
-                && request.getPlanEndTime().isBefore(request.getPlanStartTime())) {
+        validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+    }
+
+    private void validatePlanTimes(OffsetDateTime planStartTime, OffsetDateTime planEndTime) {
+        if (planStartTime != null && planEndTime != null
+                && planEndTime.isBefore(planStartTime)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
                     "planEndTime must not be before planStartTime");
         }
+    }
+
+    private TransportTask findCurrentTask(List<Long> vehicleIds,
+                                          TransportTaskStatus status) {
+        return transportTaskMapper.selectOne(new LambdaQueryWrapper<TransportTask>()
+                .in(TransportTask::getVehicleId, vehicleIds)
+                .eq(TransportTask::getStatus, status.name())
+                .orderByAsc(TransportTask::getPlanStartTime)
+                .orderByAsc(TransportTask::getId)
+                .last("LIMIT 1"));
+    }
+
+    private void applyVehicleIds(LambdaQueryWrapper<TransportTask> query, List<Long> ids) {
+        if (ids.isEmpty()) query.eq(TransportTask::getId, -1L);
+        else query.in(TransportTask::getVehicleId, ids);
+    }
+
+    private void applyCargoIds(LambdaQueryWrapper<TransportTask> query, List<Long> ids) {
+        if (ids.isEmpty()) query.eq(TransportTask::getId, -1L);
+        else query.in(TransportTask::getCargoId, ids);
     }
 
     private void ensureTaskNoAvailable(String taskNo) {
@@ -240,6 +351,12 @@ public class TransportTaskService {
     }
 
     private TransportTask getRequiredTransportTask(Long id) {
+        TransportTask task = getRequiredTransportTaskRaw(id);
+        dataScopeService.requireTaskAccess(task);
+        return task;
+    }
+
+    private TransportTask getRequiredTransportTaskRaw(Long id) {
         TransportTask task = transportTaskMapper.selectById(id);
         if (task == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,

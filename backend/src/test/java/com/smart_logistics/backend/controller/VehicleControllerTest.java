@@ -100,7 +100,7 @@ class VehicleControllerTest {
     @Test
     void listReturnsStandardPageStructureAndPassesStatusFilter() throws Exception {
         VehicleResponse vehicle = response();
-        when(vehicleService.listVehicles(2, 5, "沪A", VehicleStatus.IDLE))
+        when(vehicleService.listVehicles(2, 5, "沪A", VehicleStatus.IDLE, null))
                 .thenReturn(new PageResult<>(List.of(vehicle), 6, 2, 5));
 
         mockMvc.perform(get("/api/v1/vehicles")
@@ -118,7 +118,7 @@ class VehicleControllerTest {
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.pageSize").value(5));
 
-        verify(vehicleService).listVehicles(2, 5, "沪A", VehicleStatus.IDLE);
+        verify(vehicleService).listVehicles(2, 5, "沪A", VehicleStatus.IDLE, null);
     }
 
     @Test

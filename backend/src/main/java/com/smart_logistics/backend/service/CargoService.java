@@ -5,12 +5,14 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.CargoCreateRequest;
+import com.smart_logistics.backend.dto.request.CargoUpdateRequest;
 import com.smart_logistics.backend.dto.response.CargoResponse;
 import com.smart_logistics.backend.entity.Cargo;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.CargoMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,18 +33,28 @@ public class CargoService {
     private final CargoMapper cargoMapper;
     private final UserDisplayNameService userDisplayNameService;
     private final TransportTaskAvailabilityService availabilityService;
+    private final BusinessDataScopeService dataScopeService;
 
     public CargoService(CargoMapper cargoMapper,
                         UserDisplayNameService userDisplayNameService,
-                        TransportTaskAvailabilityService availabilityService) {
+                        TransportTaskAvailabilityService availabilityService,
+                        BusinessDataScopeService dataScopeService) {
         this.cargoMapper = cargoMapper;
         this.userDisplayNameService = userDisplayNameService;
         this.availabilityService = availabilityService;
+        this.dataScopeService = dataScopeService;
     }
 
     public PageResult<CargoResponse> listCargos(long page, long pageSize,
                                                 String keyword, CargoStatus status) {
+        return listCargos(page, pageSize, keyword, status, null);
+    }
+
+    public PageResult<CargoResponse> listCargos(long page, long pageSize,
+                                                String keyword, CargoStatus status,
+                                                Long ownerId) {
         LambdaQueryWrapper<Cargo> query = new LambdaQueryWrapper<>();
+        dataScopeService.applyCargoScope(query, ownerId);
         if (StringUtils.hasText(keyword)) {
             String normalizedKeyword = keyword.trim();
             query.and(wrapper -> wrapper
@@ -52,6 +64,9 @@ public class CargoService {
         }
         if (status != null) {
             query.eq(Cargo::getStatus, status.name());
+        }
+        if (ownerId != null) {
+            query.eq(Cargo::getOwnerId, ownerId);
         }
         query.orderByDesc(Cargo::getId);
 
@@ -77,7 +92,7 @@ public class CargoService {
     }
 
     public Cargo getCargoForTransport(Long id) {
-        return getRequiredCargo(id);
+        return getRequiredCargoRaw(id);
     }
 
     @Transactional
@@ -120,7 +135,37 @@ public class CargoService {
         return toResponse(getRequiredCargo(cargo.getId()));
     }
 
+    @Transactional
+    public CargoResponse updateCargo(Long id, CargoUpdateRequest request) {
+        Cargo cargo = requireCargoMutable(id);
+        cargo.setName(request.getName().trim());
+        cargo.setDescription(trimToNull(request.getDescription()));
+        cargo.setWeight(request.getWeight());
+        cargo.setVolume(request.getVolume());
+        cargo.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
+        if (cargoMapper.updateById(cargo) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to update cargo");
+        }
+        return toResponse(getRequiredCargo(id));
+    }
+
+    public Cargo requireCargoMutable(Long id) {
+        Cargo cargo = getRequiredCargo(id);
+        if (parseStatus(cargo.getStatus()) != CargoStatus.WAITING) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "only waiting cargo can be modified");
+        }
+        availabilityService.ensureCargoAvailable(id);
+        return cargo;
+    }
+
     private Cargo getRequiredCargo(Long id) {
+        Cargo cargo = getRequiredCargoRaw(id);
+        dataScopeService.requireCargoAccess(cargo);
+        return cargo;
+    }
+
+    private Cargo getRequiredCargoRaw(Long id) {
         Cargo cargo = cargoMapper.selectById(id);
         if (cargo == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found");

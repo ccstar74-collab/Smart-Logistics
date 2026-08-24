@@ -147,7 +147,7 @@ class CargoControllerTest {
     @Test
     void listReturnsStandardPageStructureAndPassesFilters() throws Exception {
         CargoResponse cargo = response();
-        when(cargoService.listCargos(2, 5, "Medical", CargoStatus.WAITING))
+        when(cargoService.listCargos(2, 5, "Medical", CargoStatus.WAITING, null))
                 .thenReturn(new PageResult<>(List.of(cargo), 6, 2, 5));
 
         mockMvc.perform(get("/api/v1/cargos")
@@ -164,7 +164,7 @@ class CargoControllerTest {
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.pageSize").value(5));
 
-        verify(cargoService).listCargos(2, 5, "Medical", CargoStatus.WAITING);
+        verify(cargoService).listCargos(2, 5, "Medical", CargoStatus.WAITING, null);
     }
 
     @Test

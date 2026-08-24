@@ -9,6 +9,8 @@ import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.entity.User;
 import com.smart_logistics.backend.enums.UserRole;
 import com.smart_logistics.backend.enums.UserStatus;
+import com.smart_logistics.backend.exception.BusinessException;
+import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.DriverMapper;
 import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.mapper.UserMapper;
@@ -22,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -95,6 +98,28 @@ class OptionServiceTest {
         List<OwnerOptionResponse> options = ownerService.listOptions();
         assertEquals("Contact Person", options.get(0).getName());
         assertEquals("owner002", options.get(1).getName());
+    }
+
+    @Test
+    void activeDriverBindingRequiresDriverRoleAndActiveUser() {
+        Driver driver = driver(3L, 8L);
+        when(driverMapper.selectById(3L)).thenReturn(driver);
+        when(userMapper.selectById(8L)).thenReturn(
+                user(8L, UserRole.DRIVER, UserStatus.ACTIVE, "Driver", "driver001"));
+
+        assertEquals(driver, driverService.requireActiveDriver(3L));
+    }
+
+    @Test
+    void disabledDriverCannotBeBound() {
+        when(driverMapper.selectById(3L)).thenReturn(driver(3L, 8L));
+        when(userMapper.selectById(8L)).thenReturn(
+                user(8L, UserRole.DRIVER, UserStatus.DISABLED, "Driver", "driver001"));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> driverService.requireActiveDriver(3L));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
     }
 
     private Driver driver(Long id, Long userId) {
