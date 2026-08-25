@@ -32,7 +32,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "app.jwt.secret=rbac-integration-test-secret-at-least-32-bytes-long",
-        "app.jwt.expires-seconds=28800"
+        "app.jwt.expires-seconds=28800",
+        "influxdb.bucket=test-vehicle-trace-bucket",
+        "influxdb2.url=http://127.0.0.1:65535",
+        "influxdb2.token=test-token-not-a-real-secret",
+        "influxdb2.org=test-org",
+        "influxdb2.bucket=test-gps-bucket"
 })
 @AutoConfigureMockMvc
 class RbacAuthorizationIntegrationTest {
