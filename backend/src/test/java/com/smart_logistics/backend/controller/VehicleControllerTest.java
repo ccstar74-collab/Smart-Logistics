@@ -2,11 +2,13 @@ package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.response.VehicleResponse;
+import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.VehicleService;
+import com.smart_logistics.backend.service.VehicleLocationQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +35,8 @@ class VehicleControllerTest {
 
     @Mock
     private VehicleService vehicleService;
+    @Mock
+    private VehicleLocationQueryService vehicleLocationQueryService;
 
     private MockMvc mockMvc;
 
@@ -41,7 +45,7 @@ class VehicleControllerTest {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new VehicleController(vehicleService))
+                .standaloneSetup(new VehicleController(vehicleService, vehicleLocationQueryService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .build();
@@ -128,6 +132,23 @@ class VehicleControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(1))
                 .andExpect(jsonPath("$.data[0].driverName").value("Driver Name"));
+    }
+
+    @Test
+    void latestLocationUsesOfficialContractAndCamelCaseFields() throws Exception {
+        when(vehicleLocationQueryService.getLatestLocation(1L)).thenReturn(
+                new VehicleLocationResponse(1L, "沪A10001", 121.5, 31.2,
+                        40.0, 90.0, OffsetDateTime.parse("2026-08-25T10:00:00+08:00"),
+                        true, 10L));
+
+        mockMvc.perform(get("/api/v1/vehicles/1/location/latest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.vehicleId").value(1))
+                .andExpect(jsonPath("$.data.longitude").value(121.5))
+                .andExpect(jsonPath("$.data.direction").value(90.0))
+                .andExpect(jsonPath("$.data.collectedAt")
+                        .value("2026-08-25T10:00:00+08:00"))
+                .andExpect(jsonPath("$.data.taskId").value(10));
     }
 
     private VehicleResponse response() {

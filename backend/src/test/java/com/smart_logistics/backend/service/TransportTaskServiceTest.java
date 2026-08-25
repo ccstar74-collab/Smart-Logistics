@@ -74,6 +74,9 @@ class TransportTaskServiceTest {
     @Mock
     private CurrentUserService currentUserService;
 
+    @Mock
+    private TransportTaskStatusRecordService statusRecordService;
+
     private TransportTaskService service;
 
     @BeforeEach
@@ -84,7 +87,7 @@ class TransportTaskServiceTest {
         );
         service = new TransportTaskService(
                 transportTaskMapper, cargoService, vehicleService, availabilityService,
-                dataScopeService, currentUserService);
+                dataScopeService, currentUserService, statusRecordService);
     }
 
     @Test
@@ -327,6 +330,11 @@ class TransportTaskServiceTest {
                 10L, CargoStatus.WAITING, CargoStatus.TRANSPORTING);
         verify(vehicleService).updateStatusForTransport(
                 20L, VehicleStatus.IDLE, VehicleStatus.TRANSPORTING);
+        verify(statusRecordService).recordTransition(
+                org.mockito.ArgumentMatchers.any(TransportTask.class),
+                org.mockito.ArgumentMatchers.eq(TransportTaskStatus.WAITING),
+                org.mockito.ArgumentMatchers.eq(TransportTaskStatus.TRANSPORTING),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class));
     }
 
     @Test
@@ -410,6 +418,7 @@ class TransportTaskServiceTest {
         assertEquals(failure, exception);
         verify(transportTaskMapper).update(isNull(), any(Wrapper.class));
         verify(vehicleService, never()).updateStatusForTransport(any(), any(), any());
+        verify(statusRecordService, never()).recordTransition(any(), any(), any(), any());
     }
 
     @Test

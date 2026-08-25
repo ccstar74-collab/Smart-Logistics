@@ -41,6 +41,15 @@ conflicting `ownerId` or `driverId` is rejected with HTTP 403.
 - Alarm status: no frontend role currently has permission.
 - Cargo direct status endpoint does not exist; status remains driven by TransportTask.
 - A separate `/bindings` API or binding model does not exist.
-- Cargo deletion is `DEFERRED_PENDING_PERMISSION_CONFIRMATION`.
+- Cargo deletion is allowed for `WAREHOUSE_MANAGER` and `ADMIN` only. The Cargo must
+  be `WAITING` and must not have an active `WAITING` or `TRANSPORTING` Task.
 - CargoItem writes are a derived permission of Cargo base-information maintenance for
   `WAREHOUSE_MANAGER` and `ADMIN`.
+
+## Phase 5 query permissions
+
+- Vehicle latest/history locations and Task track points reuse the existing Vehicle/Task
+  DataScope for all five formal roles.
+- Cargo status records reuse Cargo DataScope and are read-only.
+- Alarm status mutation remains denied to every frontend role in V1. `ADMIN` is not a
+  super-role and `DISPATCHER` remains read-only until a later formal contract revision.

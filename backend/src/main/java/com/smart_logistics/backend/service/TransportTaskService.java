@@ -44,19 +44,22 @@ public class TransportTaskService {
     private final TransportTaskAvailabilityService availabilityService;
     private final BusinessDataScopeService dataScopeService;
     private final CurrentUserService currentUserService;
+    private final TransportTaskStatusRecordService statusRecordService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
                                 CargoService cargoService,
                                 VehicleService vehicleService,
                                 TransportTaskAvailabilityService availabilityService,
                                 BusinessDataScopeService dataScopeService,
-                                CurrentUserService currentUserService) {
+                                CurrentUserService currentUserService,
+                                TransportTaskStatusRecordService statusRecordService) {
         this.transportTaskMapper = transportTaskMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
         this.availabilityService = availabilityService;
         this.dataScopeService = dataScopeService;
         this.currentUserService = currentUserService;
+        this.statusRecordService = statusRecordService;
     }
 
     @Transactional
@@ -218,6 +221,7 @@ public class TransportTaskService {
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         updateTaskStatus(task, currentStatus, targetStatus, now);
         applyAssociatedStatusChanges(task, currentStatus, targetStatus);
+        statusRecordService.recordTransition(task, currentStatus, targetStatus, now);
         return toResponse(getRequiredTransportTaskRaw(id));
     }
 

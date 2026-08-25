@@ -4,11 +4,13 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.TaskTrackQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +39,8 @@ class TransportTaskControllerTest {
 
     @Mock
     private TransportTaskService transportTaskService;
+    @Mock
+    private TaskTrackQueryService taskTrackQueryService;
 
     private MockMvc mockMvc;
 
@@ -49,7 +53,7 @@ class TransportTaskControllerTest {
         methodValidation.setValidator(validator);
         methodValidation.afterPropertiesSet();
         Object controller = methodValidation.postProcessAfterInitialization(
-                new TransportTaskController(transportTaskService),
+                new TransportTaskController(transportTaskService, taskTrackQueryService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
@@ -71,6 +75,18 @@ class TransportTaskControllerTest {
                 .andExpect(jsonPath("$.message").value("success"))
                 .andExpect(jsonPath("$.data.taskNo").value("T202608230001"))
                 .andExpect(jsonPath("$.data.status").value("WAITING"));
+    }
+
+    @Test
+    void trackPointsUsesOfficialTaskEndpoint() throws Exception {
+        when(taskTrackQueryService.getTrackPoints(1L)).thenReturn(List.of(
+                new VehicleLocationResponse(20L, "沪A10001", 121.5, 31.2,
+                        20.0, 45.0, OffsetDateTime.parse("2026-08-25T10:00:00+08:00"),
+                        false, 1L)));
+        mockMvc.perform(get("/api/v1/transport-tasks/1/track-points"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].taskId").value(1))
+                .andExpect(jsonPath("$.data[0].longitude").value(121.5));
     }
 
     @Test

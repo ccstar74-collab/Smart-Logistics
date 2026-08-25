@@ -136,6 +136,32 @@ class BusinessDataScopeServiceTest {
     }
 
     @Test
+    void ownerCannotReadVehicleUnrelatedToOwnedCargoTasks() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.OWNER, null, 3L));
+        when(cargoMapper.selectList(any())).thenReturn(List.of());
+        Vehicle unrelated = new Vehicle();
+        unrelated.setId(99L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.requireVehicleAccess(unrelated));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+    }
+
+    @Test
+    void driverCannotReadVehicleAssignedToAnotherDriver() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 9L, null));
+        Vehicle unrelated = new Vehicle();
+        unrelated.setId(99L);
+        unrelated.setDriverId(10L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.requireVehicleAccess(unrelated));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+    }
+
+    @Test
     void warehouseDispatcherAndAdminDoNotShareAnImplicitSuperRoleCondition() {
         for (UserRole role : List.of(UserRole.WAREHOUSE_MANAGER,
                 UserRole.DISPATCHER, UserRole.ADMIN)) {

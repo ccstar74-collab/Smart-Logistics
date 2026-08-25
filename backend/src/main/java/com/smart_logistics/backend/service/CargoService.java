@@ -159,6 +159,14 @@ public class CargoService {
         return cargo;
     }
 
+    @Transactional
+    public void deleteCargo(Long id) {
+        requireCargoMutable(id);
+        if (cargoMapper.deleteById(id) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to delete cargo");
+        }
+    }
+
     private Cargo getRequiredCargo(Long id) {
         Cargo cargo = getRequiredCargoRaw(id);
         dataScopeService.requireCargoAccess(cargo);

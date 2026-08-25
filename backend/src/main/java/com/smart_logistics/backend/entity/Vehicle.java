@@ -17,6 +17,7 @@ public class Vehicle {
     private BigDecimal capacity;
     private String status;
     private Long driverId;
+    private String simCode;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private BigDecimal lastLongitude;
@@ -69,6 +70,14 @@ public class Vehicle {
 
     public void setDriverId(Long driverId) {
         this.driverId = driverId;
+    }
+
+    public String getSimCode() {
+        return simCode;
+    }
+
+    public void setSimCode(String simCode) {
+        this.simCode = simCode;
     }
 
     public LocalDateTime getCreatedAt() {

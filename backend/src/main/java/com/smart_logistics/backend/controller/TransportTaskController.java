@@ -6,8 +6,10 @@ import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.TaskTrackQueryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -24,15 +26,27 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Validated
 @RestController
 @RequestMapping("/api/v1/transport-tasks")
 public class TransportTaskController {
 
     private final TransportTaskService transportTaskService;
+    private final TaskTrackQueryService taskTrackQueryService;
 
-    public TransportTaskController(TransportTaskService transportTaskService) {
+    public TransportTaskController(TransportTaskService transportTaskService,
+                                   TaskTrackQueryService taskTrackQueryService) {
         this.transportTaskService = transportTaskService;
+        this.taskTrackQueryService = taskTrackQueryService;
+    }
+
+    @GetMapping("/{id}/track-points")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<List<VehicleLocationResponse>> getTrackPoints(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(taskTrackQueryService.getTrackPoints(id));
     }
 
     @GetMapping

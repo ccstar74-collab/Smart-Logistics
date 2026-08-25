@@ -13,6 +13,9 @@ import com.smart_logistics.backend.service.RegistrationService;
 import com.smart_logistics.backend.service.TransportTaskService;
 import com.smart_logistics.backend.service.UserService;
 import com.smart_logistics.backend.service.VehicleService;
+import com.smart_logistics.backend.service.VehicleLocationQueryService;
+import com.smart_logistics.backend.service.TaskTrackQueryService;
+import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -54,6 +57,59 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private DriverService driverService;
     @MockitoBean private OwnerService ownerService;
     @MockitoBean private DispatchCommandService dispatchCommandService;
+    @MockitoBean private VehicleLocationQueryService vehicleLocationQueryService;
+    @MockitoBean private TaskTrackQueryService taskTrackQueryService;
+    @MockitoBean private TransportTaskStatusRecordService statusRecordService;
+
+    @Test
+    void phase5ReadEndpointsRequireAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/vehicles/locations/latest"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/track-points"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/cargos/1/status-records"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @ParameterizedTest
+    @EnumSource(UserRole.class)
+    void allFormalRolesCanReachPhase5ReadContracts(UserRole role) throws Exception {
+        String token = token(role);
+        mockMvc.perform(get("/api/v1/vehicles/locations/latest")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/track-points")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/cargos/1/status-records")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"OWNER", "DRIVER", "DISPATCHER"})
+    void cargoDeleteRejectsRolesWithoutBaseDataMaintenancePermission(UserRole role)
+            throws Exception {
+        mockMvc.perform(delete("/api/v1/cargos/1").header("Authorization", token(role)))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"WAREHOUSE_MANAGER", "ADMIN"})
+    void cargoDeleteAllowsConfirmedMaintenanceRoles(UserRole role) throws Exception {
+        mockMvc.perform(delete("/api/v1/cargos/1").header("Authorization", token(role)))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(UserRole.class)
+    void alarmStatusMutationRemainsDeniedByFormalRoleContract(UserRole role) throws Exception {
+        mockMvc.perform(put("/api/v1/alarms/1/status")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"PROCESSING\"}"))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     void ownerCanReadBusinessDataButCannotWriteCargoOrTask() throws Exception {
@@ -188,6 +244,19 @@ class RbacAuthorizationIntegrationTest {
     void allExistingDispatchCommandWebEndpointsRemainDenied() throws Exception {
         String token = token(UserRole.DISPATCHER);
         mockMvc.perform(get("/api/v1/dispatch-commands").header("Authorization", token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void legacyRealtimeDevelopmentEndpointsRemainDenied() throws Exception {
+        String token = token(UserRole.ADMIN);
+        mockMvc.perform(get("/api/gps/track/sim_019").header("Authorization", token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/vehicle/trace")
+                        .header("Authorization", token)
+                        .param("vehicleId", "sim_019")
+                        .param("start", "1")
+                        .param("end", "2"))
                 .andExpect(status().isForbidden());
     }
 

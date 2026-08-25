@@ -6,6 +6,8 @@ import com.influxdb.client.WriteApiBlocking;
 import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.query.FluxRecord;
 import com.influxdb.query.FluxTable;
+import com.smart_logistics.backend.dto.realtime.GpsFieldRecord;
+import com.smart_logistics.backend.dto.realtime.GpsSample;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -15,9 +17,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collection;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class GpsInfluxService {
+
+    private static final String MEASUREMENT = "vehicle_gps";
+    private static final Set<String> GPS_FIELDS =
+            Set.of("lat", "lon", "speed", "speed_kmh", "direction", "heading");
 
     @Resource
     private InfluxDBClient influxDBClient;
@@ -25,6 +35,9 @@ public class GpsInfluxService {
     // 读取yml中bucket名称，不要硬编码
     @Value("${influxdb2.bucket}")
     private String bucket;
+
+    @Resource
+    private GpsSampleReconstructor gpsSampleReconstructor;
 
     /**
      * 写入GPS点，使用系统当前时间（旧接口保留）
@@ -75,30 +88,72 @@ public class GpsInfluxService {
      * @param stop 结束Instant
      * @return 轨迹点集合
      */
-    public List<Map<String,Object>> queryTrack(String vehicleId, Instant start, Instant stop){
+    public List<GpsSample> querySamples(Collection<String> vehicleIds,
+                                        Instant start, Instant stop) {
+        List<String> normalizedIds = vehicleIds.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .distinct()
+                .toList();
+        if (normalizedIds.isEmpty()) {
+            return List.of();
+        }
+        if (start == null || stop == null || !start.isBefore(stop)) {
+            throw new IllegalArgumentException("GPS query range must have start before stop");
+        }
+
         QueryApi queryApi = influxDBClient.getQueryApi();
+        String vehicleSet = normalizedIds.stream()
+                .map(this::fluxString)
+                .collect(Collectors.joining(","));
         String flux = String.format("""
-                from(bucket:"%s")
-                |> range(start:%s, stop:%s)
-                |> filter(fn: (r) => r._measurement == "gps_track" and r.vehicleId == "%s")
-                |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+                from(bucket: %s)
+                |> range(start: time(v: %s), stop: time(v: %s))
+                |> filter(fn: (r) => r._measurement == %s)
+                |> filter(fn: (r) => contains(value: r.vehicle_id, set: [%s]))
+                |> filter(fn: (r) => contains(value: r._field, set: ["lat","lon","speed","speed_kmh","direction","heading"]))
+                |> keep(columns: ["_time","_field","_value","vehicle_id"])
+                |> sort(columns: ["_time"])
                 """,
-                bucket, start.toString(), stop.toString(), vehicleId
+                fluxString(bucket), fluxString(start.toString()), fluxString(stop.toString()),
+                fluxString(MEASUREMENT), vehicleSet
         );
 
         List<FluxTable> tables = queryApi.query(flux);
-        List<Map<String,Object>> result = new ArrayList<>();
+        List<GpsFieldRecord> rawRecords = new ArrayList<>();
         for (FluxTable table : tables) {
             for (FluxRecord record : table.getRecords()) {
-                Map<String,Object> point = new HashMap<>();
-                point.put("time", record.getTime());
-                point.put("vehicleId", record.getValueByKey("vehicleId"));
-                point.put("lon", record.getValueByKey("lon"));
-                point.put("lat", record.getValueByKey("lat"));
-                point.put("speed", record.getValueByKey("speed"));
-                result.add(point);
+                Object vehicleId = record.getValueByKey("vehicle_id");
+                Object value = record.getValue();
+                if (vehicleId != null && record.getTime() != null
+                        && GPS_FIELDS.contains(record.getField()) && value instanceof Number number) {
+                    rawRecords.add(new GpsFieldRecord(vehicleId.toString(), record.getField(),
+                            number.doubleValue(), record.getTime()));
+                }
             }
         }
-        return result;
+        return gpsSampleReconstructor.reconstruct(rawRecords);
+    }
+
+    /**
+     * Legacy adapter retained for development callers. Official Phase 5 controllers use
+     * {@link #querySamples(Collection, Instant, Instant)} through business services.
+     */
+    public List<Map<String,Object>> queryTrack(String vehicleId, Instant start, Instant stop){
+        return querySamples(List.of(vehicleId), start, stop).stream().map(sample -> {
+            Map<String, Object> point = new HashMap<>();
+            point.put("time", sample.collectedAt());
+            point.put("vehicleId", sample.vehicleId());
+            point.put("lon", sample.longitude());
+            point.put("lat", sample.latitude());
+            point.put("speed", sample.speed());
+            point.put("direction", sample.direction());
+            return point;
+        }).toList();
+    }
+
+    private String fluxString(String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 }

@@ -8,6 +8,7 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.CargoService;
+import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -35,6 +37,8 @@ class CargoControllerTest {
 
     @Mock
     private CargoService cargoService;
+    @Mock
+    private TransportTaskStatusRecordService statusRecordService;
 
     private MockMvc mockMvc;
 
@@ -43,7 +47,7 @@ class CargoControllerTest {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new CargoController(cargoService))
+                .standaloneSetup(new CargoController(cargoService, statusRecordService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .build();
@@ -63,6 +67,14 @@ class CargoControllerTest {
                 .andExpect(jsonPath("$.data.status").value("WAITING"));
 
         verify(cargoService).createCargo(any(CargoCreateRequest.class));
+    }
+
+    @Test
+    void deleteReturnsUnifiedSuccess() throws Exception {
+        mockMvc.perform(delete("/api/v1/cargos/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(true));
+        verify(cargoService).deleteCargo(1L);
     }
 
     @Test
