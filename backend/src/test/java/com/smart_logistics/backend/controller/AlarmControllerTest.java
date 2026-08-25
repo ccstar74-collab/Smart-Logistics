@@ -159,10 +159,13 @@ class AlarmControllerTest {
         return new AlarmResponse(
                 1L,
                 15L,
+                "real_001",
                 AlarmType.ROUTE_DEVIATION,
                 AlarmLevel.HIGH,
                 "Vehicle deviated from the planned route",
                 status,
+                "device",
+                createdAt,
                 null,
                 status == AlarmStatus.UNHANDLED ? null : createdAt.plusMinutes(1),
                 createdAt,

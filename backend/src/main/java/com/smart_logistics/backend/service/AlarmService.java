@@ -139,10 +139,13 @@ public class AlarmService {
         return new AlarmResponse(
                 alarm.getId(),
                 alarm.getTaskId(),
+                alarm.getDeviceCode(),
                 parseAlarmType(alarm.getAlarmType()),
                 parseLevel(alarm.getLevel()),
                 alarm.getMessage(),
                 parseStatus(alarm.getStatus()),
+                alarm.getSource(),
+                toOffsetDateTime(alarm.getOccurredAt()),
                 alarm.getHandledBy(),
                 toOffsetDateTime(alarm.getHandledAt()),
                 toOffsetDateTime(alarm.getCreatedAt()),
