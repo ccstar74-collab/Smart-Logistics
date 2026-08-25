@@ -22,14 +22,16 @@ app:
 
 # ============MQTT、InfluxDB配置============
 mqtt:
-  broker: tcp://127.0.0.1:1883
-  client-id: smart_logistics_sub
-  clientId.pub: smart_logistics_pub
-  username: admin
-  password: public
+  enabled: ${MQTT_ENABLED:false}
+  realtime-enabled: ${MQTT_REALTIME_ENABLED:false}
+  broker: ${MQTT_BROKER_URL:tcp://127.0.0.1:1883}
+  client-id: ${MQTT_CLIENT_ID:smart_logistics_sub}
+  clientId.pub: ${MQTT_PUB_CLIENT_ID:smart_logistics_pub}
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
 
 influxdb2:
-  url: http://127.0.0.1:8086
-  token: 8Jjcbm1eYOo14YSiRj2OL9EggqAdOGDX9Rs_GSILvSkkMQoaHbVQu4rof_wmkz5SqpM9NW8iAa2b2WUxQwFC8A==
-  org: smart_logistics
-  bucket: gps_track
+  url: ${INFLUXDB_URL:http://127.0.0.1:8086}
+  token: ${INFLUXDB_TOKEN:}
+  org: ${INFLUXDB_ORG:smart_logistics}
+  bucket: ${INFLUXDB_BUCKET:gps_track}

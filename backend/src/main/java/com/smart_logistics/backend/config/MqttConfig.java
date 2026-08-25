@@ -9,12 +9,17 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Slf4j
 @Configuration
+@ConditionalOnProperty(prefix = "mqtt", name = "enabled", havingValue = "true")
 public class MqttConfig {
 
     @Value("${mqtt.broker}")
@@ -32,13 +37,10 @@ public class MqttConfig {
     @Value("${mqtt.clientId.pub:carla_backend_pub}")
     private String pubClientId;
 
-    private static final String[] SUBSCRIBE_TOPICS = {
-            "iot/carla/vehicle/+/gps",
-            "iot/carla/vehicle/+/status",
-            "iot/carla/alert",
-            "iot/carla/vehicle/+/command/ack"
-    };
-    private static final int[] QOS_LEVELS = {1,1,1,1};
+    private static final String ALERT_TOPIC = "iot/carla/alert";
+
+    @Value("${mqtt.realtime-enabled:false}")
+    private boolean realtimeEnabled;
 
     private final InfluxDBClient influxDBClient;
 
@@ -56,8 +58,7 @@ public class MqttConfig {
         MqttClient mqttClient = new MqttClient(broker, clientId, persistence);
 
         MqttConnectOptions options = new MqttConnectOptions();
-        options.setUserName(username);
-        options.setPassword(password.toCharArray());
+        applyCredentials(options);
         options.setCleanSession(true);
         options.setConnectionTimeout(10);
         options.setKeepAliveInterval(20);
@@ -69,8 +70,11 @@ public class MqttConfig {
         mqttClient.connect(options);
         log.info("MQTT订阅客户端连接成功，broker:{}，clientId:{}", broker, clientId);
 
-        mqttClient.subscribe(SUBSCRIBE_TOPICS, QOS_LEVELS);
-        log.info("MQTT已订阅主题：{}", String.join(",",SUBSCRIBE_TOPICS));
+        String[] topics = subscriptionTopics();
+        int[] qosLevels = new int[topics.length];
+        java.util.Arrays.fill(qosLevels, 1);
+        mqttClient.subscribe(topics, qosLevels);
+        log.info("MQTT已订阅主题：{}", String.join(",", topics));
         return mqttClient;
     }
 
@@ -80,8 +84,7 @@ public class MqttConfig {
         MqttAsyncClient pubClient = new MqttAsyncClient(broker, pubClientId, persistence);
 
         MqttConnectOptions options = new MqttConnectOptions();
-        options.setUserName(username);
-        options.setPassword(password.toCharArray());
+        applyCredentials(options);
         options.setCleanSession(true);
         options.setAutomaticReconnect(true);
         options.setConnectionTimeout(10);
@@ -108,5 +111,25 @@ public class MqttConfig {
     }
     public void publish(MqttAsyncClient mqttPubClient, String topic, String payload) {
         publish(mqttPubClient, topic, payload, 0);
+    }
+
+    private void applyCredentials(MqttConnectOptions options) {
+        if (username != null && !username.isBlank()) {
+            options.setUserName(username);
+        }
+        if (password != null && !password.isBlank()) {
+            options.setPassword(password.toCharArray());
+        }
+    }
+
+    private String[] subscriptionTopics() {
+        List<String> topics = new ArrayList<>();
+        topics.add(ALERT_TOPIC);
+        if (realtimeEnabled) {
+            topics.add("iot/carla/vehicle/+/gps");
+            topics.add("iot/carla/vehicle/+/status");
+            topics.add("iot/carla/vehicle/+/command/ack");
+        }
+        return topics.toArray(String[]::new);
     }
 }

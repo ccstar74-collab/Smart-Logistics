@@ -142,6 +142,34 @@ cd backend
 
 统一前缀：`/api/v1`
 
+## MQTT 告警入库与去重
+
+后端可订阅 `iot/carla/alert`，将 Schema 1.0 告警写入 MySQL `alarm` 表。
+首次部署和已有数据库分别使用：
+
+- 新数据库：执行 `docs/sql/001_core_schema.sql` 后执行 `docs/sql/002_alarm_schema.sql`。
+- 已执行旧版 Alarm V1 的数据库：再执行一次 `docs/sql/003_mqtt_alert_idempotency.sql`。
+
+告警幂等键由 `schema_version + vehicle_id + 标准化告警类型 + UTC事件时间`
+生成 SHA-256，并由 `uk_alarm_event_key` 唯一索引保证并发和 MQTT QoS 1
+重发时都不会重复入库。F2 后再次按 F1 会产生新的事件时间，因此可以正常新增下一条告警。
+
+启用告警订阅所需环境变量：
+
+```text
+MQTT_ENABLED=true
+MQTT_BROKER_URL=tcp://127.0.0.1:1883
+MQTT_CLIENT_ID=smart_logistics_sub
+MQTT_USERNAME=
+MQTT_PASSWORD=
+```
+
+`MQTT_REALTIME_ENABLED` 默认是 `false`，此时只订阅告警，避免与服务器上的常驻
+GPS 记录服务重复消费定位数据。需要后端同时处理 GPS、状态和指令 ACK 时再设为
+`true`。
+
+数据库密码、MQTT 密码和 InfluxDB Token 只能放在环境变量中，不能提交到 Git。
+
 当前已完成 Vehicle 车辆接口：
 
 ```http

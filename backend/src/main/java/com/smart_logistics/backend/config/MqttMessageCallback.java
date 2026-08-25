@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.influxdb.client.InfluxDBClient;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
 import com.smart_logistics.backend.service.GpsInfluxService;
+import com.smart_logistics.backend.service.MqttAlertMessageHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -34,6 +35,9 @@ public class MqttMessageCallback implements MqttCallback {
 
     @Autowired
     private GpsWebSocketHandler gpsWebSocketHandler;
+
+    @Autowired
+    private MqttAlertMessageHandler mqttAlertMessageHandler;
 
     private static final String ALERT_TOPIC = "iot/carla/alert";
     private static final String COMMAND_ACK_SUFFIX = "/command/ack";
@@ -79,6 +83,7 @@ public class MqttMessageCallback implements MqttCallback {
             dispatchMessage(topic, payload);
         } catch (Exception e) {
             log.error("消息处理异常 topic={}", topic, e);
+            throw e;
         }
     }
 
@@ -132,7 +137,7 @@ public class MqttMessageCallback implements MqttCallback {
     }
 
     private void handleAlertMessage(String payload) {
-        log.warn("收到车辆告警：{}", payload);
+        mqttAlertMessageHandler.handle(payload);
     }
 
     private void handleCommandAck(String topic, String payload) {
