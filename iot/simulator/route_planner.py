@@ -71,14 +71,18 @@ def parse_route_points(route_points, coordinate_system):
 
     points = []
     for index, item in enumerate(route_points):
-        if not isinstance(item, dict):
-            raise ValueError(f"第{index + 1}个路线点必须是对象")
         try:
-            lon = float(item["longitude"])
-            lat = float(item["latitude"])
-        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(item, dict):
+                lon = float(item["longitude"])
+                lat = float(item["latitude"])
+            elif isinstance(item, (list, tuple)) and len(item) == 2:
+                lon = float(item[0])
+                lat = float(item[1])
+            else:
+                raise TypeError
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
             raise ValueError(
-                f"第{index + 1}个路线点必须包含有效longitude和latitude"
+                f"第{index + 1}个路线点必须是[longitude, latitude]或包含有效longitude和latitude的对象"
             ) from exc
         if not -180 <= lon <= 180 or not -90 <= lat <= 90:
             raise ValueError(f"第{index + 1}个路线点超出经纬度范围")

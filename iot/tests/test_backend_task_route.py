@@ -74,6 +74,17 @@ class BackendRouteTest(unittest.TestCase):
         self.assertEqual(2, len(points))
         self.assertNotEqual(106.735012, points[0][1])
 
+    def test_array_points_from_backend_are_supported(self):
+        points = parse_route_points(
+            [
+                [106.551268, 29.607456],
+                [106.551841, 29.607462],
+            ],
+            "GCJ02",
+        )
+        self.assertEqual(2, len(points))
+        self.assertNotEqual(106.551268, points[0][1])
+
     def test_planned_route_response_is_parsed(self):
         route = parse_task_route(planned_route_response())
         self.assertEqual(1001, route["task_id"])

@@ -163,6 +163,12 @@ def install_task_route(vehicle, route):
 def main():
     parser = argparse.ArgumentParser(description="批量生成并发布随机车辆 MQTT 数据")
     parser.add_argument("--vehicles", type=int, default=20, help="车辆数，默认 20")
+    parser.add_argument(
+        "--vehicle-start-index",
+        type=int,
+        default=0,
+        help="首辆模拟车编号；例如19配合--vehicles 1只发布sim_019",
+    )
     parser.add_argument("--duration", type=float, default=60,
                         help="运行秒数；0 表示直到 Ctrl+C")
     parser.add_argument("--interval", type=float, default=1.0,
@@ -210,6 +216,8 @@ def main():
 
     if args.vehicles <= 0:
         parser.error("--vehicles 必须大于 0")
+    if args.vehicle_start_index < 0:
+        parser.error("--vehicle-start-index不能小于0")
     if args.duration < 0:
         parser.error("--duration 不能小于 0")
     if args.interval <= 0:
@@ -246,7 +254,10 @@ def main():
             origin_lon,
             rng,
         )
-        for i in range(args.vehicles)
+        for i in range(
+            args.vehicle_start_index,
+            args.vehicle_start_index + args.vehicles,
+        )
     ]
     vehicles_by_id = {vehicle["vehicle_id"]: vehicle for vehicle in vehicles}
     for task_id in args.task_id:
