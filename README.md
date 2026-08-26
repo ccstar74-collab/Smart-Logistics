@@ -36,6 +36,24 @@ Smart Logistics 是一个“智慧物流运输全过程追踪与异常调度系�
 - 状态筛选
 - 全局异常处理
 - Vehicle / Cargo / CargoItem 自动化测试
+- Phase 0 / Phase 1 前端联调核心 API ✅
+- Spring Security + Stateless JWT + BCrypt 登录认证
+- 用户身份接口与 Driver / Owner 关联身份映射
+- Driver / Owner 选项接口
+- Vehicle / Cargo 可用资源接口
+- VehicleResponse.driverName / CargoResponse.ownerName 关联名称增强
+
+### Phase 0 / Phase 1 Checkpoint（2026-08-24）
+
+- 固化用户角色：`OWNER`、`DRIVER`、`WAREHOUSE_MANAGER`、`DISPATCHER`、`ADMIN`
+- 完成 `POST /api/v1/auth/login` 与 `GET /api/v1/users/me`
+- 完成 `GET /api/v1/drivers/options` 与 `GET /api/v1/owners/options`
+- 完成 `GET /api/v1/vehicles/available` 与 `GET /api/v1/cargos/available`
+- 统一以 `WAITING / TRANSPORTING` 判定 Cargo / Vehicle 活动运输任务占用
+- 最小核心验收共执行 185 项自动化测试，Failures = 0、Errors = 0、Skipped = 0
+- `clean test` 与 `clean compile` 均为 `BUILD SUCCESS`
+- 角色契约、安全策略、密码响应隔离及 User → Driver / Owner ID 映射静态审计通过
+- 本地服务监听与无 Token `/users/me` 验证通过；数据库相关 Smoke Test 因本地数据库连接不可用暂未完成
 
 ### 开发中
 
@@ -150,6 +168,19 @@ PUT /api/v1/alarms/{id}/status
 ```
 
 Alarm Java API 已集成；仓库当前未提供 `alarm` 表 schema，因此真实数据库 API 验收尚未完成。
+
+Phase 0 / Phase 1 认证与前端联调接口：
+
+```http
+POST /api/v1/auth/login
+GET  /api/v1/users/me
+GET  /api/v1/drivers/options
+GET  /api/v1/owners/options
+GET  /api/v1/vehicles/available
+GET  /api/v1/cargos/available
+```
+
+当前 Phase 1 安全策略：登录接口允许匿名访问，`GET /api/v1/users/me` 必须携带合法 Bearer Token，其他既有业务 API 暂时允许匿名访问。业务 API 的正式权限收紧计划在 Phase 2.5 实施。
 
 - 普通业务接口使用 REST API。
 - 实时位置、告警等信息计划由 WebSocket 推送。

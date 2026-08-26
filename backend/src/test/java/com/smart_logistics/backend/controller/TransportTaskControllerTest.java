@@ -3,12 +3,16 @@ package com.smart_logistics.backend.controller;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.TaskTrackQueryService;
+import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +41,10 @@ class TransportTaskControllerTest {
 
     @Mock
     private TransportTaskService transportTaskService;
+    @Mock
+    private TaskTrackQueryService taskTrackQueryService;
+    @Mock
+    private EtaPlannedRouteService etaPlannedRouteService;
 
     private MockMvc mockMvc;
 
@@ -49,7 +57,8 @@ class TransportTaskControllerTest {
         methodValidation.setValidator(validator);
         methodValidation.afterPropertiesSet();
         Object controller = methodValidation.postProcessAfterInitialization(
-                new TransportTaskController(transportTaskService),
+                new TransportTaskController(transportTaskService, taskTrackQueryService,
+                        etaPlannedRouteService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
@@ -74,11 +83,42 @@ class TransportTaskControllerTest {
     }
 
     @Test
+    void trackPointsUsesOfficialTaskEndpoint() throws Exception {
+        when(taskTrackQueryService.getTrackPoints(1L)).thenReturn(List.of(
+                new VehicleLocationResponse(20L, "沪A10001", 121.5, 31.2,
+                        20.0, 45.0, OffsetDateTime.parse("2026-08-25T10:00:00+08:00"),
+                        false, 1L)));
+        mockMvc.perform(get("/api/v1/transport-tasks/1/track-points"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].taskId").value(1))
+                .andExpect(jsonPath("$.data[0].longitude").value(121.5));
+    }
+
+    @Test
+    void plannedRouteReturnsFrontendReadyGcj02Polyline() throws Exception {
+        TransportTaskResponse task = response(TransportTaskStatus.WAITING);
+        when(transportTaskService.getTransportTask(1L)).thenReturn(task);
+        when(etaPlannedRouteService.getResponse(task)).thenReturn(
+                new PlannedRouteResponse(1L, "sim_000", "AMAP", "GCJ02", 5500, 720,
+                        OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
+                        List.of(
+                                new PlannedRouteResponse.RoutePoint(106.57, 29.49),
+                                new PlannedRouteResponse.RoutePoint(106.61, 29.52))));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.vehicleDeviceCode").value("sim_000"))
+                .andExpect(jsonPath("$.data.coordinateSystem").value("GCJ02"))
+                .andExpect(jsonPath("$.data.distanceMeters").value(5500))
+                .andExpect(jsonPath("$.data.points.length()").value(2));
+    }
+
+    @Test
     void createRejectsMissingCargoId() throws Exception {
         mockMvc.perform(post("/api/v1/transport-tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"vehicleId":20,"startLocation":"Shanghai",
+                                {"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
                                  "endLocation":"Beijing"}
                                 """))
                 .andExpect(status().isBadRequest())
@@ -87,11 +127,24 @@ class TransportTaskControllerTest {
     }
 
     @Test
+    void createRejectsMissingOwnerId() throws Exception {
+        mockMvc.perform(post("/api/v1/transport-tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoId":10,"vehicleId":20,"startLocation":"Shanghai",
+                                 "endLocation":"Beijing"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.message").value("ownerId must not be null"));
+    }
+
+    @Test
     void createRejectsBlankStartLocation() throws Exception {
         mockMvc.perform(post("/api/v1/transport-tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"cargoId":10,"vehicleId":20,"startLocation":" ",
+                                {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":" ",
                                  "endLocation":"Beijing"}
                                 """))
                 .andExpect(status().isBadRequest())
@@ -184,7 +237,7 @@ class TransportTaskControllerTest {
 
     @Test
     void updateIllegalTransitionReturnsConflict() throws Exception {
-        when(transportTaskService.updateTransportTaskStatus(
+        when(transportTaskService.updateTransportTaskStatusForDriver(
                 org.mockito.ArgumentMatchers.eq(1L),
                 any(TransportTaskStatusUpdateRequest.class)))
                 .thenThrow(new BusinessException(ErrorCode.STATE_CONFLICT,
@@ -201,7 +254,7 @@ class TransportTaskControllerTest {
 
     @Test
     void updateMissingTaskReturnsNotFound() throws Exception {
-        when(transportTaskService.updateTransportTaskStatus(
+        when(transportTaskService.updateTransportTaskStatusForDriver(
                 org.mockito.ArgumentMatchers.eq(999L),
                 any(TransportTaskStatusUpdateRequest.class)))
                 .thenThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
@@ -233,7 +286,7 @@ class TransportTaskControllerTest {
     }
 
     private void assertStatusUpdate(TransportTaskStatus statusValue) throws Exception {
-        when(transportTaskService.updateTransportTaskStatus(
+        when(transportTaskService.updateTransportTaskStatusForDriver(
                 org.mockito.ArgumentMatchers.eq(1L),
                 any(TransportTaskStatusUpdateRequest.class)))
                 .thenReturn(response(statusValue));
@@ -248,7 +301,7 @@ class TransportTaskControllerTest {
 
     private String validCreateJson() {
         return """
-                {"cargoId":10,"vehicleId":20,"startLocation":"Shanghai",
+                {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
                  "endLocation":"Beijing",
                  "planStartTime":"2026-08-24T10:00:00+08:00",
                  "planEndTime":"2026-08-24T15:00:00+08:00"}

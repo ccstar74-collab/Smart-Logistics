@@ -19,6 +19,9 @@
 
 - Java 21
 - Spring Boot 4.1.1
+- Spring Security
+- JWT
+- BCrypt
 - MyBatis-Plus
 - MySQL 8.4
 - Maven
@@ -79,9 +82,20 @@ $env:DB_PASSWORD="你的本地MySQL密码"
 
 这些 `$env` 环境变量只对当前 PowerShell 会话有效，关闭终端后需要重新设置。开发者也可以自行配置 Windows 用户环境变量，但不要创建或提交包含真实密码的配置文件。
 
-### 6. Cargo 测试数据依赖
+### 6. 配置 JWT 环境变量
 
-`Cargo.ownerId` 对应数据库中的 `owner.id`，数据关系为：
+应用启动时必须提供至少 32 个 UTF-8 字节的 JWT 密钥。真实密钥不得提交到 GitHub：
+
+```powershell
+$env:JWT_SECRET="<至少32字节的本地随机密钥>"
+$env:JWT_EXPIRES_SECONDS="28800"
+```
+
+`JWT_EXPIRES_SECONDS` 可省略，默认值为 28800 秒。以上示例仅表示变量格式，不是可用于部署的真实密钥。
+
+### 7. Cargo 测试数据依赖
+
+`Cargo.ownerId` 可为空；非空时对应数据库中的 `owner.id`，数据关系为：
 
 ```text
 user
@@ -91,9 +105,11 @@ owner
 cargo
 ```
 
-手动测试 Cargo 创建接口前，应先确认本地数据库中存在真实、合法的 `owner.id`。不要假定或硬编码固定的 Owner ID，不同成员数据库中的实际 ID 可能不同。
+入库调用 `POST /api/v1/cargos` 时可以省略 `ownerId`，Cargo 将作为未分配货主的 `WAITING` 库存保存。创建运输任务时，`POST /api/v1/transport-tasks` 必须携带合法 `ownerId`；后端会在同一事务中将未分配 Cargo 绑定给该 Owner 并创建任务。已有非空且不同的 `ownerId` 不会被覆盖。
 
-### 7. 确认 8080 端口
+手动测试兼容旧调用或创建运输任务前，应先确认本地数据库中存在真实、合法的 `owner.id`。不要假定或硬编码固定的 Owner ID，不同成员数据库中的实际 ID 可能不同。
+
+### 8. 确认 8080 端口
 
 启动 Spring Boot 前可以执行：
 
@@ -109,7 +125,7 @@ Get-Process -Id <PID>
 
 不要直接结束未知进程。
 
-### 8. 运行自动化测试
+### 9. 运行自动化测试
 
 从项目根目录进入后端目录并执行：
 
@@ -120,7 +136,7 @@ cd backend
 
 确认输出为 `BUILD SUCCESS` 后再启动服务。
 
-### 9. 启动 Spring Boot
+### 10. 启动 Spring Boot
 
 ```powershell
 .\mvnw.cmd spring-boot:run
@@ -128,19 +144,48 @@ cd backend
 
 成功启动后的默认地址是 [http://localhost:8080](http://localhost:8080)，REST API 统一前缀为 `/api/v1`。
 
-### 10. 推荐启动顺序
+### 11. 推荐启动顺序
 
 1. 启动 MySQL。
 2. 确认 `smart_logistics` 数据库存在。
 3. 执行 `docs/sql/001_core_schema.sql`。
 4. 设置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`。
-5. 执行 `.\mvnw.cmd clean test`。
-6. 执行 `.\mvnw.cmd spring-boot:run`。
-7. 使用 Apifox 或前端调用 REST API。
+5. 设置 `JWT_SECRET`，按需设置 `JWT_EXPIRES_SECONDS`。
+6. 执行 `.\mvnw.cmd clean test`。
+7. 执行 `.\mvnw.cmd spring-boot:run`。
+8. 使用 Apifox 或前端调用 REST API。
 
 ## REST API
 
 统一前缀：`/api/v1`
+
+## MQTT 告警入库与去重
+
+后端可订阅 `iot/carla/alert`，将 Schema 1.0 告警写入 MySQL `alarm` 表。
+首次部署和已有数据库分别使用：
+
+- 新数据库：执行 `docs/sql/001_core_schema.sql` 后执行 `docs/sql/002_alarm_schema.sql`。
+- 已执行旧版 Alarm V1 的数据库：再执行一次 `docs/sql/003_mqtt_alert_idempotency.sql`。
+
+告警幂等键由 `schema_version + vehicle_id + 标准化告警类型 + UTC事件时间`
+生成 SHA-256，并由 `uk_alarm_event_key` 唯一索引保证并发和 MQTT QoS 1
+重发时都不会重复入库。F2 后再次按 F1 会产生新的事件时间，因此可以正常新增下一条告警。
+
+启用告警订阅所需环境变量：
+
+```text
+MQTT_ENABLED=true
+MQTT_BROKER_URL=tcp://127.0.0.1:1883
+MQTT_CLIENT_ID=smart_logistics_sub
+MQTT_USERNAME=
+MQTT_PASSWORD=
+```
+
+`MQTT_REALTIME_ENABLED` 默认是 `false`，此时只订阅告警，避免与服务器上的常驻
+GPS 记录服务重复消费定位数据。需要后端同时处理 GPS、状态和指令 ACK 时再设为
+`true`。
+
+数据库密码、MQTT 密码和 InfluxDB Token 只能放在环境变量中，不能提交到 Git。
 
 当前已完成 Vehicle 车辆接口：
 
@@ -192,6 +237,19 @@ PUT /api/v1/alarms/{id}/status
 ```
 
 Alarm 状态为 `UNHANDLED`、`PROCESSING`、`RESOLVED`。当前仓库缺少 `alarm` 表 schema，因此尚未完成真实数据库 API 验收。
+
+当前已完成 Phase 0 / Phase 1 认证与前端联调接口：
+
+```http
+POST /api/v1/auth/login
+GET  /api/v1/users/me
+GET  /api/v1/drivers/options
+GET  /api/v1/owners/options
+GET  /api/v1/vehicles/available
+GET  /api/v1/cargos/available
+```
+
+用户角色固定为 `OWNER`、`DRIVER`、`WAREHOUSE_MANAGER`、`DISPATCHER`、`ADMIN`。当前 Phase 1 仅保护 `GET /api/v1/users/me`，其他既有业务 API 暂时 `permitAll`；Phase 2.5 再正式收紧业务权限。
 
 ## 当前后端模块
 
@@ -269,8 +327,20 @@ Alarm V1 Java API 已完成：
 - 自动化测试
 - 数据库 schema 尚待补齐，真实数据库 API 验收未完成
 
+Phase 0 / Phase 1 前端联调核心能力已完成：
+
+- Spring Security、Stateless JWT 与 BCrypt
+- 登录与当前用户身份查询
+- Driver / Owner 选项查询
+- Vehicle / Cargo 可用资源查询
+- Driver / Owner 显示名称增强
+- TransportTask 活动资源占用规则复用
+- 185 项自动化测试全部通过，`clean test` 与 `clean compile` 均为 `BUILD SUCCESS`
+- 本地数据库相关 Smoke Test 因连接环境不可用暂未完成
+
 下一阶段：
 
 - 补充并评审独立 Alarm schema
 - 完成 Alarm 真实数据库 API 验收
 - CargoStatusRecord
+- Phase 0 / Phase 1 前后端联调及 Phase 2.5 权限收紧准备

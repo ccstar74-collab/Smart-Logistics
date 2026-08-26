@@ -8,6 +8,7 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.CargoService;
+import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -35,6 +37,8 @@ class CargoControllerTest {
 
     @Mock
     private CargoService cargoService;
+    @Mock
+    private TransportTaskStatusRecordService statusRecordService;
 
     private MockMvc mockMvc;
 
@@ -43,7 +47,7 @@ class CargoControllerTest {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new CargoController(cargoService))
+                .standaloneSetup(new CargoController(cargoService, statusRecordService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .build();
@@ -63,6 +67,45 @@ class CargoControllerTest {
                 .andExpect(jsonPath("$.data.status").value("WAITING"));
 
         verify(cargoService).createCargo(any(CargoCreateRequest.class));
+    }
+
+    @Test
+    void createAllowsOwnerIdToBeOmitted() throws Exception {
+        when(cargoService.createCargo(any(CargoCreateRequest.class)))
+                .thenReturn(unassignedResponse());
+
+        mockMvc.perform(post("/api/v1/cargos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoNo":"CGO-002","name":"Unassigned cargo",
+                                 "weight":12.5,"volume":3.2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ownerId").doesNotExist())
+                .andExpect(jsonPath("$.data.ownerName").doesNotExist());
+    }
+
+    @Test
+    void createAllowsExplicitNullOwnerId() throws Exception {
+        when(cargoService.createCargo(any(CargoCreateRequest.class)))
+                .thenReturn(unassignedResponse());
+
+        mockMvc.perform(post("/api/v1/cargos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoNo":"CGO-003","name":"Unassigned cargo",
+                                 "weight":12.5,"volume":3.2,"ownerId":null}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ownerId").doesNotExist());
+    }
+
+    @Test
+    void deleteReturnsUnifiedSuccess() throws Exception {
+        mockMvc.perform(delete("/api/v1/cargos/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(true));
+        verify(cargoService).deleteCargo(1L);
     }
 
     @Test
@@ -147,7 +190,7 @@ class CargoControllerTest {
     @Test
     void listReturnsStandardPageStructureAndPassesFilters() throws Exception {
         CargoResponse cargo = response();
-        when(cargoService.listCargos(2, 5, "Medical", CargoStatus.WAITING))
+        when(cargoService.listCargos(2, 5, "Medical", CargoStatus.WAITING, null))
                 .thenReturn(new PageResult<>(List.of(cargo), 6, 2, 5));
 
         mockMvc.perform(get("/api/v1/cargos")
@@ -164,7 +207,7 @@ class CargoControllerTest {
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.pageSize").value(5));
 
-        verify(cargoService).listCargos(2, 5, "Medical", CargoStatus.WAITING);
+        verify(cargoService).listCargos(2, 5, "Medical", CargoStatus.WAITING, null);
     }
 
     @Test
@@ -173,6 +216,15 @@ class CargoControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
                 .andExpect(jsonPath("$.message").value("invalid request parameter or body"));
+    }
+
+    @Test
+    void availableEndpointReturnsEnrichedCargos() throws Exception {
+        when(cargoService.listAvailableCargos()).thenReturn(List.of(response()));
+        mockMvc.perform(get("/api/v1/cargos/available"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(1))
+                .andExpect(jsonPath("$.data[0].ownerName").value("Owner Name"));
     }
 
     private String validRequestJson() {
@@ -191,9 +243,19 @@ class CargoControllerTest {
                 new BigDecimal("12.50"),
                 new BigDecimal("3.20"),
                 100L,
+                "Owner Name",
                 CargoStatus.WAITING,
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00")
         );
+    }
+
+    private CargoResponse unassignedResponse() {
+        return new CargoResponse(
+                2L, "CGO-002", "Unassigned cargo", null,
+                new BigDecimal("12.50"), new BigDecimal("3.20"),
+                null, null, CargoStatus.WAITING,
+                OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
+                OffsetDateTime.parse("2026-08-23T10:30:00+08:00"));
     }
 }

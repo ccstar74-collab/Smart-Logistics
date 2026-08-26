@@ -7,11 +7,10 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
-import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
-import com.smart_logistics.backend.dto.response.TrackPointResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
-import com.smart_logistics.backend.dto.VehicleTracePointDTO;
+import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.CargoStatus;
@@ -20,6 +19,9 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +34,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -41,46 +43,62 @@ public class TransportTaskService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter TASK_NO_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
-    private static final Set<String> ACTIVE_STATUSES = Set.of(
-            TransportTaskStatus.WAITING.name(),
-            TransportTaskStatus.TRANSPORTING.name()
-    );
-
     private final TransportTaskMapper transportTaskMapper;
+    private final OwnerMapper ownerMapper;
     private final CargoService cargoService;
     private final VehicleService vehicleService;
-    private final VehicleTraceService vehicleTraceService;
+    private final TransportTaskAvailabilityService availabilityService;
+    private final BusinessDataScopeService dataScopeService;
+    private final CurrentUserService currentUserService;
+    private final TransportTaskStatusRecordService statusRecordService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
+                                OwnerMapper ownerMapper,
                                 CargoService cargoService,
                                 VehicleService vehicleService,
-                                VehicleTraceService vehicleTraceService) {
+                                TransportTaskAvailabilityService availabilityService,
+                                BusinessDataScopeService dataScopeService,
+                                CurrentUserService currentUserService,
+                                TransportTaskStatusRecordService statusRecordService) {
         this.transportTaskMapper = transportTaskMapper;
+        this.ownerMapper = ownerMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
-        this.vehicleTraceService = vehicleTraceService;
+        this.availabilityService = availabilityService;
+        this.dataScopeService = dataScopeService;
+        this.currentUserService = currentUserService;
+        this.statusRecordService = statusRecordService;
     }
 
     @Transactional
     public TransportTaskResponse createTransportTask(TransportTaskCreateRequest request) {
         validatePlanTimes(request);
-        Cargo cargo = cargoService.getCargoForTransport(request.getCargoId());
+        validateCoordinatePair("start", request.getStartLongitude(), request.getStartLatitude());
+        validateCoordinatePair("end", request.getEndLongitude(), request.getEndLatitude());
+        requireOwner(request.getOwnerId());
+        Cargo cargo = cargoService.getCargoForTransportForUpdate(request.getCargoId());
         Vehicle vehicle = vehicleService.getVehicleForTransport(request.getVehicleId());
         requireCargoStatus(cargo, CargoStatus.WAITING);
+        requireCompatibleOwner(cargo, request.getOwnerId());
         requireVehicleStatus(vehicle, VehicleStatus.IDLE);
-        ensureCargoAvailable(request.getCargoId());
-        ensureVehicleAvailable(request.getVehicleId());
+        availabilityService.ensureCargoAvailable(request.getCargoId());
+        availabilityService.ensureVehicleAvailable(request.getVehicleId());
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         String taskNo = generateTaskNo(now);
         ensureTaskNoAvailable(taskNo);
+        cargoService.bindOwnerForTransport(cargo, request.getOwnerId());
 
         TransportTask task = new TransportTask();
         task.setTaskNo(taskNo);
         task.setCargoId(request.getCargoId());
         task.setVehicleId(request.getVehicleId());
         task.setStartLocation(request.getStartLocation().trim());
+        task.setStartLongitude(request.getStartLongitude());
+        task.setStartLatitude(request.getStartLatitude());
         task.setEndLocation(request.getEndLocation().trim());
+        task.setEndLongitude(request.getEndLongitude());
+        task.setEndLatitude(request.getEndLatitude());
         task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
         task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
         task.setStatus(TransportTaskStatus.WAITING.name());
@@ -102,13 +120,19 @@ public class TransportTaskService {
      * P0 分页多条件查询任务
      */
     public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
-                                                                String keyword,
-                                                                TransportTaskStatus status,
-                                                                Long driverId,
-                                                                Long ownerId,
-                                                                Long vehicleId,
-                                                                Long cargoId) {
+                                                                 String keyword,
+                                                                 TransportTaskStatus status) {
+        return listTransportTasks(page, pageSize, keyword, status,
+                null, null, null, null);
+    }
+
+    public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
+                                                                 String keyword,
+                                                                 TransportTaskStatus status,
+                                                                 Long driverId, Long ownerId,
+                                                                 Long vehicleId, Long cargoId) {
         LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<>();
+        dataScopeService.applyTaskScope(query, driverId, ownerId);
         if (StringUtils.hasText(keyword)) {
             String normalizedKeyword = keyword.trim();
             query.and(wrapper -> wrapper
@@ -121,16 +145,16 @@ public class TransportTaskService {
         if (status != null) {
             query.eq(TransportTask::getStatus, status.name());
         }
-        //if(driverId != null){
-        //    query.eq(TransportTask::getDriverId, driverId);
-   //     }
-       // if(ownerId != null){
-           // query.eq(TransportTask::getOwnerId, ownerId);
-        //}
-        if(vehicleId != null){
+        if (driverId != null) {
+            applyVehicleIds(query, dataScopeService.vehicleIdsForDriver(driverId));
+        }
+        if (ownerId != null) {
+            applyCargoIds(query, dataScopeService.cargoIdsForOwner(ownerId));
+        }
+        if (vehicleId != null) {
             query.eq(TransportTask::getVehicleId, vehicleId);
         }
-        if(cargoId != null){
+        if (cargoId != null) {
             query.eq(TransportTask::getCargoId, cargoId);
         }
         query.orderByDesc(TransportTask::getId);
@@ -147,29 +171,72 @@ public class TransportTaskService {
         return toResponse(getRequiredTransportTask(id));
     }
 
-    /**
-     * P0 获取当前用户正在执行/跟踪的任务（司机首页）
-     * todo：对接SpringSecurity后，从上下文获取登录用户id、角色，取消注释下面的过滤条件
-     */
-    public List<TransportTaskResponse> getCurrentUserTasks() {
-        LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<>();
-        query.in(TransportTask::getStatus, ACTIVE_STATUSES);
-        // 示例逻辑，权限对接完成后打开：
-        // LoginUser loginUser = SecurityUtil.getLoginUser();
-        // if ("DRIVER".equals(loginUser.getRole())) {
-        //     query.eq(TransportTask::getDriverId, loginUser.getUserId());
-        // } else if ("OWNER".equals(loginUser.getRole())) {
-        //     query.eq(TransportTask::getOwnerId, loginUser.getUserId());
-        // }
-        query.orderByDesc(TransportTask::getId);
-        List<TransportTask> list = transportTaskMapper.selectList(query);
-        return list.stream().map(this::toResponse).toList();
+    public TransportTaskResponse getCurrentTransportTask() {
+        UserIdentityResponse current = currentUserService.getCurrentUser();
+        Long driverId = current.getDriverId();
+        if (driverId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "driver identity is missing");
+        }
+        List<Long> vehicleIds = dataScopeService.vehicleIdsForDriver(driverId);
+        if (vehicleIds.isEmpty()) {
+            return null;
+        }
+        TransportTask task = findCurrentTask(vehicleIds, TransportTaskStatus.TRANSPORTING);
+        if (task == null) {
+            task = findCurrentTask(vehicleIds, TransportTaskStatus.WAITING);
+        }
+        return task == null ? null : toResponse(task);
+    }
+
+    @Transactional
+    public TransportTaskResponse updateTransportTask(Long id,
+                                                     TransportTaskUpdateRequest request) {
+        validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+        validateCoordinatePair("start", request.getStartLongitude(), request.getStartLatitude());
+        validateCoordinatePair("end", request.getEndLongitude(), request.getEndLatitude());
+        TransportTask task = getRequiredTransportTask(id);
+        if (parseStatus(task.getStatus()) != TransportTaskStatus.WAITING) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "only waiting transport task can be modified");
+        }
+        String startLocation = request.getStartLocation().trim();
+        String endLocation = request.getEndLocation().trim();
+        boolean startLocationChanged = !Objects.equals(task.getStartLocation(), startLocation);
+        boolean endLocationChanged = !Objects.equals(task.getEndLocation(), endLocation);
+        task.setStartLocation(startLocation);
+        task.setEndLocation(endLocation);
+        applyCoordinateUpdate(task, request, startLocationChanged, endLocationChanged);
+        task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
+        task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
+        task.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
+        if (transportTaskMapper.updateById(task) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "failed to update transport task");
+        }
+        return toResponse(getRequiredTransportTask(id));
+    }
+
+    @Transactional
+    public TransportTaskResponse updateTransportTaskStatusForDriver(
+            Long id, TransportTaskStatusUpdateRequest request) {
+        TransportTask task = getRequiredTransportTask(id);
+        TransportTaskStatus currentStatus = parseStatus(task.getStatus());
+        TransportTaskStatus targetStatus = request.getStatus();
+        boolean allowed = currentStatus == TransportTaskStatus.WAITING
+                && targetStatus == TransportTaskStatus.TRANSPORTING
+                || currentStatus == TransportTaskStatus.TRANSPORTING
+                && targetStatus == TransportTaskStatus.COMPLETED;
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "driver is not allowed to report this task status transition");
+        }
+        return updateTransportTaskStatus(id, request);
     }
 
     @Transactional
     public TransportTaskResponse updateTransportTaskStatus(
             Long id, TransportTaskStatusUpdateRequest request) {
-        TransportTask task = getRequiredTransportTask(id);
+        TransportTask task = getRequiredTransportTaskRaw(id);
         TransportTaskStatus currentStatus = parseStatus(task.getStatus());
         TransportTaskStatus targetStatus = request.getStatus();
         validateTransition(currentStatus, targetStatus);
@@ -181,104 +248,82 @@ public class TransportTaskService {
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         updateTaskStatus(task, currentStatus, targetStatus, now);
         applyAssociatedStatusChanges(task, currentStatus, targetStatus);
-        return toResponse(getRequiredTransportTask(id));
-    }
-
-    /**
-     * P1 任务未开始前修改任务起终点、计划时间，仅WAITING允许修改
-     */
-    @Transactional
-    public TransportTaskResponse updateTransportTaskBasic(Long id, TransportTaskUpdateRequest request) {
-        TransportTask task = getRequiredTransportTask(id);
-        TransportTaskStatus currentStatus = parseStatus(task.getStatus());
-        if(currentStatus != TransportTaskStatus.WAITING){
-            throw new BusinessException(ErrorCode.STATE_CONFLICT, "只有待派发状态的任务才允许修改");
-        }
-        LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
-        LambdaUpdateWrapper<TransportTask> update = new LambdaUpdateWrapper<>();
-        update.eq(TransportTask::getId, id);
-        update.set(TransportTask::getStartLocation, request.getStartLocation().trim());
-        update.set(TransportTask::getEndLocation, request.getEndLocation().trim());
-        update.set(TransportTask::getPlanStartTime, toDatabaseTime(request.getPlanStartTime()));
-        update.set(TransportTask::getPlanEndTime, toDatabaseTime(request.getPlanEndTime()));
-        update.set(TransportTask::getUpdatedAt, now);
-        transportTaskMapper.update(null, update);
-        return toResponse(getRequiredTransportTask(id));
-    }
-
-    /**
-     * P1 获取规划路线点，当前返回模拟数据
-     */
-    public PlannedRouteResponse getPlannedRoute(Long taskId) {
-        getRequiredTransportTask(taskId);
-        PlannedRouteResponse resp = new PlannedRouteResponse();
-        resp.setPoints(List.of(
-                new PlannedRouteResponse.RoutePoint(106.55,29.56,"起点"),
-                new PlannedRouteResponse.RoutePoint(106.58,29.54,"途经点"),
-                new PlannedRouteResponse.RoutePoint(106.61,29.52,"终点")
-        ));
-        return resp;
-    }
-
-    /**
-     * P1 获取轨迹回放点，适配VehicleTraceService真实实现
-     */
-    public List<TrackPointResponse> getTrackPoints(Long taskId, OffsetDateTime startTime, OffsetDateTime endTime) {
-        TransportTask task = getRequiredTransportTask(taskId);
-        Vehicle vehicle = vehicleService.getVehicleForTransport(task.getVehicleId());
-        if(vehicle == null){
-            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,"车辆不存在");
-        }
-        // =====================重要=====================
-        // 将 getVehicleCode() 修改为你Vehicle实体中对应sim编号的get方法，例如 getSimNo()
-        String influxVehicleId = vehicle.getSimCode();
-
-        long startTs = startTime.toInstant().toEpochMilli();
-        long endTs = endTime.toInstant().toEpochMilli();
-
-        List<VehicleTracePointDTO> originList = vehicleTraceService.getVehicleTrace(influxVehicleId, startTs, endTs);
-
-        return originList.stream()
-                .map(dto ->{
-                    TrackPointResponse resp = new TrackPointResponse();
-                    resp.setLat(dto.getLat());
-                    resp.setLon(dto.getLon());
-                    resp.setSpeed(dto.getSpeed());
-                    resp.setHeading(dto.getHeading());
-                    if(dto.getTimestamp() != null){
-                        Instant instant = Instant.ofEpochMilli(dto.getTimestamp());
-                        resp.setTimestamp(instant.atOffset(ZoneOffset.ofHours(8)));
-                    }
-                    return resp;
-                }).toList();
+        statusRecordService.recordTransition(task, currentStatus, targetStatus, now);
+        return toResponse(getRequiredTransportTaskRaw(id));
     }
 
     private void validatePlanTimes(TransportTaskCreateRequest request) {
-        if (request.getPlanStartTime() != null && request.getPlanEndTime() != null
-                && request.getPlanEndTime().isBefore(request.getPlanStartTime())) {
+        validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+    }
+
+    private Owner requireOwner(Long ownerId) {
+        Owner owner = ownerMapper.selectById(ownerId);
+        if (owner == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "owner not found");
+        }
+        return owner;
+    }
+
+    private void requireCompatibleOwner(Cargo cargo, Long ownerId) {
+        if (cargo.getOwnerId() != null && !cargo.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                    "cargo is already assigned to another owner");
+        }
+    }
+
+    private void validatePlanTimes(OffsetDateTime planStartTime, OffsetDateTime planEndTime) {
+        if (planStartTime != null && planEndTime != null
+                && planEndTime.isBefore(planStartTime)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
                     "planEndTime must not be before planStartTime");
         }
     }
 
-    private void ensureCargoAvailable(Long cargoId) {
-        LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<TransportTask>()
-                .eq(TransportTask::getCargoId, cargoId)
-                .in(TransportTask::getStatus, ACTIVE_STATUSES);
-        if (transportTaskMapper.selectCount(query) > 0) {
-            throw new BusinessException(ErrorCode.DATA_CONFLICT,
-                    "cargo already has an active transport task");
+    private void validateCoordinatePair(String name, Double longitude, Double latitude) {
+        if ((longitude == null) != (latitude == null)) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    name + "Longitude and " + name + "Latitude must be provided together");
         }
     }
 
-    private void ensureVehicleAvailable(Long vehicleId) {
-        LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<TransportTask>()
-                .eq(TransportTask::getVehicleId, vehicleId)
-                .in(TransportTask::getStatus, ACTIVE_STATUSES);
-        if (transportTaskMapper.selectCount(query) > 0) {
-            throw new BusinessException(ErrorCode.DATA_CONFLICT,
-                    "vehicle already has an active transport task");
+    private void applyCoordinateUpdate(TransportTask task,
+                                       TransportTaskUpdateRequest request,
+                                       boolean startLocationChanged,
+                                       boolean endLocationChanged) {
+        if (request.getStartLongitude() != null) {
+            task.setStartLongitude(request.getStartLongitude());
+            task.setStartLatitude(request.getStartLatitude());
+        } else if (startLocationChanged) {
+            task.setStartLongitude(null);
+            task.setStartLatitude(null);
         }
+        if (request.getEndLongitude() != null) {
+            task.setEndLongitude(request.getEndLongitude());
+            task.setEndLatitude(request.getEndLatitude());
+        } else if (endLocationChanged) {
+            task.setEndLongitude(null);
+            task.setEndLatitude(null);
+        }
+    }
+
+    private TransportTask findCurrentTask(List<Long> vehicleIds,
+                                          TransportTaskStatus status) {
+        return transportTaskMapper.selectOne(new LambdaQueryWrapper<TransportTask>()
+                .in(TransportTask::getVehicleId, vehicleIds)
+                .eq(TransportTask::getStatus, status.name())
+                .orderByAsc(TransportTask::getPlanStartTime)
+                .orderByAsc(TransportTask::getId)
+                .last("LIMIT 1"));
+    }
+
+    private void applyVehicleIds(LambdaQueryWrapper<TransportTask> query, List<Long> ids) {
+        if (ids.isEmpty()) query.eq(TransportTask::getId, -1L);
+        else query.in(TransportTask::getVehicleId, ids);
+    }
+
+    private void applyCargoIds(LambdaQueryWrapper<TransportTask> query, List<Long> ids) {
+        if (ids.isEmpty()) query.eq(TransportTask::getId, -1L);
+        else query.in(TransportTask::getCargoId, ids);
     }
 
     private void ensureTaskNoAvailable(String taskNo) {
@@ -379,6 +424,12 @@ public class TransportTaskService {
     }
 
     private TransportTask getRequiredTransportTask(Long id) {
+        TransportTask task = getRequiredTransportTaskRaw(id);
+        dataScopeService.requireTaskAccess(task);
+        return task;
+    }
+
+    private TransportTask getRequiredTransportTaskRaw(Long id) {
         TransportTask task = transportTaskMapper.selectById(id);
         if (task == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
@@ -414,13 +465,15 @@ public class TransportTaskService {
     private TransportTaskResponse toResponse(TransportTask task) {
         return new TransportTaskResponse(
                 task.getId(), task.getTaskNo(), task.getCargoId(), task.getVehicleId(),
-                task.getStartLocation(), task.getEndLocation(),
+                task.getStartLocation(), task.getStartLongitude(), task.getStartLatitude(),
+                task.getEndLocation(), task.getEndLongitude(), task.getEndLatitude(),
                 toOffsetDateTime(task.getPlanStartTime()),
                 toOffsetDateTime(task.getPlanEndTime()),
                 toOffsetDateTime(task.getActualStartTime()),
                 toOffsetDateTime(task.getActualEndTime()),
                 parseStatus(task.getStatus()),
                 toOffsetDateTime(task.getEstimatedArrivalTime()),
+                toOffsetDateTime(task.getEtaCalculatedAt()),
                 toOffsetDateTime(task.getCreatedAt()),
                 toOffsetDateTime(task.getUpdatedAt())
         );

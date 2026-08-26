@@ -17,19 +17,40 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    expires-seconds: ${JWT_EXPIRES_SECONDS:28800}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://172.28.48.1:5173}
+  realtime:
+    gps-merge-tolerance: ${GPS_MERGE_TOLERANCE:PT1S}
+    latest-lookback: ${GPS_LATEST_LOOKBACK:PT24H}
+    online-threshold: ${GPS_ONLINE_THRESHOLD:PT2M}
+  eta:
+    enabled: ${ETA_ENABLED:true}
+    gps-max-age: ${ETA_GPS_MAX_AGE:PT2M}
+    speed-history-window: ${ETA_SPEED_HISTORY_WINDOW:PT10M}
+    min-change: ${ETA_MIN_CHANGE:PT0S}
+    force-persist-interval: ${ETA_FORCE_PERSIST_INTERVAL:PT1S}
+    initial-delay-ms: ${ETA_INITIAL_DELAY_MS:1000}
+    refresh-delay-ms: ${ETA_REFRESH_DELAY_MS:1000}
+    amap:
+      key: ${AMAP_WEB_SERVICE_KEY:}
+      endpoint: ${AMAP_ROUTE_ENDPOINT:https://restapi.amap.com/v3/direction/driving}
+      request-timeout: ${AMAP_REQUEST_TIMEOUT:PT5S}
 
 # ============MQTT、InfluxDB配置============
 mqtt:
-  broker: tcp://127.0.0.1:1883
-  client-id: smart_logistics_sub
-  clientId.pub: smart_logistics_pub
-  username: admin
-  password: public
+  enabled: ${MQTT_ENABLED:false}
+  realtime-enabled: ${MQTT_REALTIME_ENABLED:false}
+  broker: ${MQTT_BROKER_URL:tcp://127.0.0.1:1883}
+  client-id: ${MQTT_CLIENT_ID:smart_logistics_sub}
+  clientId.pub: ${MQTT_PUB_CLIENT_ID:smart_logistics_pub}
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
 
 influxdb2:
-  url: http://127.0.0.1:8086
-  org: smart_logistics
-  bucket: gps_track
-  token: 9T-UDQnHNqh0m89dvcxv5Fj3YO4JzjLAsk0xGEi8TPMsp9k7jBQnhPy6dzA4bLOkkLktAogl_VlxRliL6tIPkQ==
+  url: ${INFLUXDB_URL:http://127.0.0.1:8086}
+  token: ${INFLUXDB_TOKEN:}
+  org: ${INFLUXDB_ORG:smart_logistics}
+  bucket: ${INFLUXDB_BUCKET:gps_track}

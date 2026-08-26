@@ -13,6 +13,7 @@ public class VehicleResponse {
     private final BigDecimal capacity;
     private final VehicleStatus status;
     private final Long driverId;
+    private final String driverName;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime updatedAt;
     private final BigDecimal lastLongitude;
@@ -22,7 +23,8 @@ public class VehicleResponse {
     private final String simCode;
 
     public VehicleResponse(Long id, String plateNumber, String type, BigDecimal capacity,
-                           VehicleStatus status, Long driverId, OffsetDateTime createdAt,
+                           VehicleStatus status, Long driverId, String driverName,
+                           OffsetDateTime createdAt,
                            OffsetDateTime updatedAt, BigDecimal lastLongitude,
                            BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt,
                            String simCode) { // 构造函数末尾追加 simCode
@@ -32,6 +34,7 @@ public class VehicleResponse {
         this.capacity = capacity;
         this.status = status;
         this.driverId = driverId;
+        this.driverName = driverName;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.lastLongitude = lastLongitude;
@@ -62,6 +65,10 @@ public class VehicleResponse {
 
     public Long getDriverId() {
         return driverId;
+    }
+
+    public String getDriverName() {
+        return driverName;
     }
 
     public OffsetDateTime getCreatedAt() {

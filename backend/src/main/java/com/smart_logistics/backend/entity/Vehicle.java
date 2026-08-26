@@ -17,15 +17,14 @@ public class Vehicle {
     private BigDecimal capacity;
     private String status;
     private Long driverId;
+    @TableField("sim_code")
+    private String simCode;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private BigDecimal lastLongitude;
     private BigDecimal lastLatitude;
     private LocalDateTime lastUpdatedAt;
-    // =====新增simCode字段=====
-    // 显式绑定数据库 sim_code 字段，Java属性驼峰 simCode
-    @TableField("sim_code")
-    private String simCode;
+
     public Long getId() {
         return id;
     }
@@ -74,6 +73,14 @@ public class Vehicle {
         this.driverId = driverId;
     }
 
+    public String getSimCode() {
+        return simCode;
+    }
+
+    public void setSimCode(String simCode) {
+        this.simCode = simCode;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -108,14 +115,6 @@ public class Vehicle {
 
     public LocalDateTime getLastUpdatedAt() {
         return lastUpdatedAt;
-    }
-
-    public String getSimCode() {
-        return simCode;
-    }
-
-    public void setSimCode(String simCode) {
-        this.simCode = simCode;
     }
 
     public void setLastUpdatedAt(LocalDateTime lastUpdatedAt) {

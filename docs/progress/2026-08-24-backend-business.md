@@ -72,3 +72,38 @@ Alarm Java API V1          ✅ 已集成（数据库 schema 尚待补齐）
 - 补充并评审独立 Alarm schema，不修改既有 `001_core_schema.sql`
 - 在本地数据库具备 `alarm` 表后完成 Alarm REST API 真实验收
 - 继续推进 TrackPoint、latest location、Dispatch、Auth 和 Agent 等后续模块
+
+## Phase 0 / Phase 1 frontend P0 API increment
+
+- Froze `UserStatus` as `ACTIVE / DISABLED` and `UserRole` as `OWNER / DRIVER / WAREHOUSE_MANAGER / DISPATCHER / ADMIN`.
+- Kept the Alarm filter name as `alarmType` and Dispatch status as `PENDING / EXECUTED / CANCELLED / FAILED`.
+- Added `POST /api/v1/auth/login` and authenticated `GET /api/v1/users/me` using stateless JWT and BCrypt. Existing business APIs remain temporarily `permitAll`.
+- Runtime deployment must provide a strong `JWT_SECRET`; `JWT_EXPIRES_SECONDS` defaults to 28800.
+- Added active Driver/Owner option APIs and `driverName` / `ownerName` response enrichment with batched relationship lookups.
+- Added Vehicle/Cargo available APIs using the same `WAITING / TRANSPORTING` active-task definition as TransportTask creation.
+- Did not add Cargo direct status, bindings, Dispatch V1 expansion, dashboard, RBAC, refresh/logout, or realtime backend features.
+- Final verification: 185 tests, Failures 0, Errors 0, Skipped 0; `clean test` and `clean compile` both succeeded with the repository Maven Wrapper on Windows.
+
+## Phase 2–4 auth, RBAC, data scope, and business API increment
+
+- Added public self-registration for OWNER, DRIVER, and WAREHOUSE_MANAGER with BCrypt,
+  explicit internal-role denial, username race handling, and transactional Owner/Driver
+  identity creation. Registration never issues a token.
+- Enforced authentication for all `/api/v1/**` routes except login, registration, and
+  CORS preflight; standardized JSON 401 and 403 responses.
+- Enabled method security and introduced one database-reloaded current-user identity for
+  user profile, role authorization, and data-scope enforcement.
+- Added exact OWNER and DRIVER scopes across Cargo, Vehicle, TransportTask, CargoItem, and
+  Alarm relationships. User filters are composed with, and never replace, security scope.
+- Applied the frozen explicit role matrix. ADMIN is not a super-role; Alarm status and the
+  existing DispatchCommand web surface are denied to every frontend role.
+- Added Vehicle driver binding, Cargo base update, CargoItem update/delete, DRIVER current
+  task, WAITING Task base update, and the frozen Vehicle/Cargo/Task/Alarm filters.
+- Preserved the TransportTask state machine and its Cargo/Vehicle status propagation.
+  Driver web status reporting exposes only WAITING→TRANSPORTING and
+  TRANSPORTING→COMPLETED; internal ABNORMAL/CANCELLED transitions remain available to
+  internal service workflows.
+- Did not add Cargo deletion, Cargo direct status, bindings, warehouse/dispatcher tables,
+  realtime location, track, ETA, MQTT, WebSocket, dashboard, or DispatchCommand V1.
+- Stage regressions: Phase 2 = 199 tests, Phase 2.5 = 203 tests, Phase 3 = 217 tests,
+  Phase 4 = 235 tests; all completed with zero failures, errors, or skips.

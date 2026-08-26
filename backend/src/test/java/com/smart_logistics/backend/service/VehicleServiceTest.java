@@ -15,6 +15,7 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.VehicleMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +28,8 @@ import org.springframework.dao.DuplicateKeyException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -44,6 +47,18 @@ class VehicleServiceTest {
     @Mock
     private VehicleMapper vehicleMapper;
 
+    @Mock
+    private UserDisplayNameService userDisplayNameService;
+
+    @Mock
+    private TransportTaskAvailabilityService availabilityService;
+
+    @Mock
+    private BusinessDataScopeService dataScopeService;
+
+    @Mock
+    private DriverService driverService;
+
     private VehicleService vehicleService;
 
     @BeforeEach
@@ -52,7 +67,11 @@ class VehicleServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "vehicle-test"),
                 Vehicle.class
         );
-        vehicleService = new VehicleService(vehicleMapper);
+        org.mockito.Mockito.lenient().when(userDisplayNameService.getDriverNames(any()))
+                .thenReturn(Map.of());
+        vehicleService = new VehicleService(
+                vehicleMapper, userDisplayNameService, availabilityService, dataScopeService,
+                driverService);
     }
 
     @Test
@@ -211,6 +230,9 @@ class VehicleServiceTest {
     @SuppressWarnings("unchecked")
     void listVehiclesReturnsPageAndAppliesStatusFilter() {
         Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setDriverId(3L);
+        when(userDisplayNameService.getDriverNames(any()))
+                .thenReturn(Map.of(3L, "Driver Name"));
         when(vehicleMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenAnswer(invocation -> {
                     Page<Vehicle> page = invocation.getArgument(0);
@@ -227,12 +249,91 @@ class VehicleServiceTest {
         assertEquals(1, result.getTotal());
         assertEquals(1, result.getPage());
         assertEquals(10, result.getPageSize());
+        assertEquals("Driver Name", result.getRecords().getFirst().getDriverName());
 
         ArgumentCaptor<LambdaQueryWrapper<Vehicle>> wrapperCaptor =
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(vehicleMapper).selectPage(any(Page.class), wrapperCaptor.capture());
         assertTrue(wrapperCaptor.getValue().getSqlSegment().contains("status"));
         assertTrue(wrapperCaptor.getValue().getParamNameValuePairs().containsValue("IDLE"));
+    }
+
+    @Test
+    void getVehicleEnrichesDriverNameThroughRelationshipLookup() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setDriverId(37L);
+        when(vehicleMapper.selectById(1L)).thenReturn(vehicle);
+        when(userDisplayNameService.getDriverNames(List.of(37L)))
+                .thenReturn(Map.of(37L, "Current Driver"));
+        assertEquals("Current Driver", vehicleService.getVehicle(1L).getDriverName());
+    }
+
+    @Test
+    void availableReturnsIdleVehiclesWithoutActiveTaskAndIncludesDriverName() {
+        Vehicle available = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        available.setDriverId(3L);
+        Vehicle occupied = vehicle(2L, "沪A10002", VehicleStatus.IDLE);
+        Vehicle historicalOnly = vehicle(3L, "沪A10003", VehicleStatus.IDLE);
+        when(vehicleMapper.selectList(any())).thenReturn(
+                List.of(available, occupied, historicalOnly));
+        when(availabilityService.findActiveVehicleIds(List.of(1L, 2L, 3L)))
+                .thenReturn(Set.of(2L));
+        when(userDisplayNameService.getDriverNames(any()))
+                .thenReturn(Map.of(3L, "Driver Name"));
+
+        List<VehicleResponse> result = vehicleService.listAvailableVehicles();
+
+        assertEquals(List.of(1L, 3L), result.stream().map(VehicleResponse::getId).toList());
+        assertEquals("Driver Name", result.getFirst().getDriverName());
+        ArgumentCaptor<LambdaQueryWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(vehicleMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("status"));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(VehicleStatus.IDLE.name()));
+    }
+
+    @Test
+    void updateDriverBindingAcceptsActiveDriverAndSupportsUnbind() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setDriverId(3L);
+        Vehicle unbound = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        when(vehicleMapper.selectById(1L)).thenReturn(vehicle, unbound);
+        when(vehicleMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        VehicleResponse response = vehicleService.updateDriverBinding(1L, null);
+
+        assertEquals(null, response.getDriverId());
+        verify(vehicleMapper).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void updateDriverBindingRejectsDriverChangeWhileTransporting() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.TRANSPORTING);
+        vehicle.setDriverId(3L);
+        when(vehicleMapper.selectById(1L)).thenReturn(vehicle);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> vehicleService.updateDriverBinding(1L, 4L));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(driverService, never()).requireActiveDriver(4L);
+        verify(vehicleMapper, never()).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void listVehicleDriverFilterIsComposedWithSecurityScope() {
+        when(vehicleMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        vehicleService.listVehicles(1, 10, null, null, 9L);
+
+        verify(dataScopeService).applyVehicleScope(any(), org.mockito.ArgumentMatchers.eq(9L));
+        ArgumentCaptor<LambdaQueryWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(vehicleMapper).selectPage(any(Page.class), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("driver_id"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(9L));
     }
 
     private Vehicle vehicle(Long id, String plateNumber, VehicleStatus status) {

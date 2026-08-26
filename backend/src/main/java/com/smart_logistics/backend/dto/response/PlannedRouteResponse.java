@@ -1,23 +1,21 @@
 package com.smart_logistics.backend.dto.response;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
+import java.time.OffsetDateTime;
 import java.util.List;
 
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class PlannedRouteResponse {
-    private List<RoutePoint> points;
+public record PlannedRouteResponse(Long taskId,
+                                   String vehicleDeviceCode,
+                                   String provider,
+                                   String coordinateSystem,
+                                   long distanceMeters,
+                                   long referenceDurationSeconds,
+                                   OffsetDateTime generatedAt,
+                                   List<RoutePoint> points) {
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class RoutePoint {
-        private Double lon;
-        private Double lat;
-        private String address;
+    public PlannedRouteResponse {
+        points = List.copyOf(points);
+    }
+
+    public record RoutePoint(double longitude, double latitude) {
     }
 }

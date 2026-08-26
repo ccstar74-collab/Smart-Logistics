@@ -10,25 +10,33 @@ public class AlarmResponse {
 
     private final Long id;
     private final Long taskId;
+    private final String deviceCode;
     private final AlarmType alarmType;
     private final AlarmLevel level;
     private final String message;
     private final AlarmStatus status;
+    private final String source;
+    private final OffsetDateTime occurredAt;
     private final Long handledBy;
     private final OffsetDateTime handledAt;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime resolvedAt;
 
-    public AlarmResponse(Long id, Long taskId, AlarmType alarmType, AlarmLevel level,
-                         String message, AlarmStatus status, Long handledBy,
+    public AlarmResponse(Long id, Long taskId, String deviceCode,
+                         AlarmType alarmType, AlarmLevel level,
+                         String message, AlarmStatus status, String source,
+                         OffsetDateTime occurredAt, Long handledBy,
                          OffsetDateTime handledAt, OffsetDateTime createdAt,
                          OffsetDateTime resolvedAt) {
         this.id = id;
         this.taskId = taskId;
+        this.deviceCode = deviceCode;
         this.alarmType = alarmType;
         this.level = level;
         this.message = message;
         this.status = status;
+        this.source = source;
+        this.occurredAt = occurredAt;
         this.handledBy = handledBy;
         this.handledAt = handledAt;
         this.createdAt = createdAt;
@@ -41,6 +49,10 @@ public class AlarmResponse {
 
     public Long getTaskId() {
         return taskId;
+    }
+
+    public String getDeviceCode() {
+        return deviceCode;
     }
 
     public AlarmType getAlarmType() {
@@ -57,6 +69,14 @@ public class AlarmResponse {
 
     public AlarmStatus getStatus() {
         return status;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public OffsetDateTime getOccurredAt() {
+        return occurredAt;
     }
 
     public Long getHandledBy() {

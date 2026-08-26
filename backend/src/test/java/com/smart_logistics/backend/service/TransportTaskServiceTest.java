@@ -9,16 +9,24 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.enums.VehicleStatus;
+import com.smart_logistics.backend.enums.UserRole;
+import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,12 +63,26 @@ class TransportTaskServiceTest {
     @Mock
     private TransportTaskMapper transportTaskMapper;
     @Mock
+    private OwnerMapper ownerMapper;
+    @Mock
     private CargoService cargoService;
     @Mock
     private VehicleService vehicleService;
     //新增第四个mock依赖
     @Mock
     private VehicleTraceService vehicleTraceService;
+
+    @Mock
+    private TransportTaskAvailabilityService availabilityService;
+
+    @Mock
+    private BusinessDataScopeService dataScopeService;
+
+    @Mock
+    private CurrentUserService currentUserService;
+
+    @Mock
+    private TransportTaskStatusRecordService statusRecordService;
 
     private TransportTaskService service;
 
@@ -70,15 +92,21 @@ class TransportTaskServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "transport-task-test"),
                 TransportTask.class
         );
-        //补齐4个构造参数
-        service = new TransportTaskService(transportTaskMapper, cargoService, vehicleService, vehicleTraceService);
+        Owner owner = new Owner();
+        owner.setId(30L);
+        org.mockito.Mockito.lenient().when(ownerMapper.selectById(30L)).thenReturn(owner);
+        service = new TransportTaskService(
+                transportTaskMapper, ownerMapper, cargoService, vehicleService,
+                availabilityService,
+                dataScopeService, currentUserService, statusRecordService);
     }
 
     @Test
     void createTransportTaskGeneratesTaskNumberAndDefaultsToWaiting() {
         TransportTaskCreateRequest request = createRequest();
         TransportTask[] holder = new TransportTask[1];
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
         when(transportTaskMapper.selectCount(any())).thenReturn(0L);
         when(transportTaskMapper.insert(any(TransportTask.class))).thenAnswer(invocation -> {
@@ -101,11 +129,13 @@ class TransportTaskServiceTest {
         assertNull(inserted.getEstimatedArrivalTime());
         assertEquals(TransportTaskStatus.WAITING, response.getStatus());
         assertEquals("+08:00", response.getPlanStartTime().getOffset().toString());
+        verify(cargoService).bindOwnerForTransport(any(Cargo.class),
+                org.mockito.ArgumentMatchers.eq(30L));
     }
 
     @Test
     void createTransportTaskRejectsMissingCargo() {
-        when(cargoService.getCargoForTransport(10L)).thenThrow(
+        when(cargoService.getCargoForTransportForUpdate(10L)).thenThrow(
                 new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found"));
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -116,8 +146,24 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void createTransportTaskRejectsMissingOwnerBeforeCargoBinding() {
+        TransportTaskCreateRequest request = createRequest();
+        request.setOwnerId(999L);
+        when(ownerMapper.selectById(999L)).thenReturn(null);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createTransportTask(request));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getErrorCode());
+        assertEquals("owner not found", exception.getMessage());
+        verify(cargoService, never()).getCargoForTransportForUpdate(any());
+        verify(cargoService, never()).bindOwnerForTransport(any(), any());
+    }
+
+    @Test
     void createTransportTaskRejectsMissingVehicle() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L)).thenThrow(
                 new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "vehicle not found"));
 
@@ -129,7 +175,8 @@ class TransportTaskServiceTest {
 
     @Test
     void createTransportTaskRejectsCargoThatIsNotWaiting() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.COMPLETED));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.COMPLETED));
         when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -141,7 +188,8 @@ class TransportTaskServiceTest {
 
     @Test
     void createTransportTaskRejectsVehicleThatIsNotIdle() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L))
                 .thenReturn(vehicle(VehicleStatus.TRANSPORTING));
 
@@ -153,34 +201,53 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void createTransportTaskRejectsCargoAssignedToDifferentOwner() {
+        Cargo cargo = cargo(CargoStatus.WAITING);
+        cargo.setOwnerId(31L);
+        when(cargoService.getCargoForTransportForUpdate(10L)).thenReturn(cargo);
+        when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createTransportTask(createRequest()));
+
+        assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
+        assertEquals("cargo is already assigned to another owner", exception.getMessage());
+        verify(cargoService, never()).bindOwnerForTransport(any(), any());
+        verify(transportTaskMapper, never()).insert(any(TransportTask.class));
+    }
+
+    @Test
     void createRejectsCargoOccupiedByWaitingOrTransportingTask() {
         stubCreateAssociations();
-        when(transportTaskMapper.selectCount(any())).thenReturn(1L);
+        org.mockito.Mockito.doThrow(new BusinessException(
+                        ErrorCode.DATA_CONFLICT,
+                        "cargo already has an active transport task"))
+                .when(availabilityService).ensureCargoAvailable(10L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.createTransportTask(createRequest()));
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("cargo already has an active transport task", exception.getMessage());
-        ArgumentCaptor<LambdaQueryWrapper<TransportTask>> captor = wrapperCaptor();
-        verify(transportTaskMapper).selectCount(captor.capture());
-        captor.getValue().getSqlSegment();
-        assertTrue(captor.getValue().getParamNameValuePairs()
-                .containsValue(TransportTaskStatus.WAITING.name()));
-        assertTrue(captor.getValue().getParamNameValuePairs()
-                .containsValue(TransportTaskStatus.TRANSPORTING.name()));
+        verify(availabilityService).ensureCargoAvailable(10L);
+        verify(availabilityService, never()).ensureVehicleAvailable(any());
     }
 
     @Test
     void createRejectsVehicleOccupiedByWaitingOrTransportingTask() {
         stubCreateAssociations();
-        when(transportTaskMapper.selectCount(any())).thenReturn(0L, 1L);
+        org.mockito.Mockito.doThrow(new BusinessException(
+                        ErrorCode.DATA_CONFLICT,
+                        "vehicle already has an active transport task"))
+                .when(availabilityService).ensureVehicleAvailable(20L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.createTransportTask(createRequest()));
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("vehicle already has an active transport task", exception.getMessage());
+        verify(availabilityService).ensureCargoAvailable(10L);
+        verify(availabilityService).ensureVehicleAvailable(20L);
     }
 
     @Test
@@ -196,13 +263,14 @@ class TransportTaskServiceTest {
     @Test
     void createRejectsGeneratedTaskNumberAlreadyPresentAtPrecheck() {
         stubCreateAssociations();
-        when(transportTaskMapper.selectCount(any())).thenReturn(0L, 0L, 1L);
+        when(transportTaskMapper.selectCount(any())).thenReturn(1L);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.createTransportTask(createRequest()));
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("transport task number already exists", exception.getMessage());
+        verify(cargoService, never()).bindOwnerForTransport(any(), any());
     }
 
     @Test
@@ -217,6 +285,8 @@ class TransportTaskServiceTest {
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("transport task number already exists", exception.getMessage());
+        verify(cargoService).bindOwnerForTransport(any(Cargo.class),
+                org.mockito.ArgumentMatchers.eq(30L));
     }
 
     @Test
@@ -228,7 +298,7 @@ class TransportTaskServiceTest {
                 () -> service.createTransportTask(request));
 
         assertEquals(ErrorCode.INVALID_PARAMETER, exception.getErrorCode());
-        verify(cargoService, never()).getCargoForTransport(any());
+        verify(cargoService, never()).getCargoForTransportForUpdate(any());
     }
 
     @Test
@@ -311,6 +381,11 @@ class TransportTaskServiceTest {
                 10L, CargoStatus.WAITING, CargoStatus.TRANSPORTING);
         verify(vehicleService).updateStatusForTransport(
                 20L, VehicleStatus.IDLE, VehicleStatus.TRANSPORTING);
+        verify(statusRecordService).recordTransition(
+                org.mockito.ArgumentMatchers.any(TransportTask.class),
+                org.mockito.ArgumentMatchers.eq(TransportTaskStatus.WAITING),
+                org.mockito.ArgumentMatchers.eq(TransportTaskStatus.TRANSPORTING),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class));
     }
 
     @Test
@@ -394,6 +469,7 @@ class TransportTaskServiceTest {
         assertEquals(failure, exception);
         verify(transportTaskMapper).update(isNull(), any(Wrapper.class));
         verify(vehicleService, never()).updateStatusForTransport(any(), any(), any());
+        verify(statusRecordService, never()).recordTransition(any(), any(), any(), any());
     }
 
     @Test
@@ -408,6 +484,151 @@ class TransportTaskServiceTest {
         assertNotNull(update.getAnnotation(Transactional.class));
     }
 
+    @Test
+    void currentTaskPrioritizesTransportingAndUsesStableQuery() {
+        when(currentUserService.getCurrentUser()).thenReturn(new UserIdentityResponse(
+                1L, "driver", "Driver", null, UserRole.DRIVER,
+                UserStatus.ACTIVE, 9L, null));
+        when(dataScopeService.vehicleIdsForDriver(9L)).thenReturn(List.of(20L));
+        when(transportTaskMapper.selectOne(any())).thenReturn(
+                task(2L, TransportTaskStatus.TRANSPORTING));
+
+        TransportTaskResponse response = service.getCurrentTransportTask();
+
+        assertEquals(2L, response.getId());
+        assertEquals(TransportTaskStatus.TRANSPORTING, response.getStatus());
+        ArgumentCaptor<LambdaQueryWrapper<TransportTask>> captor = wrapperCaptor();
+        verify(transportTaskMapper).selectOne(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("ORDER BY"));
+        assertTrue(captor.getValue().getSqlSegment().contains("LIMIT 1"));
+    }
+
+    @Test
+    void currentTaskFallsBackToWaiting() {
+        when(currentUserService.getCurrentUser()).thenReturn(new UserIdentityResponse(
+                1L, "driver", "Driver", null, UserRole.DRIVER,
+                UserStatus.ACTIVE, 9L, null));
+        when(dataScopeService.vehicleIdsForDriver(9L)).thenReturn(List.of(20L));
+        when(transportTaskMapper.selectOne(any())).thenReturn(
+                null, task(3L, TransportTaskStatus.WAITING));
+
+        assertEquals(TransportTaskStatus.WAITING,
+                service.getCurrentTransportTask().getStatus());
+    }
+
+    @Test
+    void warehouseBaseUpdateOnlyChangesWaitingTaskFields() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation("New Start");
+        request.setEndLocation("New End");
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertEquals("T202608230001", response.getTaskNo());
+        assertEquals(10L, response.getCargoId());
+        assertEquals(20L, response.getVehicleId());
+        assertEquals(TransportTaskStatus.WAITING, response.getStatus());
+        assertEquals("New Start", response.getStartLocation());
+    }
+
+    @Test
+    void legacyUpdatePreservesCoordinatesWhenLocationsAreUnchanged() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setStartLongitude(106.501);
+        waiting.setStartLatitude(29.501);
+        waiting.setEndLongitude(106.601);
+        waiting.setEndLatitude(29.601);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setEndLocation(waiting.getEndLocation());
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertEquals(106.501, response.getStartLongitude());
+        assertEquals(29.501, response.getStartLatitude());
+        assertEquals(106.601, response.getEndLongitude());
+        assertEquals(29.601, response.getEndLatitude());
+    }
+
+    @Test
+    void legacyUpdateClearsCoordinatesWhenLocationTextChanges() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setEndLongitude(106.601);
+        waiting.setEndLatitude(29.601);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setEndLocation("Changed Destination");
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertNull(response.getEndLongitude());
+        assertNull(response.getEndLatitude());
+    }
+
+    @Test
+    void baseUpdateRejectsTransportingTask() {
+        when(transportTaskMapper.selectById(1L)).thenReturn(
+                task(1L, TransportTaskStatus.TRANSPORTING));
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation("A");
+        request.setEndLocation("B");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.updateTransportTask(1L, request));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(transportTaskMapper, never()).updateById(any(TransportTask.class));
+    }
+
+    @Test
+    void driverEndpointDoesNotExposeCancelledOrAbnormalTransitions() {
+        when(transportTaskMapper.selectById(1L)).thenReturn(
+                task(1L, TransportTaskStatus.WAITING),
+                task(1L, TransportTaskStatus.TRANSPORTING));
+
+        assertEquals(ErrorCode.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.updateTransportTaskStatusForDriver(1L,
+                        statusRequest(TransportTaskStatus.CANCELLED))).getErrorCode());
+        assertEquals(ErrorCode.FORBIDDEN, assertThrows(BusinessException.class,
+                () -> service.updateTransportTaskStatusForDriver(1L,
+                        statusRequest(TransportTaskStatus.ABNORMAL))).getErrorCode());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void taskFiltersAreComposedAfterSecurityScope() {
+        when(dataScopeService.vehicleIdsForDriver(9L)).thenReturn(List.of(20L));
+        when(dataScopeService.cargoIdsForOwner(3L)).thenReturn(List.of(10L));
+        when(transportTaskMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.listTransportTasks(1, 10, null, TransportTaskStatus.WAITING,
+                9L, 3L, 20L, 10L);
+
+        verify(dataScopeService).applyTaskScope(any(),
+                org.mockito.ArgumentMatchers.eq(9L),
+                org.mockito.ArgumentMatchers.eq(3L));
+        ArgumentCaptor<LambdaQueryWrapper<TransportTask>> captor = wrapperCaptor();
+        verify(transportTaskMapper).selectPage(any(Page.class), captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("vehicle_id"));
+        assertTrue(sql.contains("cargo_id"));
+        assertTrue(sql.contains("status"));
+    }
+
     private static Stream<Arguments> invalidTransitions() {
         return Stream.of(
                 Arguments.of(TransportTaskStatus.WAITING, TransportTaskStatus.COMPLETED),
@@ -418,7 +639,8 @@ class TransportTaskServiceTest {
     }
 
     private void stubCreateAssociations() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
     }
 
@@ -466,6 +688,7 @@ class TransportTaskServiceTest {
     private TransportTaskCreateRequest createRequest() {
         TransportTaskCreateRequest request = new TransportTaskCreateRequest();
         request.setCargoId(10L);
+        request.setOwnerId(30L);
         request.setVehicleId(20L);
         request.setStartLocation(" Shanghai ");
         request.setEndLocation(" Beijing ");

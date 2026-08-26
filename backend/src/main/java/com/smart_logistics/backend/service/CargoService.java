@@ -5,12 +5,16 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.CargoCreateRequest;
+import com.smart_logistics.backend.dto.request.CargoUpdateRequest;
 import com.smart_logistics.backend.dto.response.CargoResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.CargoMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +24,8 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class CargoService {
@@ -27,14 +33,33 @@ public class CargoService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final CargoMapper cargoMapper;
+    private final OwnerMapper ownerMapper;
+    private final UserDisplayNameService userDisplayNameService;
+    private final TransportTaskAvailabilityService availabilityService;
+    private final BusinessDataScopeService dataScopeService;
 
-    public CargoService(CargoMapper cargoMapper) {
+    public CargoService(CargoMapper cargoMapper,
+                        OwnerMapper ownerMapper,
+                        UserDisplayNameService userDisplayNameService,
+                        TransportTaskAvailabilityService availabilityService,
+                        BusinessDataScopeService dataScopeService) {
         this.cargoMapper = cargoMapper;
+        this.ownerMapper = ownerMapper;
+        this.userDisplayNameService = userDisplayNameService;
+        this.availabilityService = availabilityService;
+        this.dataScopeService = dataScopeService;
     }
 
     public PageResult<CargoResponse> listCargos(long page, long pageSize,
                                                 String keyword, CargoStatus status) {
+        return listCargos(page, pageSize, keyword, status, null);
+    }
+
+    public PageResult<CargoResponse> listCargos(long page, long pageSize,
+                                                String keyword, CargoStatus status,
+                                                Long ownerId) {
         LambdaQueryWrapper<Cargo> query = new LambdaQueryWrapper<>();
+        dataScopeService.applyCargoScope(query, ownerId);
         if (StringUtils.hasText(keyword)) {
             String normalizedKeyword = keyword.trim();
             query.and(wrapper -> wrapper
@@ -45,12 +70,13 @@ public class CargoService {
         if (status != null) {
             query.eq(Cargo::getStatus, status.name());
         }
+        if (ownerId != null) {
+            query.eq(Cargo::getOwnerId, ownerId);
+        }
         query.orderByDesc(Cargo::getId);
 
         Page<Cargo> entityPage = cargoMapper.selectPage(new Page<>(page, pageSize), query);
-        List<CargoResponse> records = entityPage.getRecords().stream()
-                .map(this::toResponse)
-                .toList();
+        List<CargoResponse> records = toResponses(entityPage.getRecords());
         return new PageResult<>(records, entityPage.getTotal(), page, pageSize);
     }
 
@@ -58,8 +84,52 @@ public class CargoService {
         return toResponse(getRequiredCargo(id));
     }
 
+    public List<CargoResponse> listAvailableCargos() {
+        List<Cargo> waitingCargos = cargoMapper.selectList(
+                new LambdaQueryWrapper<Cargo>()
+                        .eq(Cargo::getStatus, CargoStatus.WAITING.name())
+                        .orderByAsc(Cargo::getId));
+        Set<Long> occupiedIds = availabilityService.findActiveCargoIds(
+                waitingCargos.stream().map(Cargo::getId).toList());
+        return toResponses(waitingCargos.stream()
+                .filter(cargo -> !occupiedIds.contains(cargo.getId()))
+                .toList());
+    }
+
     public Cargo getCargoForTransport(Long id) {
-        return getRequiredCargo(id);
+        return getRequiredCargoRaw(id);
+    }
+
+    public Cargo getCargoForTransportForUpdate(Long id) {
+        Cargo cargo = cargoMapper.selectOne(new LambdaQueryWrapper<Cargo>()
+                .eq(Cargo::getId, id)
+                .last("FOR UPDATE"));
+        if (cargo == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found");
+        }
+        return cargo;
+    }
+
+    @Transactional
+    public void bindOwnerForTransport(Cargo cargo, Long ownerId) {
+        if (cargo.getOwnerId() != null) {
+            if (!cargo.getOwnerId().equals(ownerId)) {
+                throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                        "cargo is already assigned to another owner");
+            }
+            return;
+        }
+        LambdaUpdateWrapper<Cargo> update = new LambdaUpdateWrapper<Cargo>()
+                .eq(Cargo::getId, cargo.getId())
+                .eq(Cargo::getStatus, CargoStatus.WAITING.name())
+                .isNull(Cargo::getOwnerId)
+                .set(Cargo::getOwnerId, ownerId)
+                .set(Cargo::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
+        if (cargoMapper.update(null, update) != 1) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "cargo owner binding conflict");
+        }
+        cargo.setOwnerId(ownerId);
     }
 
     @Transactional
@@ -79,6 +149,7 @@ public class CargoService {
     public CargoResponse createCargo(CargoCreateRequest request) {
         String cargoNo = request.getCargoNo().trim();
         ensureCargoNoAvailable(cargoNo);
+        ensureOwnerExists(request.getOwnerId());
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Cargo cargo = new Cargo();
@@ -102,7 +173,45 @@ public class CargoService {
         return toResponse(getRequiredCargo(cargo.getId()));
     }
 
+    @Transactional
+    public CargoResponse updateCargo(Long id, CargoUpdateRequest request) {
+        Cargo cargo = requireCargoMutable(id);
+        cargo.setName(request.getName().trim());
+        cargo.setDescription(trimToNull(request.getDescription()));
+        cargo.setWeight(request.getWeight());
+        cargo.setVolume(request.getVolume());
+        cargo.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
+        if (cargoMapper.updateById(cargo) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to update cargo");
+        }
+        return toResponse(getRequiredCargo(id));
+    }
+
+    public Cargo requireCargoMutable(Long id) {
+        Cargo cargo = getRequiredCargo(id);
+        if (parseStatus(cargo.getStatus()) != CargoStatus.WAITING) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "only waiting cargo can be modified");
+        }
+        availabilityService.ensureCargoAvailable(id);
+        return cargo;
+    }
+
+    @Transactional
+    public void deleteCargo(Long id) {
+        requireCargoMutable(id);
+        if (cargoMapper.deleteById(id) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to delete cargo");
+        }
+    }
+
     private Cargo getRequiredCargo(Long id) {
+        Cargo cargo = getRequiredCargoRaw(id);
+        dataScopeService.requireCargoAccess(cargo);
+        return cargo;
+    }
+
+    private Cargo getRequiredCargoRaw(Long id) {
         Cargo cargo = cargoMapper.selectById(id);
         if (cargo == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found");
@@ -127,7 +236,33 @@ public class CargoService {
         return exception;
     }
 
+    private List<CargoResponse> toResponses(List<Cargo> cargos) {
+        Map<Long, String> ownerNames = userDisplayNameService.getOwnerNames(
+                cargos.stream().map(Cargo::getOwnerId).toList());
+        return cargos.stream()
+                .map(cargo -> toResponse(cargo, cargo.getOwnerId() == null
+                        ? null : ownerNames.get(cargo.getOwnerId())))
+                .toList();
+    }
+
+    private void ensureOwnerExists(Long ownerId) {
+        if (ownerId == null) {
+            return;
+        }
+        Owner owner = ownerMapper.selectById(ownerId);
+        if (owner == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "owner not found");
+        }
+    }
+
     private CargoResponse toResponse(Cargo cargo) {
+        Long ownerId = cargo.getOwnerId();
+        String ownerName = ownerId == null ? null : userDisplayNameService
+                .getOwnerNames(List.of(ownerId)).get(ownerId);
+        return toResponse(cargo, ownerName);
+    }
+
+    private CargoResponse toResponse(Cargo cargo, String ownerName) {
         return new CargoResponse(
                 cargo.getId(),
                 cargo.getCargoNo(),
@@ -136,6 +271,7 @@ public class CargoService {
                 cargo.getWeight(),
                 cargo.getVolume(),
                 cargo.getOwnerId(),
+                ownerName,
                 parseStatus(cargo.getStatus()),
                 toOffsetDateTime(cargo.getCreatedAt()),
                 toOffsetDateTime(cargo.getUpdatedAt())

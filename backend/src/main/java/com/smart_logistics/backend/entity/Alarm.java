@@ -12,10 +12,15 @@ public class Alarm {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long taskId;
+    private String deviceCode;
     private String alarmType;
     private String level;
     private String message;
     private String status;
+    private String source;
+    private String schemaVersion;
+    private String eventKey;
+    private LocalDateTime occurredAt;
     private Long handledBy;
     private LocalDateTime handledAt;
     private LocalDateTime createdAt;
@@ -35,6 +40,14 @@ public class Alarm {
 
     public void setTaskId(Long taskId) {
         this.taskId = taskId;
+    }
+
+    public String getDeviceCode() {
+        return deviceCode;
+    }
+
+    public void setDeviceCode(String deviceCode) {
+        this.deviceCode = deviceCode;
     }
 
     public String getAlarmType() {
@@ -67,6 +80,38 @@ public class Alarm {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public String getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public void setSchemaVersion(String schemaVersion) {
+        this.schemaVersion = schemaVersion;
+    }
+
+    public String getEventKey() {
+        return eventKey;
+    }
+
+    public void setEventKey(String eventKey) {
+        this.eventKey = eventKey;
+    }
+
+    public LocalDateTime getOccurredAt() {
+        return occurredAt;
+    }
+
+    public void setOccurredAt(LocalDateTime occurredAt) {
+        this.occurredAt = occurredAt;
     }
 
     public Long getHandledBy() {

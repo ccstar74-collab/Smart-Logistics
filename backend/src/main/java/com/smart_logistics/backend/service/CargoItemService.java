@@ -27,7 +27,7 @@ public class CargoItemService {
 
     @Transactional
     public CargoItemResponse createCargoItem(Long cargoId, CargoItemCreateRequest request) {
-        cargoService.getCargo(cargoId);
+        cargoService.requireCargoMutable(cargoId);
 
         CargoItem cargoItem = new CargoItem();
         cargoItem.setCargoId(cargoId);
@@ -66,6 +66,39 @@ public class CargoItemService {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo item not found");
         }
         return toResponse(cargoItem);
+    }
+
+    @Transactional
+    public CargoItemResponse updateCargoItem(Long cargoId, Long itemId,
+                                             CargoItemCreateRequest request) {
+        cargoService.requireCargoMutable(cargoId);
+        CargoItem cargoItem = getRequiredCargoItem(itemId);
+        if (!Objects.equals(cargoItem.getCargoId(), cargoId)) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo item not found");
+        }
+        cargoItem.setItemName(request.getItemName().trim());
+        cargoItem.setQuantity(request.getQuantity());
+        cargoItem.setUnit(trimToNull(request.getUnit()));
+        cargoItem.setWeight(request.getWeight());
+        cargoItem.setVolume(request.getVolume());
+        if (cargoItemMapper.updateById(cargoItem) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "failed to update cargo item");
+        }
+        return toResponse(getRequiredCargoItem(itemId));
+    }
+
+    @Transactional
+    public void deleteCargoItem(Long cargoId, Long itemId) {
+        cargoService.requireCargoMutable(cargoId);
+        CargoItem cargoItem = getRequiredCargoItem(itemId);
+        if (!Objects.equals(cargoItem.getCargoId(), cargoId)) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo item not found");
+        }
+        if (cargoItemMapper.deleteById(itemId) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "failed to delete cargo item");
+        }
     }
 
     private CargoItem getRequiredCargoItem(Long id) {

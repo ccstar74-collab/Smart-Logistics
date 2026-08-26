@@ -1,53 +1,75 @@
 package com.smart_logistics.backend.handler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.smart_logistics.backend.dto.RealTimeGpsDTO;
+import com.smart_logistics.backend.dto.realtime.EtaRealtimeMessage;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.concurrent.CopyOnWriteArraySet;
 
-@Slf4j
 @Component
 public class GpsWebSocketHandler extends TextWebSocketHandler {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(GpsWebSocketHandler.class);
     private static final CopyOnWriteArraySet<WebSocketSession> SESSION_SET = new CopyOnWriteArraySet<>();
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .registerModule(new JavaTimeModule());
+    // 注入Spring Boot自动配置的ObjectMapper（Jackson 3），原生支持java.time并输出ISO-8601，
+    // 禁止自建ObjectMapper：Jackson 2的com.fasterxml实例无法序列化OffsetDateTime
+    private final ObjectMapper objectMapper;
+
+    public GpsWebSocketHandler(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         SESSION_SET.add(session);
-        log.info("WebSocket客户端接入，在线数量：{}", SESSION_SET.size());
+        LOGGER.info("WebSocket客户端接入，在线数量：{}", SESSION_SET.size());
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         SESSION_SET.remove(session);
-        log.info("WebSocket客户端断开，在线数量：{}", SESSION_SET.size());
+        LOGGER.info("WebSocket客户端断开，在线数量：{}", SESSION_SET.size());
     }
 
-    public static void broadcastGps(VehicleTraceWsDTO dto) {
+    public void broadcastGps(RealTimeGpsDTO dto) {
+        broadcast(dto);
+    }
+
+    public void broadcastGps(VehicleTraceWsDTO dto) {
+        broadcast(dto);
+    }
+
+    public void broadcastEta(EtaRealtimeMessage message) {
+        broadcast(message);
+    }
+
+    private void broadcast(Object payload) {
         String json;
         try {
-            json = OBJECT_MAPPER.writeValueAsString(dto);
-        } catch (JsonProcessingException e) {
-            log.error("GPS对外DTO序列化为JSON失败", e);
+            json = objectMapper.writeValueAsString(payload);
+        } catch (JacksonException e) {
+            LOGGER.error("WebSocket消息序列化失败", e);
             return;
         }
+        TextMessage textMessage = new TextMessage(json);
         for (WebSocketSession session : SESSION_SET) {
             try {
                 if (session.isOpen()) {
-                    session.sendMessage(new TextMessage(json));
+                    synchronized (session) {
+                        session.sendMessage(textMessage);
+                    }
                 }
             } catch (Exception e) {
-                log.warn("向WebSocket客户端发送GPS消息异常", e);
+                LOGGER.warn("WebSocket消息发送失败 sessionId={}", session.getId(), e);
             }
         }
     }

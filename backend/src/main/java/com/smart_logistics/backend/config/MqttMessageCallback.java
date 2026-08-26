@@ -8,6 +8,8 @@ import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
+import com.smart_logistics.backend.service.GpsInfluxService;
+import com.smart_logistics.backend.service.MqttAlertMessageHandler;
 import com.smart_logistics.backend.service.VehicleService;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
@@ -39,6 +41,12 @@ public class MqttMessageCallback implements MqttCallback {
 
     @Autowired
     private VehicleService vehicleService;
+
+    @Autowired
+    private GpsInfluxService gpsInfluxService;
+
+    @Autowired
+    private MqttAlertMessageHandler mqttAlertMessageHandler;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -83,6 +91,7 @@ public class MqttMessageCallback implements MqttCallback {
             dispatchMessage(topic, payload);
         } catch (Exception e) {
             log.error("消息处理异常 topic={}", topic, e);
+            throw e;
         }
     }
 
@@ -177,27 +186,16 @@ public class MqttMessageCallback implements MqttCallback {
     }
 
     private void handleAlertMessage(String payload) {
-        log.warn("收到车辆告警：{}", payload);
+        mqttAlertMessageHandler.handle(payload);
     }
 
     private void handleCommandAck(String topic, String payload) {
-        String simCode = parseVehicleId(topic);
-        log.info("车辆指令应答 simCode={}, ack={}", simCode, payload);
+        log.info("收到命令确认 topic={}, payload={}", topic, payload);
     }
 
     private String parseVehicleId(String topic) {
+        // topic format: iot/carla/vehicle/{simCode}/gps or iot/carla/vehicle/{simCode}/status
         String[] parts = topic.split("/");
-        if (parts.length >= 4) {
-            return parts[3];
-        }
-        return "unknown";
-    }
-
-    public CopyOnWriteArrayList<VehicleState> getAllVehicleState() {
-        return new CopyOnWriteArrayList<>(vehicleStateMap.values());
-    }
-
-    public VehicleState getSingleVehicle(String vehicleId) {
-        return vehicleStateMap.get(vehicleId);
+        return parts.length >= 4 ? parts[3] : null;
     }
 }
