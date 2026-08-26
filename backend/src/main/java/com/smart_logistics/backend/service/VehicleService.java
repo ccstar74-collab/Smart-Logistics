@@ -59,6 +59,20 @@ public class VehicleService {
         return getRequiredVehicle(id);
     }
 
+    /**
+     * 根据simCode查询车辆记录，允许返回null（MQTT设备上报场景，设备可能未在数据库注册）
+     * @param simCode 设备sim编号 sim_018
+     * @return Vehicle，找不到返回null
+     */
+    public Vehicle getVehicleBySimCode(String simCode) {
+        if (!StringUtils.hasText(simCode)) {
+            return null;
+        }
+        LambdaQueryWrapper<Vehicle> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Vehicle::getSimCode, simCode.trim());
+        return vehicleMapper.selectOne(wrapper);
+    }
+
     @Transactional
     public void updateStatusForTransport(Long id, VehicleStatus expectedStatus,
                                          VehicleStatus targetStatus) {

@@ -7,7 +7,6 @@ import com.influxdb.client.write.Point;
 import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
 import com.smart_logistics.backend.entity.Vehicle;
-import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
 import com.smart_logistics.backend.service.VehicleService;
 import lombok.extern.slf4j.Slf4j;
@@ -106,7 +105,8 @@ public class MqttMessageCallback implements MqttCallback {
     }
 
     private void handleGpsMessage(String topic, String payload) {
-        String vehicleId = parseVehicleId(topic);
+        // parseVehicleId返回的是simCode(sim_018)，设备外部编号，不是数据库Long主键
+        String simCode = parseVehicleId(topic);
         try {
             Map<String, Object> map = objectMapper.readValue(payload, Map.class);
 
@@ -118,23 +118,25 @@ public class MqttMessageCallback implements MqttCallback {
             String timestamp = String.valueOf(map.get("timestamp"));
             long ts = Instant.parse(timestamp).toEpochMilli();
 
-            VehicleState state = vehicleStateMap.computeIfAbsent(vehicleId, k -> new VehicleState());
-            state.vehicleId = vehicleId;
+            // vehicleStateMap key 使用simCode，内存状态以simCode区分设备
+            VehicleState state = vehicleStateMap.computeIfAbsent(simCode, k -> new VehicleState());
+            state.vehicleId = simCode;
             state.lat = lat;
             state.lon = lon;
             state.speed = speed_kmh;
             state.lastUpdateTs = ts;
 
             RealTimeGpsDTO internalDto = new RealTimeGpsDTO();
-            internalDto.setVehicleId(vehicleId);
+            internalDto.setVehicleId(null); // RealTimeGpsDTO vehicleId为Long数据库主键，此处尚未查询数据库，赋值null；该字段后续不会读取，不影响业务
             internalDto.setLon(lon);
             internalDto.setLat(lat);
             internalDto.setSpeed(speed_kmh);
             internalDto.setHeading(heading);
             internalDto.setTimestamp(ts);
 
+            // InfluxDB tag vehicle_id存入原始simCode字符串 sim_018
             Point point = Point.measurement("vehicle_gps")
-                    .addTag("vehicle_id", vehicleId)
+                    .addTag("vehicle_id", simCode)
                     .addField("lat", lat)
                     .addField("lon", lon)
                     .addField("speed_kmh", speed_kmh)
@@ -143,7 +145,6 @@ public class MqttMessageCallback implements MqttCallback {
             writeApi.writePoint(point);
 
             VehicleTraceWsDTO outDto = new VehicleTraceWsDTO();
-            outDto.setVehicleId(vehicleId);
             outDto.setLatitude(internalDto.getLat());
             outDto.setLongitude(internalDto.getLon());
             outDto.setSpeed(internalDto.getSpeed());
@@ -151,26 +152,28 @@ public class MqttMessageCallback implements MqttCallback {
             OffsetDateTime collectedAt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault());
             outDto.setCollectedAt(collectedAt);
 
-            // ========= 新增：查询MySQL获取simCode =========
-            try {
-                Long vidLong = Long.parseLong(vehicleId);
-                Vehicle vehicle = vehicleService.getVehicleForTransport(vidLong);
+            // 通过simCode查询MySQL记录
+            Vehicle vehicle = vehicleService.getVehicleBySimCode(simCode);
+            if (vehicle != null) {
+                // DTO vehicleId字段为String，数据库Long主键转为字符串
+                outDto.setVehicleId(vehicle.getId().toString());
                 outDto.setSimCode(vehicle.getSimCode());
-            } catch (NumberFormatException | BusinessException e) {
-                log.warn("获取车辆simCode失败 vehicleId={}", vehicleId);
+            } else {
+                log.warn("数据库无simCode={}对应的车辆记录，设备未注册", simCode);
+                outDto.setVehicleId(null);
                 outDto.setSimCode(null);
             }
 
             gpsWebSocketHandler.broadcastGps(outDto);
 
         } catch (Exception e) {
-            log.error("GPS消息解析/写入失败 vehicleId={}", vehicleId, e);
+            log.error("GPS消息解析/写入失败 simCode={}", simCode, e);
         }
     }
 
     private void handleStatusMessage(String topic, String payload) {
-        String vehicleId = parseVehicleId(topic);
-        log.info("车辆状态更新 vehicleId={}, payload={}", vehicleId, payload);
+        String simCode = parseVehicleId(topic);
+        log.info("车辆状态更新 simCode={}, payload={}", simCode, payload);
     }
 
     private void handleAlertMessage(String payload) {
@@ -178,8 +181,8 @@ public class MqttMessageCallback implements MqttCallback {
     }
 
     private void handleCommandAck(String topic, String payload) {
-        String vehicleId = parseVehicleId(topic);
-        log.info("车辆指令应答 vehicleId={}, ack={}", vehicleId, payload);
+        String simCode = parseVehicleId(topic);
+        log.info("车辆指令应答 simCode={}, ack={}", simCode, payload);
     }
 
     private String parseVehicleId(String topic) {
