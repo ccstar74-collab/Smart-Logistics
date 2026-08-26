@@ -14,6 +14,6 @@
 
 兼容规则：新增可选字段属于向后兼容；删除字段、改名、改变类型或单位时必须提升主版本并通知接口消费方。
 
-路线约定：业务后端负责调用高德并保存GCJ02 polyline；模拟器不得调用高德。业务后端只在路线READY或版本更新后发布 `TASK_ROUTE_READY`，消息包含 `task_id / route_id / route_version / vehicle_id`，不得发送大polyline。模拟器通过 `GET /api/v1/transport-tasks/{taskId}/route` 读取完整路线，转换成WGS84后发布GPS。
+路线约定：后端 ETA 模块负责调用高德并缓存GCJ02路线；模拟器不得调用高德。模拟器通过 `GET /api/v1/transport-tasks/{taskId}/planned-route` 读取 `points`，转换成WGS84后发布GPS。可选的 `TASK_ROUTE_READY` 刷新通知只包含 `task_id / vehicle_id`，不得发送完整路线。
 
-幂等约定：`command_id` 是消息幂等键；`route_id + route_version` 是路线版本键。后端重发相同指令时模拟器只重发首次ACK，不重复切换；新 `command_id` 携带相同或更旧路线版本时也不得回退。命令和ACK均为QoS 1、`retain=false`。
+幂等约定：`command_id` 是消息幂等键；同一 `generatedAt` 表示同一份ETA缓存路线。后端重发相同指令时模拟器只重发首次ACK，不重复切换。命令和ACK均为QoS 1、`retain=false`。

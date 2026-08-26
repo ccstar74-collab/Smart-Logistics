@@ -263,8 +263,10 @@ def main():
             )
         install_task_route(initial_vehicle, initial_route)
         print(
-            f"[ROUTE][LOADED] task_id={task_id}，route_id={initial_route['route_id']}，"
-            f"version={initial_route['route_version']}，points={len(initial_route['points'])}"
+            f"[ROUTE][LOADED] task_id={task_id}，"
+            f"vehicle={initial_route['vehicle_id']}，"
+            f"generated_at={initial_route['generated_at']}，"
+            f"points={len(initial_route['points'])}"
         )
     connected = threading.Event()
     ever_connected = threading.Event()
@@ -499,40 +501,13 @@ def main():
             return
 
         task_id = command.get("task_id")
-        route_id = command.get("route_id")
-        route_version = command.get("route_version")
         if (
             isinstance(task_id, bool) or not isinstance(task_id, int) or task_id <= 0
         ):
             fail_command(command_id, vehicle_id, "task_id必须是正整数")
             return
-        if not isinstance(route_id, str) or not route_id.strip():
-            fail_command(command_id, vehicle_id, "route_id不能为空")
-            return
-        if (
-            isinstance(route_version, bool)
-            or not isinstance(route_version, int)
-            or route_version <= 0
-        ):
-            fail_command(command_id, vehicle_id, "route_version必须是正整数")
-            return
         if not business_api_base:
             fail_command(command_id, vehicle_id, "未配置业务后端API地址")
-            return
-
-        if (
-            vehicle.get("route_id") == route_id
-            and int(vehicle.get("route_version") or 0) >= route_version
-        ):
-            command_count += 1
-            ack = publish_command_ack(
-                command_id,
-                vehicle_id,
-                "EXECUTED",
-                "该路线版本已加载，无需重复请求",
-                route_point_count=len(vehicle.get("route_points") or []),
-            )
-            processed_commands[command_id] = ack
             return
 
         active_commands.add(command_id)
@@ -545,13 +520,11 @@ def main():
                     token=business_api_token,
                 )
                 route_result_queue.put((
-                    command_id, vehicle_id, task_id, route_id.strip(), route_version,
-                    route, None,
+                    command_id, vehicle_id, task_id, route, None,
                 ))
             except Exception as exc:
                 route_result_queue.put((
-                    command_id, vehicle_id, task_id, route_id.strip(), route_version,
-                    None, str(exc),
+                    command_id, vehicle_id, task_id, None, str(exc),
                 ))
 
         threading.Thread(
@@ -559,13 +532,9 @@ def main():
             name=f"task-route-{command_id}",
             daemon=True,
         ).start()
-        print(
-            f"[ROUTE][FETCHING] command_id={command_id}，task_id={task_id}，"
-            f"route_id={route_id}，version={route_version}"
-        )
+        print(f"[ROUTE][FETCHING] command_id={command_id}，task_id={task_id}")
 
-    def apply_route_result(command_id, vehicle_id, task_id, expected_route_id,
-                           expected_version, route, error):
+    def apply_route_result(command_id, vehicle_id, task_id, route, error):
         nonlocal command_count
         if error:
             fail_command(command_id, vehicle_id, f"业务路线加载失败：{error}")
@@ -576,16 +545,10 @@ def main():
             return
 
         if route["task_id"] != task_id:
-            fail_command(command_id, vehicle_id, "route API返回的taskId不一致")
+            fail_command(command_id, vehicle_id, "planned-route返回的taskId不一致")
             return
         if route["vehicle_id"] != vehicle_id:
-            fail_command(command_id, vehicle_id, "route API返回的vehicleDeviceCode不一致")
-            return
-        if route["route_id"] != expected_route_id:
-            fail_command(command_id, vehicle_id, "route API返回的routeId不一致")
-            return
-        if route["route_version"] != expected_version:
-            fail_command(command_id, vehicle_id, "route API返回的routeVersion不一致")
+            fail_command(command_id, vehicle_id, "planned-route返回的vehicleDeviceCode不一致")
             return
 
         installed = install_task_route(vehicle, route)
@@ -599,8 +562,8 @@ def main():
             command_id,
             vehicle_id,
             "EXECUTED",
-            "业务路线已加载，车辆开始沿保存的polyline行驶"
-            if installed else "该路线版本已加载，无需重复切换",
+            "ETA规划路线已加载，车辆开始沿points行驶"
+            if installed else "该任务规划路线已加载，无需重复切换",
             route_point_count=len(route["points"]),
         )
         processed_commands[command_id] = ack
@@ -608,7 +571,7 @@ def main():
             processed_commands.pop(next(iter(processed_commands)))
         print(
             f"[ROUTE][APPLIED] command_id={command_id}，vehicle_id={vehicle_id}，"
-            f"route_id={route['route_id']}，version={route['route_version']}，"
+            f"generated_at={route['generated_at']}，"
             f"points={len(route['points'])}"
         )
 
@@ -636,7 +599,7 @@ def main():
         f"[启动] {args.vehicles} 辆车，间隔 {args.interval}s，"
         f"Broker={args.host}:{args.port}，异常概率={args.anomaly_rate}"
     )
-    print(f"[订阅] {command_topic}（接收TASK_ROUTE_READY路线引用通知）")
+    print(f"[订阅] {command_topic}（接收TASK_ROUTE_READY任务路线刷新通知）")
     try:
         while args.duration == 0 or time.monotonic() - started < args.duration:
             if not wait_for_connection():

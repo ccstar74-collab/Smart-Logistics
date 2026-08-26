@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Parse backend-owned route polylines and normalize them to WGS84."""
+"""Normalize ETA planned-route points to WGS84."""
 
 import math
 
@@ -61,32 +61,33 @@ def gcj02_to_wgs84(lon, lat):
     return lon * 2 - converted_lon, lat * 2 - converted_lat
 
 
-def parse_polyline(polyline, coordinate_system):
-    """Return a list of ``(lat, lon)`` WGS84 points from a route API string."""
+def parse_route_points(route_points, coordinate_system):
+    """Return ``(lat, lon)`` WGS84 points from planned-route ``points``."""
     normalized_system = str(coordinate_system or "").upper().replace("-", "")
     if normalized_system not in ("GCJ02", "WGS84"):
         raise ValueError("route.coordinateSystem必须为GCJ02或WGS84")
-    if not isinstance(polyline, str) or not polyline.strip():
-        raise ValueError("route.polyline不能为空")
+    if not isinstance(route_points, list):
+        raise ValueError("planned-route.points必须是数组")
 
     points = []
-    try:
-        for index, item in enumerate(polyline.split(";")):
-            if not item.strip():
-                continue
-            lon, lat = (float(value.strip()) for value in item.split(","))
-            if not -180 <= lon <= 180 or not -90 <= lat <= 90:
-                raise ValueError(f"第{index + 1}个路线点超出经纬度范围")
-            if normalized_system == "GCJ02":
-                lon, lat = gcj02_to_wgs84(lon, lat)
-            point = (lat, lon)
-            if not points or point != points[-1]:
-                points.append(point)
-    except (TypeError, ValueError) as exc:
-        if str(exc).startswith("第"):
-            raise
-        raise ValueError("route.polyline格式应为lon,lat;lon,lat;...") from exc
+    for index, item in enumerate(route_points):
+        if not isinstance(item, dict):
+            raise ValueError(f"第{index + 1}个路线点必须是对象")
+        try:
+            lon = float(item["longitude"])
+            lat = float(item["latitude"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"第{index + 1}个路线点必须包含有效longitude和latitude"
+            ) from exc
+        if not -180 <= lon <= 180 or not -90 <= lat <= 90:
+            raise ValueError(f"第{index + 1}个路线点超出经纬度范围")
+        if normalized_system == "GCJ02":
+            lon, lat = gcj02_to_wgs84(lon, lat)
+        point = (lat, lon)
+        if not points or point != points[-1]:
+            points.append(point)
 
     if len(points) < 2:
-        raise ValueError("route.polyline至少需要两个不同的路线点")
+        raise ValueError("planned-route.points至少需要两个不同的路线点")
     return points

@@ -1,19 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Fetch and validate a backend-owned transport-task route."""
+"""Fetch and validate the ETA-owned transport-task planned route."""
 
 import json
 import urllib.request
 
-from route_planner import parse_polyline
-
-
-ROUTE_STATUSES = {"PLANNING", "READY", "FAILED"}
-
-
-class RouteNotReadyError(RuntimeError):
-    def __init__(self, status, message=None):
-        self.status = status
-        super().__init__(message or f"任务路线状态为{status}")
+from route_planner import parse_route_points
 
 
 def _positive_integer(value, field_name):
@@ -30,64 +21,64 @@ def _positive_integer(value, field_name):
 
 def _unwrap_api_response(payload):
     if not isinstance(payload, dict):
-        raise ValueError("路线接口响应必须是JSON对象")
+        raise ValueError("规划路线接口响应必须是JSON对象")
     if "data" in payload:
         if payload.get("code") not in (None, 0, 200):
             raise RuntimeError(
-                "路线接口返回失败：%s" % (payload.get("message") or payload.get("code"))
+                "规划路线接口返回失败：%s"
+                % (payload.get("message") or payload.get("code"))
             )
         payload = payload.get("data")
     if not isinstance(payload, dict):
-        raise ValueError("路线接口data必须是对象")
+        raise ValueError("规划路线接口data必须是对象")
     return payload
 
 
 def parse_task_route(payload):
     route = _unwrap_api_response(payload)
     task_id = _positive_integer(route.get("taskId"), "taskId")
-    route_id = route.get("routeId")
     vehicle_code = route.get("vehicleDeviceCode")
-    route_version = _positive_integer(route.get("routeVersion"), "routeVersion")
-    route_status = str(route.get("routeStatus") or "").upper()
+    provider = str(route.get("provider") or "").upper()
+    coordinate_system = str(route.get("coordinateSystem") or "").upper()
+    generated_at = route.get("generatedAt")
 
-    if not isinstance(route_id, str) or not route_id.strip():
-        raise ValueError("routeId不能为空")
     if not isinstance(vehicle_code, str) or not vehicle_code.strip():
         raise ValueError("vehicleDeviceCode不能为空")
-    if route_status not in ROUTE_STATUSES:
-        raise ValueError("routeStatus必须为PLANNING、READY或FAILED")
-    if route_status != "READY":
-        failure_reason = route.get("failureReason")
-        raise RouteNotReadyError(route_status, failure_reason)
+    if provider != "AMAP":
+        raise ValueError("planned-route.provider必须为AMAP")
+    if not isinstance(generated_at, str) or not generated_at.strip():
+        raise ValueError("generatedAt不能为空")
 
-    total_distance = _positive_integer(
-        route.get("totalDistanceMeters"), "totalDistanceMeters"
+    distance_meters = _positive_integer(route.get("distanceMeters"), "distanceMeters")
+    reference_duration = _positive_integer(
+        route.get("referenceDurationSeconds"), "referenceDurationSeconds"
     )
-    estimated_duration = _positive_integer(
-        route.get("estimatedDurationSeconds"), "estimatedDurationSeconds"
-    )
-    points = parse_polyline(route.get("polyline"), route.get("coordinateSystem"))
+    points = parse_route_points(route.get("points"), coordinate_system)
+
+    # ETA 当前按任务和起终点缓存路线，没有业务 routeId/routeVersion。
+    # generatedAt 可稳定区分同一任务重新规划出的新路线。
     return {
         "task_id": task_id,
-        "route_id": route_id.strip(),
-        "route_version": route_version,
-        "route_status": route_status,
+        "route_id": f"TASK_{task_id}_{generated_at.strip()}",
+        "route_version": 1,
+        "route_status": "READY",
         "vehicle_id": vehicle_code.strip(),
-        "coordinate_system": str(route.get("coordinateSystem")).upper(),
-        "total_distance_meters": total_distance,
-        "estimated_duration_seconds": estimated_duration,
+        "coordinate_system": coordinate_system,
+        "total_distance_meters": distance_meters,
+        "estimated_duration_seconds": reference_duration,
+        "generated_at": generated_at.strip(),
         "points": points,
     }
 
 
 def build_route_url(api_base, task_id):
     if not isinstance(api_base, str) or not api_base.strip():
-        raise ValueError("业务后端API地址不能为空")
+        raise ValueError("后端API地址不能为空")
     task_id = _positive_integer(task_id, "taskId")
     base = api_base.rstrip("/")
     if base.endswith("/api/v1"):
-        return f"{base}/transport-tasks/{task_id}/route"
-    return f"{base}/api/v1/transport-tasks/{task_id}/route"
+        return f"{base}/transport-tasks/{task_id}/planned-route"
+    return f"{base}/api/v1/transport-tasks/{task_id}/planned-route"
 
 
 def fetch_task_route(api_base, task_id, token=None, timeout=15):
@@ -100,9 +91,9 @@ def fetch_task_route(api_base, task_id, token=None, timeout=15):
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
-        # Do not include the Authorization header or token in diagnostics.
-        raise RuntimeError(f"读取业务路线接口失败：{type(exc).__name__}") from exc
+        # 诊断信息不得包含 Authorization 或 Token。
+        raise RuntimeError(f"读取planned-route接口失败：{type(exc).__name__}") from exc
     parsed = parse_task_route(payload)
     if parsed["task_id"] != int(task_id):
-        raise ValueError("路线接口返回的taskId与请求不一致")
+        raise ValueError("planned-route返回的taskId与请求不一致")
     return parsed

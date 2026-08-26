@@ -10,9 +10,9 @@
 | 指定演示异常 | 可直接使用 | 支持异常停车、路线偏离和异常开门 |
 | 随机异常 | 可直接使用 | 可通过概率参数随机产生异常 |
 | 本地 JSONL 记录 | 可直接使用 | MQTT 发布的同时保存本地记录 |
-| 按任务高德路线行驶 | 等待接口适配 | 等待模拟器适配 ETA 的 `/planned-route` 接口 |
+| 按任务高德路线行驶 | 可直接使用 | 读取 ETA 的 `/planned-route` 接口并沿道路路线运行 |
 
-当前需要稳定测试 MQTT、InfluxDB、WebSocket、Alarm 或 ETA 时，请使用普通 GPS 模拟模式，不要添加 `--task-id`。
+普通模式用于独立测试 MQTT、InfluxDB、WebSocket 和 Alarm；需要联调任务路线与 ETA 时使用 `--task-id`。
 
 ## 二、进入项目目录
 
@@ -152,7 +152,7 @@ python .\tools\mqtt_data_generator.py `
 
 ## 七、按 ETA 高德规划路线运行
 
-> 当前模拟器还没有适配 ETA 模块的 `/planned-route` 返回格式，本节命令暂时不要执行。完成适配和后端部署后再使用。
+模拟器已经适配 ETA 模块的 `/planned-route` 返回格式。使用前需要部署包含 `vehicleDeviceCode` 字段的最新 ETA 后端。
 
 后端需要提供：
 
@@ -183,7 +183,7 @@ GET /api/v1/transport-tasks/{taskId}/planned-route
 }
 ```
 
-适配完成后的启动命令：
+启动命令：
 
 ```powershell
 $env:SMART_LOGISTICS_API_TOKEN = '后端登录获得的Token'
@@ -287,11 +287,11 @@ Ctrl+C
 
 依次检查：
 
-1. 模拟器是否已经完成 `/planned-route` 接口适配；
-2. Spring Boot 后端是否已经部署最新 ETA 代码；
-3. `taskId` 是否真实存在；
-4. 任务起点和终点坐标是否完整；
-5. 任务绑定车辆是否配置 `vehicle.sim_code`；
+1. Spring Boot 后端是否已经部署最新 ETA 代码；
+2. `taskId` 是否真实存在；
+3. 任务起点和终点坐标是否完整；
+4. 任务绑定车辆是否配置 `vehicle.sim_code`；
+5. `/planned-route` 是否返回 `vehicleDeviceCode` 和至少两个 `points`；
 6. Bearer Token 是否有效；
 7. 服务器是否能够访问高德 Web 服务 API。
 
@@ -301,5 +301,4 @@ Ctrl+C
 2. 用 20 辆车持续运行，确认 InfluxDB 可以查询 GPS；
 3. 检查 WebSocket 和前端车辆位置更新；
 4. 使用 `--demo-anomaly` 测试 Alarm；
-5. ETA `/planned-route` 适配完成后，再使用 `--task-id` 测试道路路线和动态 ETA。
-
+5. 使用 `--task-id` 测试道路规划路线和动态 ETA。

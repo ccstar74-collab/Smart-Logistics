@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Publish a backend-owned task-route notification and wait for simulator ACK."""
+"""Request a simulator to refresh a task route from the ETA planned-route API."""
 
 import argparse
 import datetime
@@ -22,8 +22,6 @@ def main():
     parser = argparse.ArgumentParser(description="发布TASK_ROUTE_READY通知并等待模拟车辆ACK")
     parser.add_argument("--vehicle", required=True, help="vehicle.sim_code，例如sim_000")
     parser.add_argument("--task-id", required=True, type=int, help="运输任务ID")
-    parser.add_argument("--route-id", required=True, help="业务后端生成的路线ID")
-    parser.add_argument("--route-version", type=int, default=1, help="路线版本，默认1")
     parser.add_argument("--command-id", help="幂等指令ID；默认自动生成")
     parser.add_argument("--host", default="localhost", help="MQTT Broker地址")
     parser.add_argument("--port", type=int, default=1883, help="MQTT Broker端口")
@@ -45,12 +43,10 @@ def main():
         args.password = args.password or credentials["MQTT_PASSWORD"]
     if args.task_id <= 0:
         parser.error("--task-id必须大于0")
-    if args.route_version <= 0:
-        parser.error("--route-version必须大于0")
     if args.timeout <= 0:
         parser.error("--timeout必须大于0")
 
-    command_id = args.command_id or f"CMD_ROUTE_{args.task_id}_V{args.route_version}_{int(time.time())}"
+    command_id = args.command_id or f"CMD_ROUTE_{args.task_id}_{int(time.time())}"
     command_topic = f"{args.prefix}/vehicle/{args.vehicle}/command"
     ack_topic = f"{args.prefix}/vehicle/{args.vehicle}/command/ack"
     command = {
@@ -58,8 +54,6 @@ def main():
         "command_id": command_id,
         "vehicle_id": args.vehicle,
         "task_id": args.task_id,
-        "route_id": args.route_id,
-        "route_version": args.route_version,
         "command_type": "TASK_ROUTE_READY",
         "timestamp": now_iso(),
     }

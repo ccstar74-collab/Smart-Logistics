@@ -87,7 +87,7 @@ python .\iot\simulator\mqtt_data_generator.py `
   --vehicles 20 --duration 0 --interval 1
 ```
 
-业务后端路线READY后也可通过 `TASK_ROUTE_READY` 通知触发加载。完整字段和联调步骤见 [业务路线API与GPS模拟器最终联调合同](../docs/business-backend-amap-route-integration.md)。
+路线由后端 ETA 模块调用高德生成并缓存。模拟器读取 `/api/v1/transport-tasks/{taskId}/planned-route`，将返回的GCJ02 `points` 转成WGS84后沿单程路线运行。也可通过只携带 `task_id` 和 `vehicle_id` 的 `TASK_ROUTE_READY` 通知触发重新读取。完整字段和联调步骤见 [ETA规划路线API与GPS模拟器联调合同](../docs/business-backend-amap-route-integration.md)。
 
 ## 长时间轨迹与断线恢复
 

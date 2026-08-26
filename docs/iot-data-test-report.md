@@ -63,15 +63,15 @@ python -m unittest discover -s .\iot\tests -v
 
 ### 5.1 业务route API路线测试
 
-2026-08-26 最终架构调整为业务后端保存高德路线，模拟端不再调用高德：
+2026-08-26 最终架构调整为后端 ETA 模块生成并缓存高德路线，模拟端不再调用高德：
 
-- route API的READY响应和 `TASK_ROUTE_READY` MQTT通知均有JSON Schema；
-- 模拟端可将业务后端返回的GCJ02 polyline转换为WGS84；
-- 模拟端校验taskId、routeId、routeVersion和vehicleDeviceCode；
-- 相同或更旧路线版本不会重复安装或回退；
-- 车辆沿单程polyline运行，到达终点后速度为0且不折返；
-- 单元测试覆盖route API解析、PLANNING状态、Bearer Token、URL拼接、版本缓存和终点停止。
-- 模拟业务route API + 本机MQTT端到端测试通过：V1和V2各请求并应用一次，随后旧版V1直接ACK且未再次请求API；运行链路没有高德HTTP请求。
+- planned-route响应和 `TASK_ROUTE_READY` MQTT刷新通知均有JSON Schema；
+- 模拟端可将ETA返回的GCJ02 `points` 转换为WGS84；
+- 模拟端校验taskId、vehicleDeviceCode、provider、距离、参考时长和路线点；
+- 同一 `generatedAt` 的缓存路线不会重复安装；
+- 车辆沿单程points运行，到达终点后速度为0且不折返；
+- 单元测试覆盖planned-route解析、Bearer Token、URL拼接、坐标转换、缓存判定和终点停止；
+- 运行链路没有高德HTTP请求，高德Key只配置在ETA后端。
 
 ### 5.2 MQTT断线恢复测试
 

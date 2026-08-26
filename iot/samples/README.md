@@ -50,7 +50,7 @@ python .\iot\simulator\mqtt_replay.py .\iot\samples\guoyuan_anomaly_20v_5m.jsonl
 
 ## 业务路线加载闭环
 
-先启动发生器并配置业务route API：
+先启动发生器并配置 ETA planned-route API：
 
 ```powershell
 python .\iot\simulator\mqtt_data_generator.py `
@@ -68,9 +68,7 @@ python .\iot\simulator\mqtt_data_generator.py `
 python .\iot\simulator\mqtt_route_command.py `
   --host localhost `
   --vehicle sim_000 `
-  --task-id 1001 `
-  --route-id ROUTE_1001 `
-  --route-version 1
+  --task-id 1001
 ```
 
-发生器订阅 `iot/carla/vehicle/+/command`，收到路线引用后通过业务API读取完整polyline，然后发布 `iot/carla/vehicle/{vehicle_id}/command/ack`。`iot/samples/task_route_ready_command.json` 可用于MQTTX手工发布；Topic填写 `iot/carla/vehicle/sim_000/command`，Retain必须关闭。成功回执见 `iot/samples/task_route_ready_ack.json`，route API样例见 `iot/samples/task_route_api_ready.json`。
+发生器订阅 `iot/carla/vehicle/+/command`，收到任务路线刷新通知后通过 ETA API 读取完整 `points`，然后发布 `iot/carla/vehicle/{vehicle_id}/command/ack`。`iot/samples/task_route_ready_command.json` 可用于MQTTX手工发布；Topic填写 `iot/carla/vehicle/sim_000/command`，Retain必须关闭。成功回执见 `iot/samples/task_route_ready_ack.json`，planned-route API样例见 `iot/samples/task_route_api_ready.json`。

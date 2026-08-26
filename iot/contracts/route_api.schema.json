@@ -1,43 +1,42 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://smart-logistics.local/schemas/route_api.schema.json",
-  "title": "运输任务READY路线响应data",
+  "title": "ETA规划路线响应data",
   "type": "object",
   "additionalProperties": true,
   "required": [
     "taskId",
-    "routeId",
-    "routeVersion",
-    "routeStatus",
-    "vehicleId",
     "vehicleDeviceCode",
+    "provider",
     "coordinateSystem",
-    "totalDistanceMeters",
-    "estimatedDurationSeconds",
-    "polyline"
+    "distanceMeters",
+    "referenceDurationSeconds",
+    "generatedAt",
+    "points"
   ],
   "properties": {
     "taskId": { "type": "integer", "minimum": 1 },
-    "routeId": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "routeVersion": { "type": "integer", "minimum": 1 },
-    "routeStatus": { "const": "READY" },
-    "vehicleId": { "type": "integer", "minimum": 1 },
     "vehicleDeviceCode": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{1,64}$"
     },
+    "provider": { "const": "AMAP" },
     "coordinateSystem": { "enum": ["GCJ02", "WGS84"] },
-    "startLocation": { "type": "string" },
-    "startLongitude": { "type": "number", "minimum": -180, "maximum": 180 },
-    "startLatitude": { "type": "number", "minimum": -90, "maximum": 90 },
-    "endLocation": { "type": "string" },
-    "endLongitude": { "type": "number", "minimum": -180, "maximum": 180 },
-    "endLatitude": { "type": "number", "minimum": -90, "maximum": 90 },
-    "totalDistanceMeters": { "type": "integer", "minimum": 1 },
-    "estimatedDurationSeconds": { "type": "integer", "minimum": 1 },
-    "polyline": {
-      "type": "string",
-      "pattern": "^-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:;-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?)+$"
+    "distanceMeters": { "type": "integer", "minimum": 1 },
+    "referenceDurationSeconds": { "type": "integer", "minimum": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "points": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["longitude", "latitude"],
+        "properties": {
+          "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+          "latitude": { "type": "number", "minimum": -90, "maximum": 90 }
+        }
+      }
     }
   }
 }
