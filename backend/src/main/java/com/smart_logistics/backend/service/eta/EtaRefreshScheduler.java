@@ -18,8 +18,8 @@ public class EtaRefreshScheduler {
     }
 
     @Scheduled(
-            initialDelayString = "${app.eta.initial-delay-ms:15000}",
-            fixedDelayString = "${app.eta.refresh-delay-ms:30000}"
+            initialDelayString = "${app.eta.initial-delay-ms:1000}",
+            fixedDelayString = "${app.eta.refresh-delay-ms:1000}"
     )
     public void refresh() {
         EtaCalculationService.EtaRefreshSummary summary =

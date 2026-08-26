@@ -27,13 +27,13 @@ app:
     latest-lookback: ${GPS_LATEST_LOOKBACK:PT24H}
     online-threshold: ${GPS_ONLINE_THRESHOLD:PT2M}
   eta:
-    enabled: ${ETA_ENABLED:false}
+    enabled: ${ETA_ENABLED:true}
     gps-max-age: ${ETA_GPS_MAX_AGE:PT2M}
     speed-history-window: ${ETA_SPEED_HISTORY_WINDOW:PT10M}
-    min-change: ${ETA_MIN_CHANGE:PT30S}
-    force-persist-interval: ${ETA_FORCE_PERSIST_INTERVAL:PT2M}
-    initial-delay-ms: ${ETA_INITIAL_DELAY_MS:15000}
-    refresh-delay-ms: ${ETA_REFRESH_DELAY_MS:30000}
+    min-change: ${ETA_MIN_CHANGE:PT0S}
+    force-persist-interval: ${ETA_FORCE_PERSIST_INTERVAL:PT1S}
+    initial-delay-ms: ${ETA_INITIAL_DELAY_MS:1000}
+    refresh-delay-ms: ${ETA_REFRESH_DELAY_MS:1000}
     amap:
       key: ${AMAP_WEB_SERVICE_KEY:}
       endpoint: ${AMAP_ROUTE_ENDPOINT:https://restapi.amap.com/v3/direction/driving}

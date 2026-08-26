@@ -54,8 +54,8 @@ public class EtaCalculationService {
             GpsWebSocketHandler webSocketHandler,
             @Value("${app.eta.gps-max-age:PT2M}") Duration gpsMaxAge,
             @Value("${app.eta.speed-history-window:PT10M}") Duration speedHistoryWindow,
-            @Value("${app.eta.min-change:PT30S}") Duration minEtaChange,
-            @Value("${app.eta.force-persist-interval:PT2M}") Duration forcePersistInterval) {
+            @Value("${app.eta.min-change:PT0S}") Duration minEtaChange,
+            @Value("${app.eta.force-persist-interval:PT1S}") Duration forcePersistInterval) {
         this(transportTaskMapper, vehicleMapper, gpsInfluxService, plannedRouteService,
                 new RouteProgressProjector(), webSocketHandler, gpsMaxAge,
                 speedHistoryWindow, minEtaChange, forcePersistInterval, Clock.systemUTC());
