@@ -39,7 +39,7 @@ public class GpsTrackController {
         String flux = "from(bucket:\"" + bucket + "\") " +
                 "|> range(start:-2h) " +
                 "|> filter(fn: (r) => r._measurement == \"vehicle_gps\") " +
-                "|> filter(fn: (r) => r.vehicleId == \"" + vehicleId + "\")";
+                "|> filter(fn: (r) => r.vehicle_id== \"" + vehicleId + "\")";
 
         QueryApi queryApi = influxDBClient.getQueryApi();
         List<FluxTable> tables = queryApi.query(flux);
@@ -48,7 +48,7 @@ public class GpsTrackController {
             for (FluxRecord record : table.getRecords()) {
                 Map<String, Object> item = new HashMap<>();
                 item.put("time", record.getTime());
-                item.put("vehicleId", record.getValueByKey("vehicleId"));
+                item.put("vehicleId", record.getValueByKey("vehicle_id"));
                 item.put("field", record.getField());
                 item.put("value", record.getValue());
                 result.add(item);

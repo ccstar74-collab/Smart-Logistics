@@ -16,8 +16,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // 对外地址 ws://ip:8081/ws/logistics
-        registry.addHandler(gpsWebSocketHandler, "/ws/logistics")
+        // 对外地址 ws://ip:8081/ws/vehicle-locations
+        registry.addHandler(gpsWebSocketHandler, "/ws/vehicle-locations")
                 .setAllowedOrigins("*");
     }
 }

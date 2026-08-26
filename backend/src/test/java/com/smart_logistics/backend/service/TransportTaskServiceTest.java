@@ -58,6 +58,9 @@ class TransportTaskServiceTest {
     private CargoService cargoService;
     @Mock
     private VehicleService vehicleService;
+    //新增第四个mock依赖
+    @Mock
+    private VehicleTraceService vehicleTraceService;
 
     private TransportTaskService service;
 
@@ -67,7 +70,8 @@ class TransportTaskServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "transport-task-test"),
                 TransportTask.class
         );
-        service = new TransportTaskService(transportTaskMapper, cargoService, vehicleService);
+        //补齐4个构造参数
+        service = new TransportTaskService(transportTaskMapper, cargoService, vehicleService, vehicleTraceService);
     }
 
     @Test
@@ -228,7 +232,6 @@ class TransportTaskServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void listReturnsPageAndAppliesKeywordAndStatusFilters() {
         TransportTask task = task(1L, TransportTaskStatus.WAITING);
         when(transportTaskMapper.selectPage(any(Page.class), any(Wrapper.class)))
@@ -240,7 +243,8 @@ class TransportTaskServiceTest {
                 });
 
         PageResult<TransportTaskResponse> result = service.listTransportTasks(
-                2, 5, "Shanghai", TransportTaskStatus.WAITING);
+                2, 5, "Shanghai", TransportTaskStatus.WAITING,
+                null, null, null, null);
 
         assertEquals(1, result.getRecords().size());
         assertEquals(11, result.getTotal());
@@ -255,13 +259,13 @@ class TransportTaskServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void listReturnsEmptyPage() {
         when(transportTaskMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         PageResult<TransportTaskResponse> result = service.listTransportTasks(
-                1, 10, null, null);
+                1, 10, null, null,
+                null, null, null, null);
 
         assertTrue(result.getRecords().isEmpty());
         assertEquals(0, result.getTotal());
@@ -348,7 +352,7 @@ class TransportTaskServiceTest {
     @ParameterizedTest
     @MethodSource("invalidTransitions")
     void invalidTransitionIsRejectedWithoutUpdates(TransportTaskStatus current,
-                                                    TransportTaskStatus target) {
+                                                   TransportTaskStatus target) {
         when(transportTaskMapper.selectById(1L)).thenReturn(task(1L, current));
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -506,13 +510,11 @@ class TransportTaskServiceTest {
         return vehicle;
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private ArgumentCaptor<LambdaQueryWrapper<TransportTask>> wrapperCaptor() {
-        return (ArgumentCaptor) ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        return ArgumentCaptor.forClass(LambdaQueryWrapper.class);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private ArgumentCaptor<LambdaUpdateWrapper<TransportTask>> updateWrapperCaptor() {
-        return (ArgumentCaptor) ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        return ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
     }
 }

@@ -6,7 +6,11 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
+import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
+import com.smart_logistics.backend.dto.response.TrackPointResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.VehicleTracePointDTO;
 import com.smart_logistics.backend.entity.Cargo;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
@@ -21,9 +25,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Set;
@@ -43,13 +49,16 @@ public class TransportTaskService {
     private final TransportTaskMapper transportTaskMapper;
     private final CargoService cargoService;
     private final VehicleService vehicleService;
+    private final VehicleTraceService vehicleTraceService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
                                 CargoService cargoService,
-                                VehicleService vehicleService) {
+                                VehicleService vehicleService,
+                                VehicleTraceService vehicleTraceService) {
         this.transportTaskMapper = transportTaskMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
+        this.vehicleTraceService = vehicleTraceService;
     }
 
     @Transactional
@@ -89,9 +98,16 @@ public class TransportTaskService {
         return toResponse(getRequiredTransportTask(task.getId()));
     }
 
+    /**
+     * P0 分页多条件查询任务
+     */
     public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
-                                                                 String keyword,
-                                                                 TransportTaskStatus status) {
+                                                                String keyword,
+                                                                TransportTaskStatus status,
+                                                                Long driverId,
+                                                                Long ownerId,
+                                                                Long vehicleId,
+                                                                Long cargoId) {
         LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
             String normalizedKeyword = keyword.trim();
@@ -105,6 +121,18 @@ public class TransportTaskService {
         if (status != null) {
             query.eq(TransportTask::getStatus, status.name());
         }
+        //if(driverId != null){
+        //    query.eq(TransportTask::getDriverId, driverId);
+   //     }
+       // if(ownerId != null){
+           // query.eq(TransportTask::getOwnerId, ownerId);
+        //}
+        if(vehicleId != null){
+            query.eq(TransportTask::getVehicleId, vehicleId);
+        }
+        if(cargoId != null){
+            query.eq(TransportTask::getCargoId, cargoId);
+        }
         query.orderByDesc(TransportTask::getId);
 
         Page<TransportTask> entityPage = transportTaskMapper.selectPage(
@@ -117,6 +145,25 @@ public class TransportTaskService {
 
     public TransportTaskResponse getTransportTask(Long id) {
         return toResponse(getRequiredTransportTask(id));
+    }
+
+    /**
+     * P0 获取当前用户正在执行/跟踪的任务（司机首页）
+     * todo：对接SpringSecurity后，从上下文获取登录用户id、角色，取消注释下面的过滤条件
+     */
+    public List<TransportTaskResponse> getCurrentUserTasks() {
+        LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<>();
+        query.in(TransportTask::getStatus, ACTIVE_STATUSES);
+        // 示例逻辑，权限对接完成后打开：
+        // LoginUser loginUser = SecurityUtil.getLoginUser();
+        // if ("DRIVER".equals(loginUser.getRole())) {
+        //     query.eq(TransportTask::getDriverId, loginUser.getUserId());
+        // } else if ("OWNER".equals(loginUser.getRole())) {
+        //     query.eq(TransportTask::getOwnerId, loginUser.getUserId());
+        // }
+        query.orderByDesc(TransportTask::getId);
+        List<TransportTask> list = transportTaskMapper.selectList(query);
+        return list.stream().map(this::toResponse).toList();
     }
 
     @Transactional
@@ -135,6 +182,75 @@ public class TransportTaskService {
         updateTaskStatus(task, currentStatus, targetStatus, now);
         applyAssociatedStatusChanges(task, currentStatus, targetStatus);
         return toResponse(getRequiredTransportTask(id));
+    }
+
+    /**
+     * P1 任务未开始前修改任务起终点、计划时间，仅WAITING允许修改
+     */
+    @Transactional
+    public TransportTaskResponse updateTransportTaskBasic(Long id, TransportTaskUpdateRequest request) {
+        TransportTask task = getRequiredTransportTask(id);
+        TransportTaskStatus currentStatus = parseStatus(task.getStatus());
+        if(currentStatus != TransportTaskStatus.WAITING){
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "只有待派发状态的任务才允许修改");
+        }
+        LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
+        LambdaUpdateWrapper<TransportTask> update = new LambdaUpdateWrapper<>();
+        update.eq(TransportTask::getId, id);
+        update.set(TransportTask::getStartLocation, request.getStartLocation().trim());
+        update.set(TransportTask::getEndLocation, request.getEndLocation().trim());
+        update.set(TransportTask::getPlanStartTime, toDatabaseTime(request.getPlanStartTime()));
+        update.set(TransportTask::getPlanEndTime, toDatabaseTime(request.getPlanEndTime()));
+        update.set(TransportTask::getUpdatedAt, now);
+        transportTaskMapper.update(null, update);
+        return toResponse(getRequiredTransportTask(id));
+    }
+
+    /**
+     * P1 获取规划路线点，当前返回模拟数据
+     */
+    public PlannedRouteResponse getPlannedRoute(Long taskId) {
+        getRequiredTransportTask(taskId);
+        PlannedRouteResponse resp = new PlannedRouteResponse();
+        resp.setPoints(List.of(
+                new PlannedRouteResponse.RoutePoint(106.55,29.56,"起点"),
+                new PlannedRouteResponse.RoutePoint(106.58,29.54,"途经点"),
+                new PlannedRouteResponse.RoutePoint(106.61,29.52,"终点")
+        ));
+        return resp;
+    }
+
+    /**
+     * P1 获取轨迹回放点，适配VehicleTraceService真实实现
+     */
+    public List<TrackPointResponse> getTrackPoints(Long taskId, OffsetDateTime startTime, OffsetDateTime endTime) {
+        TransportTask task = getRequiredTransportTask(taskId);
+        Vehicle vehicle = vehicleService.getVehicleForTransport(task.getVehicleId());
+        if(vehicle == null){
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,"车辆不存在");
+        }
+        // =====================重要=====================
+        // 将 getVehicleCode() 修改为你Vehicle实体中对应sim编号的get方法，例如 getSimNo()
+        String influxVehicleId = vehicle.getSimCode();
+
+        long startTs = startTime.toInstant().toEpochMilli();
+        long endTs = endTime.toInstant().toEpochMilli();
+
+        List<VehicleTracePointDTO> originList = vehicleTraceService.getVehicleTrace(influxVehicleId, startTs, endTs);
+
+        return originList.stream()
+                .map(dto ->{
+                    TrackPointResponse resp = new TrackPointResponse();
+                    resp.setLat(dto.getLat());
+                    resp.setLon(dto.getLon());
+                    resp.setSpeed(dto.getSpeed());
+                    resp.setHeading(dto.getHeading());
+                    if(dto.getTimestamp() != null){
+                        Instant instant = Instant.ofEpochMilli(dto.getTimestamp());
+                        resp.setTimestamp(instant.atOffset(ZoneOffset.ofHours(8)));
+                    }
+                    return resp;
+                }).toList();
     }
 
     private void validatePlanTimes(TransportTaskCreateRequest request) {

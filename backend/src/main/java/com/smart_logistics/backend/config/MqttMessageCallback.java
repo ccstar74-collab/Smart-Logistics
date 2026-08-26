@@ -1,10 +1,12 @@
 package com.smart_logistics.backend.config;
 
-import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.influxdb.client.InfluxDBClient;
+import com.influxdb.client.WriteApi;
+import com.influxdb.client.domain.WritePrecision;
+import com.influxdb.client.write.Point;
+import com.smart_logistics.backend.dto.RealTimeGpsDTO;
+import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
-import com.smart_logistics.backend.service.GpsInfluxService;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -14,6 +16,9 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -25,15 +30,13 @@ import java.util.concurrent.ScheduledExecutorService;
 public class MqttMessageCallback implements MqttCallback {
 
     @Autowired
-    private InfluxDBClient influxDBClient;
+    private GpsWebSocketHandler gpsWebSocketHandler;
+
+    // ========= 这里就是 WriteApi 注入位置 =========
+    @Autowired
+    private WriteApi writeApi;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Autowired
-    private GpsInfluxService gpsInfluxService;
-
-    @Autowired
-    private GpsWebSocketHandler gpsWebSocketHandler;
 
     private static final String ALERT_TOPIC = "iot/carla/alert";
     private static final String COMMAND_ACK_SUFFIX = "/command/ack";
@@ -48,9 +51,6 @@ public class MqttMessageCallback implements MqttCallback {
 
     private final ConcurrentHashMap<String, VehicleState> vehicleStateMap = new ConcurrentHashMap<>();
     private ScheduledExecutorService aggExecutor;
-
-    public MqttMessageCallback() {
-    }
 
     @PostConstruct
     public void init() {
@@ -74,7 +74,7 @@ public class MqttMessageCallback implements MqttCallback {
     @Override
     public void messageArrived(String topic, MqttMessage message) throws Exception {
         String payload = new String(message.getPayload());
-        log.debug("收到MQTT消息 topic={}, payload={}", topic, payload);
+        log.info("收到MQTT消息 topic={}, payload={}", topic, payload);
         try {
             dispatchMessage(topic, payload);
         } catch (Exception e) {
@@ -104,25 +104,54 @@ public class MqttMessageCallback implements MqttCallback {
         String vehicleId = parseVehicleId(topic);
         try {
             Map<String, Object> map = objectMapper.readValue(payload, Map.class);
+
             double lat = ((Number) map.get("lat")).doubleValue();
             double lon = ((Number) map.get("lon")).doubleValue();
-            double speed = ((Number) map.getOrDefault("speed", 0d)).doubleValue();
-            long ts = ((Number) map.getOrDefault("timestamp", System.currentTimeMillis())).longValue();
+            double speed_kmh = ((Number) map.getOrDefault("speed_kmh", 0d)).doubleValue();
+            double heading = ((Number) map.getOrDefault("heading", 0d)).doubleValue();
 
-            gpsInfluxService.writeGpsPoint(vehicleId, lat, lon, speed, ts);
+            String timestamp = String.valueOf(map.get("timestamp"));
+            long ts = Instant.parse(timestamp).toEpochMilli();
 
             VehicleState state = vehicleStateMap.computeIfAbsent(vehicleId, k -> new VehicleState());
             state.vehicleId = vehicleId;
             state.lat = lat;
             state.lon = lon;
-            state.speed = speed;
+            state.speed = speed_kmh;
             state.lastUpdateTs = ts;
 
-            RealTimeGpsDTO dto = objectMapper.readValue(payload, RealTimeGpsDTO.class);
-            gpsWebSocketHandler.broadcastGps(dto);
+            RealTimeGpsDTO internalDto = new RealTimeGpsDTO();
+            internalDto.setVehicleId(vehicleId);
+            internalDto.setLon(lon);
+            internalDto.setLat(lat);
+            internalDto.setSpeed(speed_kmh);
+            internalDto.setHeading(heading);
+            internalDto.setTimestamp(ts);
+
+            // ========= 这里就是 InfluxDB Point 写入代码 =========
+            Point point = Point.measurement("vehicle_gps")
+                    .addTag("vehicle_id", vehicleId)
+                    .addField("lat", lat)
+                    .addField("lon", lon)
+                    .addField("speed_kmh", speed_kmh)
+                    .addField("heading", heading)
+                    .time(Instant.ofEpochMilli(ts), WritePrecision.MS);
+            writeApi.writePoint(point);
+
+            // 转换WebSocket对外输出DTO
+            VehicleTraceWsDTO outDto = new VehicleTraceWsDTO();
+            outDto.setVehicleId(vehicleId);
+            outDto.setLatitude(internalDto.getLat());
+            outDto.setLongitude(internalDto.getLon());
+            outDto.setSpeed(internalDto.getSpeed());
+            outDto.setDirection(internalDto.getHeading());
+            OffsetDateTime collectedAt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault());
+            outDto.setCollectedAt(collectedAt);
+
+            gpsWebSocketHandler.broadcastGps(outDto);
 
         } catch (Exception e) {
-            log.error("GPS消息解析失败 vehicleId={}", vehicleId, e);
+            log.error("GPS消息解析/写入失败 vehicleId={}", vehicleId, e);
         }
     }
 

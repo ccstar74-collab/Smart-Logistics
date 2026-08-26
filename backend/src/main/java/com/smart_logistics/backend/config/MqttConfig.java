@@ -13,6 +13,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.UUID;
+
 @Slf4j
 @Configuration
 public class MqttConfig {
@@ -21,7 +23,7 @@ public class MqttConfig {
     private String broker;
 
     @Value("${mqtt.client-id}")
-    private String clientId;
+    private String baseClientId;
 
     @Value("${mqtt.username}")
     private String username;
@@ -30,7 +32,7 @@ public class MqttConfig {
     private String password;
 
     @Value("${mqtt.clientId.pub:carla_backend_pub}")
-    private String pubClientId;
+    private String basePubClientId;
 
     private static final String[] SUBSCRIBE_TOPICS = {
             "iot/carla/vehicle/+/gps",
@@ -42,7 +44,6 @@ public class MqttConfig {
 
     private final InfluxDBClient influxDBClient;
 
-    // 方案A：注入Spring管理的回调Bean
     @Autowired
     private MqttMessageCallback mqttMessageCallback;
 
@@ -50,45 +51,24 @@ public class MqttConfig {
         this.influxDBClient = influxDBClient;
     }
 
-    @Bean
+    @Bean(destroyMethod = "close")
     public MqttClient mqttClient() throws MqttException {
         MemoryPersistence persistence = new MemoryPersistence();
-        MqttClient mqttClient = new MqttClient(broker, clientId, persistence);
-
-        MqttConnectOptions options = new MqttConnectOptions();
-        options.setUserName(username);
-        options.setPassword(password.toCharArray());
-        options.setCleanSession(true);
-        options.setConnectionTimeout(10);
-        options.setKeepAliveInterval(20);
-        options.setAutomaticReconnect(true);
-
-        // 使用Spring的Bean实例，不再手动new
-        mqttClient.setCallback(mqttMessageCallback);
-
-        mqttClient.connect(options);
-        log.info("MQTT订阅客户端连接成功，broker:{}，clientId:{}", broker, clientId);
-
-        mqttClient.subscribe(SUBSCRIBE_TOPICS, QOS_LEVELS);
-        log.info("MQTT已订阅主题：{}", String.join(",",SUBSCRIBE_TOPICS));
-        return mqttClient;
+        String suffix = UUID.randomUUID().toString().substring(0,8);
+        String realClientId = baseClientId + "_" + suffix;
+        MqttClient client = new MqttClient(broker, realClientId, persistence);
+        client.setCallback(mqttMessageCallback);
+        log.info("MQTT订阅客户端对象创建完成，clientId:{}", realClientId);
+        return client;
     }
 
     @Bean(destroyMethod = "close")
     public MqttAsyncClient mqttPubClient() throws MqttException {
         MemoryPersistence persistence = new MemoryPersistence();
-        MqttAsyncClient pubClient = new MqttAsyncClient(broker, pubClientId, persistence);
-
-        MqttConnectOptions options = new MqttConnectOptions();
-        options.setUserName(username);
-        options.setPassword(password.toCharArray());
-        options.setCleanSession(true);
-        options.setAutomaticReconnect(true);
-        options.setConnectionTimeout(10);
-        options.setKeepAliveInterval(20);
-
-        pubClient.connect(options);
-        log.info("MQTT发布客户端连接成功，broker:{}，clientId:{}", broker, pubClientId);
+        String suffix = UUID.randomUUID().toString().substring(0,8);
+        String realPubClientId = basePubClientId + "_" + suffix;
+        MqttAsyncClient pubClient = new MqttAsyncClient(broker, realPubClientId, persistence);
+        log.info("MQTT发布客户端对象创建完成，clientId:{}", realPubClientId);
         return pubClient;
     }
 
@@ -108,5 +88,21 @@ public class MqttConfig {
     }
     public void publish(MqttAsyncClient mqttPubClient, String topic, String payload) {
         publish(mqttPubClient, topic, payload, 0);
+    }
+
+    public String[] getSubscribeTopics() {
+        return SUBSCRIBE_TOPICS;
+    }
+    public int[] getQosLevels() {
+        return QOS_LEVELS;
+    }
+    public String getBroker() {
+        return broker;
+    }
+    public String getUsername() {
+        return username;
+    }
+    public String getPassword() {
+        return password;
     }
 }

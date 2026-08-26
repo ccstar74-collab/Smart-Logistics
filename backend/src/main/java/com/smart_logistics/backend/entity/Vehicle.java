@@ -22,7 +22,8 @@ public class Vehicle {
     private BigDecimal lastLongitude;
     private BigDecimal lastLatitude;
     private LocalDateTime lastUpdatedAt;
-
+    // =====新增simCode字段=====
+    private String simCode;
     public Long getId() {
         return id;
     }
@@ -105,6 +106,14 @@ public class Vehicle {
 
     public LocalDateTime getLastUpdatedAt() {
         return lastUpdatedAt;
+    }
+
+    public String getSimCode() {
+        return simCode;
+    }
+
+    public void setSimCode(String simCode) {
+        this.simCode = simCode;
     }
 
     public void setLastUpdatedAt(LocalDateTime lastUpdatedAt) {
