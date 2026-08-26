@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Collection;
 import java.util.Objects;
@@ -27,7 +28,8 @@ public class GpsInfluxService {
 
     private static final String MEASUREMENT = "vehicle_gps";
     private static final Set<String> GPS_FIELDS =
-            Set.of("lat", "lon", "speed", "speed_kmh", "direction", "heading");
+            Set.of("latitude", "longitude", "speed_kmh", "heading",
+                    "lat", "lon", "speed", "direction");
 
     @Resource
     private InfluxDBClient influxDBClient;
@@ -63,6 +65,16 @@ public class GpsInfluxService {
     }
 
     /**
+     * Writes the production MQTT GPS schema. Heading is omitted when the source payload does not
+     * provide it; coordinates and speed always use the canonical field names.
+     */
+    public void writeGpsPoint(String vehicleId, String lat, String lon, double speed,
+                              Double heading, long ts) {
+        writeGpsPoint(vehicleId, Double.parseDouble(lon), Double.parseDouble(lat),
+                speed, heading, ts);
+    }
+
+    /**
      * 核心实现
      * @param vehicleId 车辆ID
      * @param lon 经度
@@ -71,13 +83,22 @@ public class GpsInfluxService {
      * @param ts 毫秒时间戳
      */
     public void writeGpsPoint(String vehicleId, double lon, double lat, double speed, long ts){
+        writeGpsPoint(vehicleId, lon, lat, speed, null, ts);
+    }
+
+    private void writeGpsPoint(String vehicleId, double lon, double lat, double speed,
+                               Double heading, long ts) {
         WriteApiBlocking writeApi = influxDBClient.getWriteApiBlocking();
         // NS纳秒：毫秒 *1e6
         long nanoTs = ts * 1_000_000L;
-        String lineProtocol = String.format(
-                "gps_track,vehicleId=%s lon=%f,lat=%f,speed=%f %d",
-                vehicleId, lon, lat, speed, nanoTs
-        );
+        String fields = String.format(Locale.ROOT,
+                "longitude=%f,latitude=%f,speed_kmh=%f", lon, lat, speed);
+        if (heading != null && Double.isFinite(heading)) {
+            fields += String.format(Locale.ROOT, ",heading=%f", heading);
+        }
+        String lineProtocol = String.format(Locale.ROOT,
+                "%s,vehicle_id=%s %s %d",
+                MEASUREMENT, escapeTagValue(vehicleId), fields, nanoTs);
         writeApi.writeRecord(WritePrecision.NS, lineProtocol);
     }
 
@@ -112,7 +133,7 @@ public class GpsInfluxService {
                 |> range(start: time(v: %s), stop: time(v: %s))
                 |> filter(fn: (r) => r._measurement == %s)
                 |> filter(fn: (r) => contains(value: r.vehicle_id, set: [%s]))
-                |> filter(fn: (r) => contains(value: r._field, set: ["lat","lon","speed","speed_kmh","direction","heading"]))
+                |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
                 |> keep(columns: ["_time","_field","_value","vehicle_id"])
                 |> sort(columns: ["_time"])
                 """,
@@ -155,5 +176,12 @@ public class GpsInfluxService {
 
     private String fluxString(String value) {
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private String escapeTagValue(String value) {
+        return value.replace("\\", "\\\\")
+                .replace(" ", "\\ ")
+                .replace(",", "\\,")
+                .replace("=", "\\=");
     }
 }

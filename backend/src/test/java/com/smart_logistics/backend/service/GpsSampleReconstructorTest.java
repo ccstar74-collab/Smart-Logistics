@@ -33,12 +33,12 @@ class GpsSampleReconstructorTest {
     }
 
     @Test
-    void mapsInfluxFieldNamesToApiSampleFields() {
+    void mapsCanonicalInfluxFieldNamesToApiSampleFieldsRegardlessOfOrder() {
         List<GpsSample> result = reconstructor.reconstruct(List.of(
-                row("sim_000", "lat", 31.20, 0),
-                row("sim_000", "lon", 121.50, 12),
+                row("sim_000", "heading", 90, 31),
+                row("sim_000", "longitude", 121.50, 12),
                 row("sim_000", "speed_kmh", 42.5, 25),
-                row("sim_000", "heading", 90, 31)));
+                row("sim_000", "latitude", 31.20, 0)));
 
         assertEquals(1, result.size());
         GpsSample sample = result.getFirst();

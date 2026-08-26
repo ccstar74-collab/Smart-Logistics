@@ -112,9 +112,12 @@ public class MqttMessageCallback implements MqttCallback {
             double lat = ((Number) map.get("lat")).doubleValue();
             double lon = ((Number) map.get("lon")).doubleValue();
             double speed = ((Number) map.getOrDefault("speed", 0d)).doubleValue();
+            Double heading = map.get("heading") instanceof Number number
+                    ? number.doubleValue() : null;
             long ts = ((Number) map.getOrDefault("timestamp", System.currentTimeMillis())).longValue();
 
-            gpsInfluxService.writeGpsPoint(vehicleId, lat, lon, speed, ts);
+            gpsInfluxService.writeGpsPoint(vehicleId, Double.toString(lat),
+                    Double.toString(lon), speed, heading, ts);
 
             VehicleState state = vehicleStateMap.computeIfAbsent(vehicleId, k -> new VehicleState());
             state.vehicleId = vehicleId;
