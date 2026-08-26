@@ -149,14 +149,12 @@ public class GpsInfluxService {
             return List.of();
         }
 
-        String vehicleSet = normalizedIds.stream()
-                .map(this::fluxString)
-                .collect(Collectors.joining(","));
+        String vehiclePredicate = buildVehiclePredicate(normalizedIds);
         String flux = String.format("""
                 from(bucket: %s)
                 |> range(start: -%ds)
                 |> filter(fn: (r) => r._measurement == %s)
-                |> filter(fn: (r) => contains(value: r.vehicle_id, set: [%s]))
+                |> filter(fn: (r) => %s)
                 |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
                 |> last()
                 |> group(columns: ["vehicle_id", "_field"])
@@ -164,9 +162,15 @@ public class GpsInfluxService {
                 |> last()
                 |> keep(columns: ["_time","_field","_value","vehicle_id"])
                 """,
-                fluxString(bucket), lookbackSeconds, fluxString(MEASUREMENT), vehicleSet
+                fluxString(bucket), lookbackSeconds, fluxString(MEASUREMENT), vehiclePredicate
         );
         return executeQuery(flux);
+    }
+
+    private String buildVehiclePredicate(List<String> normalizedIds) {
+        return normalizedIds.stream()
+                .map(vehicleId -> "r.vehicle_id == " + fluxString(vehicleId))
+                .collect(Collectors.joining(" or "));
     }
 
     private List<GpsSample> executeQuery(String flux) {

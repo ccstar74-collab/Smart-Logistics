@@ -122,8 +122,9 @@ class GpsInfluxServiceTest {
         verify(queryApi).query(fluxCaptor.capture());
         String flux = fluxCaptor.getValue();
         assertTrue(flux.contains("r._measurement == \"vehicle_gps\""));
-        assertTrue(flux.contains("r.vehicle_id"));
-        assertTrue(flux.contains("\"sim_001\",\"sim_002\""));
+        assertTrue(flux.contains("r.vehicle_id == \"sim_001\" or "
+                + "r.vehicle_id == \"sim_002\""));
+        assertFalse(flux.contains("contains(value: r.vehicle_id"));
         assertTrue(flux.contains("|> range(start: -86400s)"));
         assertFalse(flux.contains("time(v:"));
         int firstLast = flux.indexOf("|> last()");
@@ -134,6 +135,38 @@ class GpsInfluxServiceTest {
         assertTrue(group < sort && sort < secondLast);
         assertTrue(flux.contains("\"latitude\",\"longitude\",\"speed_kmh\",\"heading\""));
         assertTrue(flux.contains("\"lat\",\"lon\",\"speed\",\"direction\""));
+    }
+
+    @Test
+    void latestSingleVehicleUsesDirectTagEquality() {
+        when(influxDBClient.getQueryApi()).thenReturn(queryApi);
+        when(queryApi.query(anyString())).thenReturn(List.of());
+
+        service.queryLatestSamples(List.of("sim_001"), Duration.ofHours(24));
+
+        ArgumentCaptor<String> fluxCaptor = ArgumentCaptor.forClass(String.class);
+        verify(queryApi).query(fluxCaptor.capture());
+        String flux = fluxCaptor.getValue();
+        assertTrue(flux.contains("|> filter(fn: (r) => r.vehicle_id == \"sim_001\")"));
+        assertFalse(flux.contains("contains(value: r.vehicle_id"));
+    }
+
+    @Test
+    void latestVehiclePredicateNormalizesIdsAndEscapesSpecialCharacters() {
+        when(influxDBClient.getQueryApi()).thenReturn(queryApi);
+        when(queryApi.query(anyString())).thenReturn(List.of());
+
+        service.queryLatestSamples(java.util.Arrays.asList(
+                " sim_001 ", null, "", "sim_001", " sim_002", "sim\\003\"quoted"),
+                Duration.ofHours(24));
+
+        ArgumentCaptor<String> fluxCaptor = ArgumentCaptor.forClass(String.class);
+        verify(queryApi).query(fluxCaptor.capture());
+        String flux = fluxCaptor.getValue();
+        assertTrue(flux.contains("|> filter(fn: (r) => r.vehicle_id == \"sim_001\" or "
+                + "r.vehicle_id == \"sim_002\" or "
+                + "r.vehicle_id == \"sim\\\\003\\\"quoted\")"));
+        assertFalse(flux.contains("contains(value: r.vehicle_id"));
     }
 
     @Test
