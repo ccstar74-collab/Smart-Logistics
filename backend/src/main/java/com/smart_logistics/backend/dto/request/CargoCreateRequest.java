@@ -1,7 +1,7 @@
 package com.smart_logistics.backend.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
@@ -26,7 +26,7 @@ public class CargoCreateRequest {
     @PositiveOrZero(message = "volume must be greater than or equal to 0")
     private BigDecimal volume;
 
-    @NotNull(message = "ownerId must not be null")
+    @Positive(message = "ownerId must be greater than 0")
     private Long ownerId;
 
     public String getCargoNo() {

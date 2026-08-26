@@ -11,10 +11,12 @@ import com.smart_logistics.backend.dto.request.CargoCreateRequest;
 import com.smart_logistics.backend.dto.request.CargoUpdateRequest;
 import com.smart_logistics.backend.dto.response.CargoResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.CargoMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +35,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,6 +49,9 @@ class CargoServiceTest {
 
     @Mock
     private CargoMapper cargoMapper;
+
+    @Mock
+    private OwnerMapper ownerMapper;
 
     @Mock
     private UserDisplayNameService userDisplayNameService;
@@ -66,8 +72,12 @@ class CargoServiceTest {
         );
         org.mockito.Mockito.lenient().when(userDisplayNameService.getOwnerNames(any()))
                 .thenReturn(Map.of());
+        Owner owner = new Owner();
+        owner.setId(100L);
+        org.mockito.Mockito.lenient().when(ownerMapper.selectById(100L)).thenReturn(owner);
         cargoService = new CargoService(
-                cargoMapper, userDisplayNameService, availabilityService, dataScopeService);
+                cargoMapper, ownerMapper, userDisplayNameService,
+                availabilityService, dataScopeService);
     }
 
     @Test
@@ -144,9 +154,48 @@ class CargoServiceTest {
         assertEquals("CGO-002", inserted.getCargoNo());
         assertEquals("Medical supplies", inserted.getName());
         assertEquals("Fragile", inserted.getDescription());
+        assertEquals(100L, inserted.getOwnerId());
         assertEquals(CargoStatus.WAITING.name(), inserted.getStatus());
         assertNotNull(inserted.getCreatedAt());
         assertEquals(CargoStatus.WAITING, response.getStatus());
+        verify(ownerMapper).selectById(100L);
+    }
+
+    @Test
+    void createCargoAllowsUnassignedInventory() {
+        CargoCreateRequest request = createRequest("CGO-003", "Unassigned cargo");
+        request.setOwnerId(null);
+        Cargo[] insertedHolder = new Cargo[1];
+        when(cargoMapper.selectCount(any())).thenReturn(0L);
+        when(cargoMapper.insert(any(Cargo.class))).thenAnswer(invocation -> {
+            Cargo inserted = invocation.getArgument(0);
+            inserted.setId(3L);
+            insertedHolder[0] = inserted;
+            return 1;
+        });
+        when(cargoMapper.selectById(3L)).thenAnswer(invocation -> insertedHolder[0]);
+
+        CargoResponse response = cargoService.createCargo(request);
+
+        assertEquals(3L, response.getId());
+        assertNull(response.getOwnerId());
+        assertNull(response.getOwnerName());
+        verify(ownerMapper, never()).selectById(any());
+    }
+
+    @Test
+    void createCargoRejectsUnknownOwnerWithoutInsert() {
+        CargoCreateRequest request = createRequest("CGO-004", "Invalid owner cargo");
+        request.setOwnerId(999L);
+        when(cargoMapper.selectCount(any())).thenReturn(0L);
+        when(ownerMapper.selectById(999L)).thenReturn(null);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> cargoService.createCargo(request));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getErrorCode());
+        assertEquals("owner not found", exception.getMessage());
+        verify(cargoMapper, never()).insert(any(Cargo.class));
     }
 
     @Test
@@ -225,6 +274,18 @@ class CargoServiceTest {
     }
 
     @Test
+    void getCargoSafelyReturnsNullOwnerFieldsForUnassignedInventory() {
+        Cargo cargo = cargo(1L, "CGO-001", "Unassigned", CargoStatus.WAITING);
+        cargo.setOwnerId(null);
+        when(cargoMapper.selectById(1L)).thenReturn(cargo);
+
+        CargoResponse response = cargoService.getCargo(1L);
+
+        assertNull(response.getOwnerId());
+        assertNull(response.getOwnerName());
+    }
+
+    @Test
     void availableReturnsWaitingCargosWithoutActiveTaskAndIncludesOwnerName() {
         Cargo available = cargo(1L, "CGO-001", "One", CargoStatus.WAITING);
         Cargo occupied = cargo(2L, "CGO-002", "Two", CargoStatus.WAITING);
@@ -295,6 +356,63 @@ class CargoServiceTest {
         verify(cargoMapper).selectPage(any(Page.class), captor.capture());
         assertTrue(captor.getValue().getSqlSegment().contains("owner_id"));
         assertTrue(captor.getValue().getParamNameValuePairs().containsValue(3L));
+    }
+
+    @Test
+    void listWithoutOwnerFilterDoesNotExcludeUnassignedInventory() {
+        when(cargoMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        cargoService.listCargos(1, 10, null, CargoStatus.WAITING, null);
+
+        ArgumentCaptor<LambdaQueryWrapper<Cargo>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(cargoMapper).selectPage(any(Page.class), captor.capture());
+        assertTrue(!captor.getValue().getSqlSegment().contains("owner_id"));
+    }
+
+    @Test
+    void transportLookupUsesRowLockAndBindingUsesNullOwnerGuard() {
+        Cargo cargo = cargo(1L, "CGO-001", "Unassigned", CargoStatus.WAITING);
+        cargo.setOwnerId(null);
+        when(cargoMapper.selectOne(any())).thenReturn(cargo);
+        when(cargoMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        Cargo locked = cargoService.getCargoForTransportForUpdate(1L);
+        cargoService.bindOwnerForTransport(locked, 7L);
+
+        ArgumentCaptor<LambdaQueryWrapper<Cargo>> queryCaptor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(cargoMapper).selectOne(queryCaptor.capture());
+        assertTrue(queryCaptor.getValue().getSqlSegment().contains("FOR UPDATE"));
+        ArgumentCaptor<LambdaUpdateWrapper<Cargo>> updateCaptor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(cargoMapper).update(isNull(), updateCaptor.capture());
+        assertTrue(updateCaptor.getValue().getSqlSegment().contains("owner_id IS NULL"));
+        assertEquals(7L, locked.getOwnerId());
+    }
+
+    @Test
+    void transportBindingNeverOverwritesAnotherOwner() {
+        Cargo cargo = cargo(1L, "CGO-001", "Assigned", CargoStatus.WAITING);
+        cargo.setOwnerId(3L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> cargoService.bindOwnerForTransport(cargo, 7L));
+
+        assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
+        verify(cargoMapper, never()).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void transportBindingAcceptsCargoAlreadyOwnedBySelectedOwnerWithoutWrite() {
+        Cargo cargo = cargo(1L, "CGO-001", "Assigned", CargoStatus.WAITING);
+        cargo.setOwnerId(7L);
+
+        cargoService.bindOwnerForTransport(cargo, 7L);
+
+        assertEquals(7L, cargo.getOwnerId());
+        verify(cargoMapper, never()).update(isNull(), any(Wrapper.class));
     }
 
     private Cargo cargo(Long id, String cargoNo, String name, CargoStatus status) {

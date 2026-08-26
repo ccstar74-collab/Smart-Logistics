@@ -13,6 +13,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.CargoStatus;
@@ -23,6 +24,7 @@ import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import com.smart_logistics.backend.security.CurrentUserService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -61,6 +63,8 @@ class TransportTaskServiceTest {
     @Mock
     private TransportTaskMapper transportTaskMapper;
     @Mock
+    private OwnerMapper ownerMapper;
+    @Mock
     private CargoService cargoService;
     @Mock
     private VehicleService vehicleService;
@@ -85,8 +89,12 @@ class TransportTaskServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "transport-task-test"),
                 TransportTask.class
         );
+        Owner owner = new Owner();
+        owner.setId(30L);
+        org.mockito.Mockito.lenient().when(ownerMapper.selectById(30L)).thenReturn(owner);
         service = new TransportTaskService(
-                transportTaskMapper, cargoService, vehicleService, availabilityService,
+                transportTaskMapper, ownerMapper, cargoService, vehicleService,
+                availabilityService,
                 dataScopeService, currentUserService, statusRecordService);
     }
 
@@ -94,7 +102,8 @@ class TransportTaskServiceTest {
     void createTransportTaskGeneratesTaskNumberAndDefaultsToWaiting() {
         TransportTaskCreateRequest request = createRequest();
         TransportTask[] holder = new TransportTask[1];
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
         when(transportTaskMapper.selectCount(any())).thenReturn(0L);
         when(transportTaskMapper.insert(any(TransportTask.class))).thenAnswer(invocation -> {
@@ -117,11 +126,13 @@ class TransportTaskServiceTest {
         assertNull(inserted.getEstimatedArrivalTime());
         assertEquals(TransportTaskStatus.WAITING, response.getStatus());
         assertEquals("+08:00", response.getPlanStartTime().getOffset().toString());
+        verify(cargoService).bindOwnerForTransport(any(Cargo.class),
+                org.mockito.ArgumentMatchers.eq(30L));
     }
 
     @Test
     void createTransportTaskRejectsMissingCargo() {
-        when(cargoService.getCargoForTransport(10L)).thenThrow(
+        when(cargoService.getCargoForTransportForUpdate(10L)).thenThrow(
                 new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found"));
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -132,8 +143,24 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void createTransportTaskRejectsMissingOwnerBeforeCargoBinding() {
+        TransportTaskCreateRequest request = createRequest();
+        request.setOwnerId(999L);
+        when(ownerMapper.selectById(999L)).thenReturn(null);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createTransportTask(request));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.getErrorCode());
+        assertEquals("owner not found", exception.getMessage());
+        verify(cargoService, never()).getCargoForTransportForUpdate(any());
+        verify(cargoService, never()).bindOwnerForTransport(any(), any());
+    }
+
+    @Test
     void createTransportTaskRejectsMissingVehicle() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L)).thenThrow(
                 new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "vehicle not found"));
 
@@ -145,7 +172,8 @@ class TransportTaskServiceTest {
 
     @Test
     void createTransportTaskRejectsCargoThatIsNotWaiting() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.COMPLETED));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.COMPLETED));
         when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -157,7 +185,8 @@ class TransportTaskServiceTest {
 
     @Test
     void createTransportTaskRejectsVehicleThatIsNotIdle() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L))
                 .thenReturn(vehicle(VehicleStatus.TRANSPORTING));
 
@@ -165,6 +194,22 @@ class TransportTaskServiceTest {
                 () -> service.createTransportTask(createRequest()));
 
         assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(transportTaskMapper, never()).insert(any(TransportTask.class));
+    }
+
+    @Test
+    void createTransportTaskRejectsCargoAssignedToDifferentOwner() {
+        Cargo cargo = cargo(CargoStatus.WAITING);
+        cargo.setOwnerId(31L);
+        when(cargoService.getCargoForTransportForUpdate(10L)).thenReturn(cargo);
+        when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createTransportTask(createRequest()));
+
+        assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
+        assertEquals("cargo is already assigned to another owner", exception.getMessage());
+        verify(cargoService, never()).bindOwnerForTransport(any(), any());
         verify(transportTaskMapper, never()).insert(any(TransportTask.class));
     }
 
@@ -222,6 +267,7 @@ class TransportTaskServiceTest {
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("transport task number already exists", exception.getMessage());
+        verify(cargoService, never()).bindOwnerForTransport(any(), any());
     }
 
     @Test
@@ -236,6 +282,8 @@ class TransportTaskServiceTest {
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
         assertEquals("transport task number already exists", exception.getMessage());
+        verify(cargoService).bindOwnerForTransport(any(Cargo.class),
+                org.mockito.ArgumentMatchers.eq(30L));
     }
 
     @Test
@@ -247,7 +295,7 @@ class TransportTaskServiceTest {
                 () -> service.createTransportTask(request));
 
         assertEquals(ErrorCode.INVALID_PARAMETER, exception.getErrorCode());
-        verify(cargoService, never()).getCargoForTransport(any());
+        verify(cargoService, never()).getCargoForTransportForUpdate(any());
     }
 
     @Test
@@ -588,7 +636,8 @@ class TransportTaskServiceTest {
     }
 
     private void stubCreateAssociations() {
-        when(cargoService.getCargoForTransport(10L)).thenReturn(cargo(CargoStatus.WAITING));
+        when(cargoService.getCargoForTransportForUpdate(10L))
+                .thenReturn(cargo(CargoStatus.WAITING));
         when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle(VehicleStatus.IDLE));
     }
 
@@ -636,6 +685,7 @@ class TransportTaskServiceTest {
     private TransportTaskCreateRequest createRequest() {
         TransportTaskCreateRequest request = new TransportTaskCreateRequest();
         request.setCargoId(10L);
+        request.setOwnerId(30L);
         request.setVehicleId(20L);
         request.setStartLocation(" Shanghai ");
         request.setEndLocation(" Beijing ");

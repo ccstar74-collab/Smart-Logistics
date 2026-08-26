@@ -78,6 +78,35 @@ class BusinessDataScopeServiceTest {
     }
 
     @Test
+    void ownerCannotReadUnassignedCargo() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.OWNER, null, 3L));
+        Cargo cargo = new Cargo();
+        cargo.setId(8L);
+        cargo.setOwnerId(null);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.requireCargoAccess(cargo));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+    }
+
+    @Test
+    void ownerCanReadCargoAndTaskAfterOutboundBinding() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.OWNER, null, 3L));
+        Cargo cargo = new Cargo();
+        cargo.setId(40L);
+        cargo.setOwnerId(3L);
+        TransportTask task = new TransportTask();
+        task.setId(30L);
+        task.setCargoId(40L);
+        when(cargoMapper.selectList(any())).thenReturn(List.of(cargo));
+        when(transportTaskMapper.selectList(any())).thenReturn(List.of(task));
+
+        service.requireCargoAccess(cargo);
+        service.requireTaskAccess(task);
+    }
+
+    @Test
     void driverCargoScopeUsesOnlyCargosFromOwnVehicleTasks() {
         when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 9L, null));
         Vehicle ownVehicle = new Vehicle();
@@ -94,6 +123,20 @@ class BusinessDataScopeServiceTest {
 
         assertTrue(query.getSqlSegment().contains("id"));
         assertTrue(query.getParamNameValuePairs().containsValue(40L));
+    }
+
+    @Test
+    void driverCannotReadUnassignedCargoWithoutTaskRelationship() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 9L, null));
+        when(vehicleMapper.selectList(any())).thenReturn(List.of());
+        Cargo cargo = new Cargo();
+        cargo.setId(40L);
+        cargo.setOwnerId(null);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.requireCargoAccess(cargo));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
     }
 
     @Test

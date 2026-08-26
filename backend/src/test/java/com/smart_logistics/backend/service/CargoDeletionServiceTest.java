@@ -5,6 +5,7 @@ import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.CargoMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CargoDeletionServiceTest {
     @Mock private CargoMapper cargoMapper;
+    @Mock private OwnerMapper ownerMapper;
     @Mock private UserDisplayNameService displayNameService;
     @Mock private TransportTaskAvailabilityService availabilityService;
     @Mock private BusinessDataScopeService dataScopeService;
@@ -28,7 +30,7 @@ class CargoDeletionServiceTest {
 
     @BeforeEach
     void setUp() {
-        cargoService = new CargoService(cargoMapper, displayNameService,
+        cargoService = new CargoService(cargoMapper, ownerMapper, displayNameService,
                 availabilityService, dataScopeService);
     }
 

@@ -8,10 +8,12 @@ import com.smart_logistics.backend.dto.request.CargoCreateRequest;
 import com.smart_logistics.backend.dto.request.CargoUpdateRequest;
 import com.smart_logistics.backend.dto.response.CargoResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.CargoMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -31,15 +33,18 @@ public class CargoService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final CargoMapper cargoMapper;
+    private final OwnerMapper ownerMapper;
     private final UserDisplayNameService userDisplayNameService;
     private final TransportTaskAvailabilityService availabilityService;
     private final BusinessDataScopeService dataScopeService;
 
     public CargoService(CargoMapper cargoMapper,
+                        OwnerMapper ownerMapper,
                         UserDisplayNameService userDisplayNameService,
                         TransportTaskAvailabilityService availabilityService,
                         BusinessDataScopeService dataScopeService) {
         this.cargoMapper = cargoMapper;
+        this.ownerMapper = ownerMapper;
         this.userDisplayNameService = userDisplayNameService;
         this.availabilityService = availabilityService;
         this.dataScopeService = dataScopeService;
@@ -95,6 +100,38 @@ public class CargoService {
         return getRequiredCargoRaw(id);
     }
 
+    public Cargo getCargoForTransportForUpdate(Long id) {
+        Cargo cargo = cargoMapper.selectOne(new LambdaQueryWrapper<Cargo>()
+                .eq(Cargo::getId, id)
+                .last("FOR UPDATE"));
+        if (cargo == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found");
+        }
+        return cargo;
+    }
+
+    @Transactional
+    public void bindOwnerForTransport(Cargo cargo, Long ownerId) {
+        if (cargo.getOwnerId() != null) {
+            if (!cargo.getOwnerId().equals(ownerId)) {
+                throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                        "cargo is already assigned to another owner");
+            }
+            return;
+        }
+        LambdaUpdateWrapper<Cargo> update = new LambdaUpdateWrapper<Cargo>()
+                .eq(Cargo::getId, cargo.getId())
+                .eq(Cargo::getStatus, CargoStatus.WAITING.name())
+                .isNull(Cargo::getOwnerId)
+                .set(Cargo::getOwnerId, ownerId)
+                .set(Cargo::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
+        if (cargoMapper.update(null, update) != 1) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "cargo owner binding conflict");
+        }
+        cargo.setOwnerId(ownerId);
+    }
+
     @Transactional
     public void updateStatusForTransport(Long id, CargoStatus expectedStatus,
                                          CargoStatus targetStatus) {
@@ -112,6 +149,7 @@ public class CargoService {
     public CargoResponse createCargo(CargoCreateRequest request) {
         String cargoNo = request.getCargoNo().trim();
         ensureCargoNoAvailable(cargoNo);
+        ensureOwnerExists(request.getOwnerId());
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Cargo cargo = new Cargo();
@@ -202,14 +240,25 @@ public class CargoService {
         Map<Long, String> ownerNames = userDisplayNameService.getOwnerNames(
                 cargos.stream().map(Cargo::getOwnerId).toList());
         return cargos.stream()
-                .map(cargo -> toResponse(cargo, ownerNames.get(cargo.getOwnerId())))
+                .map(cargo -> toResponse(cargo, cargo.getOwnerId() == null
+                        ? null : ownerNames.get(cargo.getOwnerId())))
                 .toList();
     }
 
+    private void ensureOwnerExists(Long ownerId) {
+        if (ownerId == null) {
+            return;
+        }
+        Owner owner = ownerMapper.selectById(ownerId);
+        if (owner == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "owner not found");
+        }
+    }
+
     private CargoResponse toResponse(Cargo cargo) {
-        String ownerName = userDisplayNameService.getOwnerNames(
-                cargo.getOwnerId() == null ? List.of() : List.of(cargo.getOwnerId()))
-                .get(cargo.getOwnerId());
+        Long ownerId = cargo.getOwnerId();
+        String ownerName = ownerId == null ? null : userDisplayNameService
+                .getOwnerNames(List.of(ownerId)).get(ownerId);
         return toResponse(cargo, ownerName);
     }
 
