@@ -1,7 +1,6 @@
 package com.smart_logistics.backend.handler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.smart_logistics.backend.dto.realtime.EtaRealtimeMessage;
 import org.slf4j.Logger;
@@ -19,7 +18,11 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GpsWebSocketHandler.class);
     private static final CopyOnWriteArraySet<WebSocketSession> SESSION_SET = new CopyOnWriteArraySet<>();
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+    private final ObjectMapper objectMapper;
+
+    public GpsWebSocketHandler(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
@@ -44,8 +47,8 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
     private void broadcast(Object payload) {
         String json;
         try {
-            json = OBJECT_MAPPER.writeValueAsString(payload);
-        } catch (JsonProcessingException e) {
+            json = objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
             LOGGER.error("WebSocket消息序列化失败", e);
             return;
         }
