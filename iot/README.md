@@ -81,6 +81,10 @@ python .\iot\simulator\mqtt_data_generator.py --vehicles 1 --duration 10 --demo-
 $env:AMAP_WEB_SERVICE_KEY = '<高德Web服务Key>'
 ```
 
+也可以把 `AMAP_WEB_SERVICE_KEY=...` 增加到本机的
+`$env:USERPROFILE\.smart-logistics\mqtt_cloud.env`，发生器和任务指令工具在使用
+`--credentials` 时会自动读取，无需每次重新设置环境变量。
+
 按指定起终点启动：
 
 ```powershell

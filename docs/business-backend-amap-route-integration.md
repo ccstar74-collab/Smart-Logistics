@@ -170,6 +170,14 @@ ALTER TABLE vehicle
 $env:AMAP_WEB_SERVICE_KEY = '<高德Web服务Key>'
 ```
 
+也可以在本机已有的 `$env:USERPROFILE\.smart-logistics\mqtt_cloud.env` 中增加：
+
+```dotenv
+AMAP_WEB_SERVICE_KEY=<高德Web服务Key>
+```
+
+两个模拟工具在使用 `--credentials` 时会自动读取该值。
+
 如果业务API要求登录，再设置短期Token：
 
 ```powershell

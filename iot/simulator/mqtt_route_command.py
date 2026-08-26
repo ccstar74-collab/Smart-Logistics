@@ -64,8 +64,10 @@ def main():
     parser.add_argument("--timeout", type=float, default=30, help="等待ACK秒数")
     args = parser.parse_args()
 
+    credential_values = {}
     if args.credentials:
         credentials = load_mqtt_credentials(args.credentials)
+        credential_values = credentials
         if args.host == "localhost":
             args.host = credentials["MQTT_HOST"]
         if args.port == 1883:
@@ -78,11 +80,15 @@ def main():
     if args.task_id is not None and args.task_id <= 0:
         parser.error("--task-id必须大于0")
     if args.task_url:
+        amap_key = (
+            os.environ.get(args.amap_key_env)
+            or credential_values.get("AMAP_WEB_SERVICE_KEY")
+        )
         try:
             context = fetch_task_route_context(
                 args.task_url,
                 token=os.environ.get(args.backend_token_env),
-                amap_key=os.environ.get(args.amap_key_env),
+                amap_key=amap_key,
                 city=args.city,
             )
         except Exception as exc:

@@ -164,8 +164,10 @@ def main():
     parser.add_argument("--output", help="可选：同时保存成可回放 JSONL")
     args = parser.parse_args()
 
+    credential_values = {}
     if args.credentials:
         credentials = load_mqtt_credentials(args.credentials)
+        credential_values = credentials
         if args.host == "localhost":
             args.host = credentials["MQTT_HOST"]
         if args.port == 1883:
@@ -189,7 +191,10 @@ def main():
         parser.error("--origin 格式应为 经度,纬度")
 
     rng = random.Random(args.seed)
-    amap_key = os.environ.get(args.amap_key_env)
+    amap_key = (
+        os.environ.get(args.amap_key_env)
+        or credential_values.get("AMAP_WEB_SERVICE_KEY")
+    )
     if args.road_route and not amap_key:
         parser.error(f"--road-route需要设置环境变量{args.amap_key_env}")
     route_points = None
