@@ -73,12 +73,36 @@ python .\iot\simulator\mqtt_data_generator.py --vehicles 1 --duration 10 --demo-
 
 `--alert-mode raw` 只制造可由GPS推断的停车/偏航，不直接发告警；异常开箱没有GPS原始特征，必须使用默认的 `precomputed` 模式发布告警消息。
 
+## 业务任务与高德真实路线
+
+本项目道路规划统一使用高德Web服务。先在当前PowerShell会话设置Key（不要提交到Git）：
+
+```powershell
+$env:AMAP_WEB_SERVICE_KEY = '<高德Web服务Key>'
+```
+
+按指定起终点启动：
+
+```powershell
+python .\iot\simulator\mqtt_data_generator.py `
+  --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
+  --vehicles 20 --duration 3600 --interval 1 `
+  --road-route "106.730553,29.613528;106.754928,29.622890" `
+  --output .\iot\samples\long_track_20v_1h.jsonl `
+  --seed 2026
+```
+
+也可以运行发生器后，使用 `mqtt_route_command.py --task-url <任务详情API>` 从业务后端读取任务起终点并动态改线。完整字段和联调步骤见 [业务后端与高德真实路线模拟联调说明](../docs/business-backend-amap-route-integration.md)。
+
+高德返回国内GCJ-02道路折线，发生器会自动转换为WGS84后再发布GPS。
+
 ## 长时间轨迹与断线恢复
 
 20辆车沿真实道路连续运行1小时，并保存同一份JSONL：
 
 ```powershell
 python .\iot\simulator\mqtt_data_generator.py `
+  --amap-key-env AMAP_WEB_SERVICE_KEY `
   --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
   --vehicles 20 --duration 3600 --interval 1 `
   --road-route "106.731,29.613;106.790,29.615" `

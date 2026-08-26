@@ -13,12 +13,12 @@ import queue
 import random
 import threading
 import time
-import urllib.parse
-import urllib.request
+import os
 
 import paho.mqtt.client as mqtt
 
 from mqtt_credentials import load_mqtt_credentials
+from route_planner import load_road_route
 
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -70,43 +70,6 @@ def bearing_between(lat1, lon1, lat2, lon2):
         - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon)
     )
     return math.degrees(math.atan2(y, x)) % 360.0
-
-
-def load_road_route(route_text):
-    """调用 OSRM，把经纬度途经点转换成沿真实道路的往返路线。"""
-    coordinates = []
-    try:
-        for item in route_text.split(";"):
-            lon, lat = (float(value) for value in item.split(","))
-            coordinates.append((lon, lat))
-    except ValueError:
-        raise ValueError("--road-route 格式应为 经度,纬度;经度,纬度")
-    if len(coordinates) < 2:
-        raise ValueError("--road-route 至少需要起点和终点")
-
-    coordinate_text = ";".join("%.6f,%.6f" % item for item in coordinates)
-    query = urllib.parse.urlencode({"overview": "full", "geometries": "geojson"})
-    url = "https://router.project-osrm.org/route/v1/driving/%s?%s" % (
-        coordinate_text,
-        query,
-    )
-    request = urllib.request.Request(url, headers={"User-Agent": "smart-logistics-demo/1.0"})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        result = json.loads(response.read().decode("utf-8"))
-    if result.get("code") != "Ok" or not result.get("routes"):
-        raise RuntimeError("道路规划失败：%s" % result.get("message", result.get("code")))
-
-    route = result["routes"][0]
-    forward_points = [(lat, lon) for lon, lat in route["geometry"]["coordinates"]]
-    if len(forward_points) < 2:
-        raise RuntimeError("道路规划返回的轨迹点不足")
-    # 回程使用反向路线，避免到达终点后瞬移回起点。
-    round_trip = forward_points + list(reversed(forward_points[1:-1]))
-    print(
-        "[路线] 已加载真实道路：%.2f km，%d 个轨迹节点（往返循环）"
-        % (route["distance"] / 1000.0, len(round_trip))
-    )
-    return round_trip
 
 
 def advance_on_route(vehicle, route_points, distance_m):
@@ -175,6 +138,10 @@ def main():
                         help="中心点，经度,纬度，默认重庆")
     parser.add_argument("--road-route",
                         help="沿真实道路循环行驶，格式：起点经度,纬度;终点经度,纬度，可含途经点")
+    parser.add_argument("--amap-key-env", default="AMAP_WEB_SERVICE_KEY",
+                        help="保存高德Web服务Key的环境变量名")
+    parser.add_argument("--amap-strategy", type=int, default=32,
+                        help="高德驾车算路策略，默认32（高德推荐）")
     parser.add_argument("--seed", type=int, default=42,
                         help="随机种子；相同种子可复现相同车流")
     parser.add_argument("--anomaly-rate", type=float, default=0.0,
@@ -222,10 +189,17 @@ def main():
         parser.error("--origin 格式应为 经度,纬度")
 
     rng = random.Random(args.seed)
+    amap_key = os.environ.get(args.amap_key_env)
+    if args.road_route and not amap_key:
+        parser.error(f"--road-route需要设置环境变量{args.amap_key_env}")
     route_points = None
     if args.road_route:
         try:
-            route_points = load_road_route(args.road_route)
+            route_points = load_road_route(
+                args.road_route,
+                amap_key=amap_key,
+                strategy=args.amap_strategy,
+            )
         except Exception as exc:
             parser.error("真实道路加载失败：%s" % exc)
     vehicles = [
@@ -508,7 +482,11 @@ def main():
 
         def load_route_in_background():
             try:
-                points = load_road_route(route_text)
+                points = load_road_route(
+                    route_text,
+                    amap_key=amap_key,
+                    strategy=args.amap_strategy,
+                )
                 route_result_queue.put((command_id, vehicle_id, points, None))
             except Exception as exc:
                 route_result_queue.put((command_id, vehicle_id, None, str(exc)))

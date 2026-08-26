@@ -61,7 +61,18 @@ python -m unittest discover -s .\iot\tests -v
 
 ## 5. 云端与真实设备证据
 
-### 5.1 MQTT断线恢复测试
+### 5.1 高德真实道路规划测试
+
+2026-08-26 使用高德Web服务驾车路径规划2.0测试果园港附近两个WGS84点：
+
+- 高德接口调用成功；
+- 单程道路距离约2.94 km；
+- 解析并转换后得到80个往返轨迹节点；
+- 高德GCJ-02折线已在模拟端转换为WGS84；
+- 单元测试覆盖坐标转换、高德polyline解析、业务任务DTO和地址兜底解析。
+- 模拟任务API → MQTT路线指令 → 高德规划 → `EXECUTED` ACK端到端测试通过，动态路线得到126个往返节点。
+
+### 5.2 MQTT断线恢复测试
 
 使用独立Mosquitto测试端口运行12秒发生器，在第3秒主动停止Broker，等待3秒后重新启动。测试结果：
 
@@ -71,7 +82,7 @@ python -m unittest discover -s .\iot\tests -v
 - 全部车辆在线状态通过 `[ONLINE_RESTORED]` 重新发布；
 - 发生器退出码为0，恢复后继续发布GPS，未出现二次Traceback。
 
-### 5.2 已有云端证据
+### 5.3 已有云端证据
 
 - `iot/evidence/cloud_alert_probe.jsonl`：云端MQTT正常/异常消息接收记录；
 - `iot/evidence/real_001_outdoor_capture.jsonl`：E53_ST1真实GPS室外采集记录；
