@@ -1,0 +1,26 @@
+# Java build and runtime output
+out/
+target/
+data/runtime-knowledge/
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+.vite/
+
+# Local environment files and credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp

@@ -1,0 +1,1445 @@
+{
+  "schemaVersion": "1.0",
+  "requestId": "PLAN-20260822163400-20260822",
+  "generatedAt": "2026-08-22T16:34:00+08:00",
+  "coordinateSystem": "WGS84",
+  "objective": {
+    "primary": "MINIMIZE_TOTAL_DISTANCE",
+    "secondary": [
+      "MINIMIZE_LATE_TASKS",
+      "BALANCE_VEHICLE_LOAD"
+    ]
+  },
+  "constraints": {
+    "respectVehicleWeightCapacity": true,
+    "respectVehicleVolumeCapacity": true,
+    "respectTaskTimeWindows": true,
+    "oneVehiclePerTask": true,
+    "maxTasksPerVehicle": 5
+  },
+  "vehicles": [
+    {
+      "id": 1,
+      "deviceCode": "sim_000",
+      "plateNumber": "渝A10000",
+      "vehicleType": "VAN",
+      "capacityKg": 2000,
+      "capacityM3": 10.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.730553,
+        "latitude": 29.613528,
+        "speed": 0.0,
+        "direction": 189.9,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 2,
+      "deviceCode": "sim_001",
+      "plateNumber": "渝A10001",
+      "vehicleType": "LIGHT_TRUCK",
+      "capacityKg": 5000,
+      "capacityM3": 20.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.72962,
+        "latitude": 29.615912,
+        "speed": 0.0,
+        "direction": 46.0,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 3,
+      "deviceCode": "sim_002",
+      "plateNumber": "渝A10002",
+      "vehicleType": "MEDIUM_TRUCK",
+      "capacityKg": 8000,
+      "capacityM3": 32.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.731675,
+        "latitude": 29.616912,
+        "speed": 0.0,
+        "direction": 276.6,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 4,
+      "deviceCode": "sim_003",
+      "plateNumber": "渝A10003",
+      "vehicleType": "HEAVY_TRUCK",
+      "capacityKg": 12000,
+      "capacityM3": 45.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.748011,
+        "latitude": 29.620348,
+        "speed": 0.0,
+        "direction": 51.9,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 5,
+      "deviceCode": "sim_004",
+      "plateNumber": "渝A10004",
+      "vehicleType": "VAN",
+      "capacityKg": 2000,
+      "capacityM3": 10.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.754928,
+        "latitude": 29.62289,
+        "speed": 0.0,
+        "direction": 0.7,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 6,
+      "deviceCode": "sim_005",
+      "plateNumber": "渝A10005",
+      "vehicleType": "LIGHT_TRUCK",
+      "capacityKg": 5000,
+      "capacityM3": 20.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.770118,
+        "latitude": 29.625623,
+        "speed": 0.0,
+        "direction": 122.6,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 7,
+      "deviceCode": "sim_006",
+      "plateNumber": "渝A10006",
+      "vehicleType": "MEDIUM_TRUCK",
+      "capacityKg": 8000,
+      "capacityM3": 32.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.789599,
+        "latitude": 29.625502,
+        "speed": 0.0,
+        "direction": 292.5,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 8,
+      "deviceCode": "sim_007",
+      "plateNumber": "渝A10007",
+      "vehicleType": "HEAVY_TRUCK",
+      "capacityKg": 12000,
+      "capacityM3": 45.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.794072,
+        "latitude": 29.624338,
+        "speed": 0.0,
+        "direction": 25.9,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 9,
+      "deviceCode": "sim_008",
+      "plateNumber": "渝A10008",
+      "vehicleType": "VAN",
+      "capacityKg": 2000,
+      "capacityM3": 10.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.79455,
+        "latitude": 29.620867,
+        "speed": 0.0,
+        "direction": 182.5,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 10,
+      "deviceCode": "sim_009",
+      "plateNumber": "渝A10009",
+      "vehicleType": "LIGHT_TRUCK",
+      "capacityKg": 5000,
+      "capacityM3": 20.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.789741,
+        "latitude": 29.61408,
+        "speed": 0.0,
+        "direction": 243.7,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 11,
+      "deviceCode": "sim_010",
+      "plateNumber": "渝A10010",
+      "vehicleType": "MEDIUM_TRUCK",
+      "capacityKg": 8000,
+      "capacityM3": 32.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.730553,
+        "latitude": 29.613528,
+        "speed": 0.0,
+        "direction": 7.3,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 12,
+      "deviceCode": "sim_011",
+      "plateNumber": "渝A10011",
+      "vehicleType": "HEAVY_TRUCK",
+      "capacityKg": 12000,
+      "capacityM3": 45.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.72962,
+        "latitude": 29.615912,
+        "speed": 0.0,
+        "direction": 329.6,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 13,
+      "deviceCode": "sim_012",
+      "plateNumber": "渝A10012",
+      "vehicleType": "VAN",
+      "capacityKg": 2000,
+      "capacityM3": 10.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.731675,
+        "latitude": 29.616912,
+        "speed": 0.0,
+        "direction": 135.6,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 14,
+      "deviceCode": "sim_013",
+      "plateNumber": "渝A10013",
+      "vehicleType": "LIGHT_TRUCK",
+      "capacityKg": 5000,
+      "capacityM3": 20.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.748011,
+        "latitude": 29.620348,
+        "speed": 0.0,
+        "direction": 15.5,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 15,
+      "deviceCode": "sim_014",
+      "plateNumber": "渝A10014",
+      "vehicleType": "MEDIUM_TRUCK",
+      "capacityKg": 8000,
+      "capacityM3": 32.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.754928,
+        "latitude": 29.62289,
+        "speed": 0.0,
+        "direction": 45.1,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 16,
+      "deviceCode": "sim_015",
+      "plateNumber": "渝A10015",
+      "vehicleType": "HEAVY_TRUCK",
+      "capacityKg": 12000,
+      "capacityM3": 45.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.770118,
+        "latitude": 29.625623,
+        "speed": 0.0,
+        "direction": 123.7,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 17,
+      "deviceCode": "sim_016",
+      "plateNumber": "渝A10016",
+      "vehicleType": "VAN",
+      "capacityKg": 2000,
+      "capacityM3": 10.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.789599,
+        "latitude": 29.625502,
+        "speed": 0.0,
+        "direction": 90.7,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 18,
+      "deviceCode": "sim_017",
+      "plateNumber": "渝A10017",
+      "vehicleType": "LIGHT_TRUCK",
+      "capacityKg": 5000,
+      "capacityM3": 20.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.794072,
+        "latitude": 29.624338,
+        "speed": 0.0,
+        "direction": 357.1,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 19,
+      "deviceCode": "sim_018",
+      "plateNumber": "渝A10018",
+      "vehicleType": "MEDIUM_TRUCK",
+      "capacityKg": 8000,
+      "capacityM3": 32.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.79455,
+        "latitude": 29.620867,
+        "speed": 0.0,
+        "direction": 184.2,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    },
+    {
+      "id": 20,
+      "deviceCode": "sim_019",
+      "plateNumber": "渝A10019",
+      "vehicleType": "HEAVY_TRUCK",
+      "capacityKg": 12000,
+      "capacityM3": 45.0,
+      "status": "IDLE",
+      "online": true,
+      "currentLoadKg": 0,
+      "currentLoadM3": 0.0,
+      "currentPosition": {
+        "longitude": 106.789741,
+        "latitude": 29.61408,
+        "speed": 0.0,
+        "direction": 6.6,
+        "recordedAt": "2026-08-22T16:34:00+08:00"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": 1001,
+      "taskNo": "T202608220001",
+      "cargoId": 2001,
+      "cargoName": "电子设备",
+      "weightKg": 2800,
+      "volumeM3": 12.0,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_001",
+        "name": "果园港装卸点A",
+        "longitude": 106.730553,
+        "latitude": 29.613528
+      },
+      "delivery": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "planStartTime": "2026-08-22T16:44:00+08:00",
+      "planEndTime": "2026-08-22T18:14:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1002,
+      "taskNo": "T202608220002",
+      "cargoId": 2002,
+      "cargoName": "冷链食品",
+      "weightKg": 900,
+      "volumeM3": 13.9,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_002",
+        "name": "港区集装箱堆场",
+        "longitude": 106.72962,
+        "latitude": 29.615912
+      },
+      "planStartTime": "2026-08-22T16:54:00+08:00",
+      "planEndTime": "2026-08-22T19:54:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1003,
+      "taskNo": "T202608220003",
+      "cargoId": 2003,
+      "cargoName": "日用百货",
+      "weightKg": 6700,
+      "volumeM3": 6.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "delivery": {
+        "locationId": "LOC_009",
+        "name": "末端配送点B",
+        "longitude": 106.79455,
+        "latitude": 29.620867
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T18:39:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1004,
+      "taskNo": "T202608220004",
+      "cargoId": 2004,
+      "cargoName": "电子设备",
+      "weightKg": 4400,
+      "volumeM3": 14.3,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "planStartTime": "2026-08-22T18:04:00+08:00",
+      "planEndTime": "2026-08-22T19:19:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1005,
+      "taskNo": "T202608220005",
+      "cargoId": 2005,
+      "cargoName": "冷链食品",
+      "weightKg": 900,
+      "volumeM3": 6.4,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "delivery": {
+        "locationId": "LOC_002",
+        "name": "港区集装箱堆场",
+        "longitude": 106.72962,
+        "latitude": 29.615912
+      },
+      "planStartTime": "2026-08-22T16:44:00+08:00",
+      "planEndTime": "2026-08-22T19:44:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "HIGH",
+      "status": "WAITING"
+    },
+    {
+      "id": 1006,
+      "taskNo": "T202608220006",
+      "cargoId": 2006,
+      "cargoName": "电子设备",
+      "weightKg": 4700,
+      "volumeM3": 25.8,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "delivery": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "planStartTime": "2026-08-22T17:34:00+08:00",
+      "planEndTime": "2026-08-22T18:34:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1007,
+      "taskNo": "T202608220007",
+      "cargoId": 2007,
+      "cargoName": "日用百货",
+      "weightKg": 5700,
+      "volumeM3": 19.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "planStartTime": "2026-08-22T17:14:00+08:00",
+      "planEndTime": "2026-08-22T19:44:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1008,
+      "taskNo": "T202608220008",
+      "cargoId": 2008,
+      "cargoName": "普通工业件",
+      "weightKg": 7600,
+      "volumeM3": 18.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_002",
+        "name": "港区集装箱堆场",
+        "longitude": 106.72962,
+        "latitude": 29.615912
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T19:39:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1009,
+      "taskNo": "T202608220009",
+      "cargoId": 2009,
+      "cargoName": "日用百货",
+      "weightKg": 5500,
+      "volumeM3": 18.9,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_003",
+        "name": "保税仓储点",
+        "longitude": 106.731675,
+        "latitude": 29.616912
+      },
+      "planStartTime": "2026-08-22T18:14:00+08:00",
+      "planEndTime": "2026-08-22T20:44:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1010,
+      "taskNo": "T202608220010",
+      "cargoId": 2010,
+      "cargoName": "汽车零部件",
+      "weightKg": 300,
+      "volumeM3": 20.8,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_003",
+        "name": "保税仓储点",
+        "longitude": 106.731675,
+        "latitude": 29.616912
+      },
+      "delivery": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "planStartTime": "2026-08-22T18:24:00+08:00",
+      "planEndTime": "2026-08-22T21:09:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1011,
+      "taskNo": "T202608220011",
+      "cargoId": 2011,
+      "cargoName": "普通工业件",
+      "weightKg": 2000,
+      "volumeM3": 15.1,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_002",
+        "name": "港区集装箱堆场",
+        "longitude": 106.72962,
+        "latitude": 29.615912
+      },
+      "delivery": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "planStartTime": "2026-08-22T17:54:00+08:00",
+      "planEndTime": "2026-08-22T20:39:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1012,
+      "taskNo": "T202608220012",
+      "cargoId": 2012,
+      "cargoName": "汽车零部件",
+      "weightKg": 3400,
+      "volumeM3": 28.2,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_003",
+        "name": "保税仓储点",
+        "longitude": 106.731675,
+        "latitude": 29.616912
+      },
+      "delivery": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T20:24:00+08:00",
+      "serviceMinutes": 10,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1013,
+      "taskNo": "T202608220013",
+      "cargoId": 2013,
+      "cargoName": "汽车零部件",
+      "weightKg": 7900,
+      "volumeM3": 18.9,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_008",
+        "name": "末端配送点A",
+        "longitude": 106.794072,
+        "latitude": 29.624338
+      },
+      "delivery": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "planStartTime": "2026-08-22T17:54:00+08:00",
+      "planEndTime": "2026-08-22T20:39:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1014,
+      "taskNo": "T202608220014",
+      "cargoId": 2014,
+      "cargoName": "汽车零部件",
+      "weightKg": 800,
+      "volumeM3": 13.0,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_003",
+        "name": "保税仓储点",
+        "longitude": 106.731675,
+        "latitude": 29.616912
+      },
+      "delivery": {
+        "locationId": "LOC_009",
+        "name": "末端配送点B",
+        "longitude": 106.79455,
+        "latitude": 29.620867
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T20:09:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1015,
+      "taskNo": "T202608220015",
+      "cargoId": 2015,
+      "cargoName": "冷链食品",
+      "weightKg": 3600,
+      "volumeM3": 29.4,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "delivery": {
+        "locationId": "LOC_009",
+        "name": "末端配送点B",
+        "longitude": 106.79455,
+        "latitude": 29.620867
+      },
+      "planStartTime": "2026-08-22T17:14:00+08:00",
+      "planEndTime": "2026-08-22T19:59:00+08:00",
+      "serviceMinutes": 10,
+      "priority": "HIGH",
+      "status": "WAITING"
+    },
+    {
+      "id": 1016,
+      "taskNo": "T202608220016",
+      "cargoId": 2016,
+      "cargoName": "冷链食品",
+      "weightKg": 8000,
+      "volumeM3": 15.9,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "delivery": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "planStartTime": "2026-08-22T18:04:00+08:00",
+      "planEndTime": "2026-08-22T19:34:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1017,
+      "taskNo": "T202608220017",
+      "cargoId": 2017,
+      "cargoName": "电子设备",
+      "weightKg": 2300,
+      "volumeM3": 29.7,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_007",
+        "name": "冷链中转点",
+        "longitude": 106.789599,
+        "latitude": 29.625502
+      },
+      "delivery": {
+        "locationId": "LOC_001",
+        "name": "果园港装卸点A",
+        "longitude": 106.730553,
+        "latitude": 29.613528
+      },
+      "planStartTime": "2026-08-22T16:44:00+08:00",
+      "planEndTime": "2026-08-22T17:44:00+08:00",
+      "serviceMinutes": 10,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1018,
+      "taskNo": "T202608220018",
+      "cargoId": 2018,
+      "cargoName": "电子设备",
+      "weightKg": 2500,
+      "volumeM3": 21.8,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "delivery": {
+        "locationId": "LOC_007",
+        "name": "冷链中转点",
+        "longitude": 106.789599,
+        "latitude": 29.625502
+      },
+      "planStartTime": "2026-08-22T18:04:00+08:00",
+      "planEndTime": "2026-08-22T21:04:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1019,
+      "taskNo": "T202608220019",
+      "cargoId": 2019,
+      "cargoName": "日用百货",
+      "weightKg": 3700,
+      "volumeM3": 18.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "delivery": {
+        "locationId": "LOC_001",
+        "name": "果园港装卸点A",
+        "longitude": 106.730553,
+        "latitude": 29.613528
+      },
+      "planStartTime": "2026-08-22T19:14:00+08:00",
+      "planEndTime": "2026-08-22T21:44:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1020,
+      "taskNo": "T202608220020",
+      "cargoId": 2020,
+      "cargoName": "冷链食品",
+      "weightKg": 4600,
+      "volumeM3": 4.1,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "delivery": {
+        "locationId": "LOC_008",
+        "name": "末端配送点A",
+        "longitude": 106.794072,
+        "latitude": 29.624338
+      },
+      "planStartTime": "2026-08-22T18:34:00+08:00",
+      "planEndTime": "2026-08-22T20:04:00+08:00",
+      "serviceMinutes": 30,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1021,
+      "taskNo": "T202608220021",
+      "cargoId": 2021,
+      "cargoName": "普通工业件",
+      "weightKg": 6600,
+      "volumeM3": 4.0,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "delivery": {
+        "locationId": "LOC_008",
+        "name": "末端配送点A",
+        "longitude": 106.794072,
+        "latitude": 29.624338
+      },
+      "planStartTime": "2026-08-22T16:54:00+08:00",
+      "planEndTime": "2026-08-22T18:09:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "HIGH",
+      "status": "WAITING"
+    },
+    {
+      "id": 1022,
+      "taskNo": "T202608220022",
+      "cargoId": 2022,
+      "cargoName": "日用百货",
+      "weightKg": 1100,
+      "volumeM3": 2.6,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_005",
+        "name": "工业园配送点A",
+        "longitude": 106.754928,
+        "latitude": 29.62289
+      },
+      "delivery": {
+        "locationId": "LOC_003",
+        "name": "保税仓储点",
+        "longitude": 106.731675,
+        "latitude": 29.616912
+      },
+      "planStartTime": "2026-08-22T19:14:00+08:00",
+      "planEndTime": "2026-08-22T20:44:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1023,
+      "taskNo": "T202608220023",
+      "cargoId": 2023,
+      "cargoName": "冷链食品",
+      "weightKg": 7200,
+      "volumeM3": 14.3,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_003",
+        "name": "保税仓储点",
+        "longitude": 106.731675,
+        "latitude": 29.616912
+      },
+      "delivery": {
+        "locationId": "LOC_009",
+        "name": "末端配送点B",
+        "longitude": 106.79455,
+        "latitude": 29.620867
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T18:54:00+08:00",
+      "serviceMinutes": 10,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1024,
+      "taskNo": "T202608220024",
+      "cargoId": 2024,
+      "cargoName": "普通工业件",
+      "weightKg": 2300,
+      "volumeM3": 11.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "planStartTime": "2026-08-22T16:54:00+08:00",
+      "planEndTime": "2026-08-22T19:24:00+08:00",
+      "serviceMinutes": 10,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1025,
+      "taskNo": "T202608220025",
+      "cargoId": 2025,
+      "cargoName": "日用百货",
+      "weightKg": 300,
+      "volumeM3": 20.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "planStartTime": "2026-08-22T17:14:00+08:00",
+      "planEndTime": "2026-08-22T18:14:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "HIGH",
+      "status": "WAITING"
+    },
+    {
+      "id": 1026,
+      "taskNo": "T202608220026",
+      "cargoId": 2026,
+      "cargoName": "汽车零部件",
+      "weightKg": 1900,
+      "volumeM3": 27.8,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_006",
+        "name": "工业园配送点B",
+        "longitude": 106.770118,
+        "latitude": 29.625623
+      },
+      "delivery": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "planStartTime": "2026-08-22T18:04:00+08:00",
+      "planEndTime": "2026-08-22T19:19:00+08:00",
+      "serviceMinutes": 15,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1027,
+      "taskNo": "T202608220027",
+      "cargoId": 2027,
+      "cargoName": "汽车零部件",
+      "weightKg": 4700,
+      "volumeM3": 16.1,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_009",
+        "name": "末端配送点B",
+        "longitude": 106.79455,
+        "latitude": 29.620867
+      },
+      "delivery": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "planStartTime": "2026-08-22T18:04:00+08:00",
+      "planEndTime": "2026-08-22T20:04:00+08:00",
+      "serviceMinutes": 10,
+      "priority": "HIGH",
+      "status": "WAITING"
+    },
+    {
+      "id": 1028,
+      "taskNo": "T202608220028",
+      "cargoId": 2028,
+      "cargoName": "汽车零部件",
+      "weightKg": 7200,
+      "volumeM3": 2.5,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_001",
+        "name": "果园港装卸点A",
+        "longitude": 106.730553,
+        "latitude": 29.613528
+      },
+      "delivery": {
+        "locationId": "LOC_004",
+        "name": "鱼嘴物流中转点",
+        "longitude": 106.748011,
+        "latitude": 29.620348
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T19:39:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "URGENT",
+      "status": "WAITING"
+    },
+    {
+      "id": 1029,
+      "taskNo": "T202608220029",
+      "cargoId": 2029,
+      "cargoName": "冷链食品",
+      "weightKg": 3200,
+      "volumeM3": 19.6,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_008",
+        "name": "末端配送点A",
+        "longitude": 106.794072,
+        "latitude": 29.624338
+      },
+      "delivery": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "planStartTime": "2026-08-22T18:24:00+08:00",
+      "planEndTime": "2026-08-22T19:24:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    },
+    {
+      "id": 1030,
+      "taskNo": "T202608220030",
+      "cargoId": 2030,
+      "cargoName": "电子设备",
+      "weightKg": 1100,
+      "volumeM3": 29.3,
+      "vehicleId": null,
+      "pickup": {
+        "locationId": "LOC_010",
+        "name": "鱼嘴配送中心",
+        "longitude": 106.789741,
+        "latitude": 29.61408
+      },
+      "delivery": {
+        "locationId": "LOC_002",
+        "name": "港区集装箱堆场",
+        "longitude": 106.72962,
+        "latitude": 29.615912
+      },
+      "planStartTime": "2026-08-22T17:24:00+08:00",
+      "planEndTime": "2026-08-22T19:09:00+08:00",
+      "serviceMinutes": 20,
+      "priority": "NORMAL",
+      "status": "WAITING"
+    }
+  ],
+  "distanceMatrix": {
+    "provider": "OSRM_TEST_ONLY",
+    "coordinateSystem": "WGS84",
+    "locationIds": [
+      "LOC_001",
+      "LOC_002",
+      "LOC_003",
+      "LOC_004",
+      "LOC_005",
+      "LOC_006",
+      "LOC_007",
+      "LOC_008",
+      "LOC_009",
+      "LOC_010"
+    ],
+    "distanceMeters": [
+      [
+        0,
+        333,
+        579,
+        2206,
+        2937,
+        4444,
+        6332,
+        6804,
+        7198,
+        8340
+      ],
+      [
+        333,
+        0,
+        246,
+        1873,
+        2604,
+        4111,
+        5999,
+        6471,
+        6865,
+        8008
+      ],
+      [
+        1949,
+        2514,
+        0,
+        1627,
+        2358,
+        3865,
+        5753,
+        6225,
+        6619,
+        7762
+      ],
+      [
+        2768,
+        3429,
+        3646,
+        0,
+        731,
+        2238,
+        4126,
+        4597,
+        4992,
+        6134
+      ],
+      [
+        7280,
+        7942,
+        8159,
+        4562,
+        0,
+        1507,
+        3395,
+        3866,
+        4260,
+        5403
+      ],
+      [
+        5773,
+        6435,
+        6652,
+        3055,
+        3786,
+        0,
+        1888,
+        2360,
+        2754,
+        3896
+      ],
+      [
+        8583,
+        9245,
+        9462,
+        5865,
+        6596,
+        8103,
+        0,
+        472,
+        866,
+        2008
+      ],
+      [
+        8112,
+        8773,
+        8990,
+        5394,
+        6125,
+        7632,
+        4258,
+        0,
+        394,
+        1537
+      ],
+      [
+        8084,
+        8745,
+        8962,
+        5366,
+        6097,
+        7604,
+        4230,
+        4701,
+        0,
+        1143
+      ],
+      [
+        9226,
+        9888,
+        10105,
+        6508,
+        7240,
+        8746,
+        5372,
+        3307,
+        1143,
+        0
+      ]
+    ],
+    "durationSeconds": [
+      [
+        0,
+        48,
+        65,
+        155,
+        195,
+        279,
+        388,
+        445,
+        477,
+        620
+      ],
+      [
+        48,
+        0,
+        17,
+        107,
+        148,
+        231,
+        340,
+        397,
+        430,
+        572
+      ],
+      [
+        159,
+        160,
+        0,
+        90,
+        131,
+        214,
+        324,
+        380,
+        413,
+        556
+      ],
+      [
+        200,
+        205,
+        213,
+        0,
+        40,
+        124,
+        234,
+        290,
+        322,
+        465
+      ],
+      [
+        456,
+        461,
+        470,
+        275,
+        0,
+        84,
+        193,
+        250,
+        282,
+        425
+      ],
+      [
+        373,
+        378,
+        386,
+        192,
+        232,
+        0,
+        110,
+        166,
+        198,
+        341
+      ],
+      [
+        628,
+        633,
+        642,
+        447,
+        488,
+        571,
+        0,
+        57,
+        89,
+        232
+      ],
+      [
+        572,
+        577,
+        585,
+        390,
+        431,
+        514,
+        334,
+        0,
+        32,
+        175
+      ],
+      [
+        560,
+        564,
+        573,
+        378,
+        419,
+        502,
+        322,
+        379,
+        0,
+        143
+      ],
+      [
+        706,
+        711,
+        719,
+        524,
+        565,
+        648,
+        468,
+        501,
+        146,
+        0
+      ]
+    ],
+    "note": "仅用于离线联调；生产环境由后端统一调用正式地图路线服务"
+  }
+}
