@@ -133,7 +133,8 @@ class VehicleControllerTest {
                 OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
                 null,
                 null,
-                null
+                null,
+                null // 新增simCode参数，测试mock填null
         );
     }
 }
