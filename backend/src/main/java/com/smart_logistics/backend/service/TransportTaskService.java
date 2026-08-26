@@ -32,6 +32,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -70,6 +71,7 @@ public class TransportTaskService {
     @Transactional
     public TransportTaskResponse createTransportTask(TransportTaskCreateRequest request) {
         validatePlanTimes(request);
+        validateCreateCoordinates(request);
         requireOwner(request.getOwnerId());
         Cargo cargo = cargoService.getCargoForTransportForUpdate(request.getCargoId());
         Vehicle vehicle = vehicleService.getVehicleForTransport(request.getVehicleId());
@@ -89,7 +91,11 @@ public class TransportTaskService {
         task.setCargoId(request.getCargoId());
         task.setVehicleId(request.getVehicleId());
         task.setStartLocation(request.getStartLocation().trim());
+        task.setStartLongitude(request.getStartLongitude());
+        task.setStartLatitude(request.getStartLatitude());
         task.setEndLocation(request.getEndLocation().trim());
+        task.setEndLongitude(request.getEndLongitude());
+        task.setEndLatitude(request.getEndLatitude());
         task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
         task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
         task.setStatus(TransportTaskStatus.WAITING.name());
@@ -180,13 +186,20 @@ public class TransportTaskService {
     public TransportTaskResponse updateTransportTask(Long id,
                                                      TransportTaskUpdateRequest request) {
         validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+        validateCoordinatePair("start", request.getStartLongitude(), request.getStartLatitude());
+        validateCoordinatePair("end", request.getEndLongitude(), request.getEndLatitude());
         TransportTask task = getRequiredTransportTask(id);
         if (parseStatus(task.getStatus()) != TransportTaskStatus.WAITING) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "only waiting transport task can be modified");
         }
-        task.setStartLocation(request.getStartLocation().trim());
-        task.setEndLocation(request.getEndLocation().trim());
+        String startLocation = request.getStartLocation().trim();
+        String endLocation = request.getEndLocation().trim();
+        boolean startLocationChanged = !Objects.equals(task.getStartLocation(), startLocation);
+        boolean endLocationChanged = !Objects.equals(task.getEndLocation(), endLocation);
+        task.setStartLocation(startLocation);
+        task.setEndLocation(endLocation);
+        applyCoordinateUpdate(task, request, startLocationChanged, endLocationChanged);
         task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
         task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
         task.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
@@ -257,6 +270,53 @@ public class TransportTaskService {
                 && planEndTime.isBefore(planStartTime)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
                     "planEndTime must not be before planStartTime");
+        }
+    }
+
+    private void validateCoordinatePair(String name, Double longitude, Double latitude) {
+        if ((longitude == null) != (latitude == null)) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    name + "Longitude and " + name + "Latitude must be provided together");
+        }
+    }
+
+    private void validateCreateCoordinates(TransportTaskCreateRequest request) {
+        if (request.getStartLongitude() == null || request.getStartLatitude() == null
+                || request.getEndLongitude() == null || request.getEndLatitude() == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "start and end coordinates must be complete");
+        }
+        validateCoordinateRange("startLongitude", request.getStartLongitude(), -180, 180);
+        validateCoordinateRange("startLatitude", request.getStartLatitude(), -90, 90);
+        validateCoordinateRange("endLongitude", request.getEndLongitude(), -180, 180);
+        validateCoordinateRange("endLatitude", request.getEndLatitude(), -90, 90);
+    }
+
+    private void validateCoordinateRange(String name, double value,
+                                         double minimum, double maximum) {
+        if (!Double.isFinite(value) || value < minimum || value > maximum) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    name + " is outside the valid range");
+        }
+    }
+
+    private void applyCoordinateUpdate(TransportTask task,
+                                       TransportTaskUpdateRequest request,
+                                       boolean startLocationChanged,
+                                       boolean endLocationChanged) {
+        if (request.getStartLongitude() != null) {
+            task.setStartLongitude(request.getStartLongitude());
+            task.setStartLatitude(request.getStartLatitude());
+        } else if (startLocationChanged) {
+            task.setStartLongitude(null);
+            task.setStartLatitude(null);
+        }
+        if (request.getEndLongitude() != null) {
+            task.setEndLongitude(request.getEndLongitude());
+            task.setEndLatitude(request.getEndLatitude());
+        } else if (endLocationChanged) {
+            task.setEndLongitude(null);
+            task.setEndLatitude(null);
         }
     }
 
@@ -419,13 +479,15 @@ public class TransportTaskService {
     private TransportTaskResponse toResponse(TransportTask task) {
         return new TransportTaskResponse(
                 task.getId(), task.getTaskNo(), task.getCargoId(), task.getVehicleId(),
-                task.getStartLocation(), task.getEndLocation(),
+                task.getStartLocation(), task.getStartLongitude(), task.getStartLatitude(),
+                task.getEndLocation(), task.getEndLongitude(), task.getEndLatitude(),
                 toOffsetDateTime(task.getPlanStartTime()),
                 toOffsetDateTime(task.getPlanEndTime()),
                 toOffsetDateTime(task.getActualStartTime()),
                 toOffsetDateTime(task.getActualEndTime()),
                 parseStatus(task.getStatus()),
                 toOffsetDateTime(task.getEstimatedArrivalTime()),
+                toOffsetDateTime(task.getEtaCalculatedAt()),
                 toOffsetDateTime(task.getCreatedAt()),
                 toOffsetDateTime(task.getUpdatedAt())
         );

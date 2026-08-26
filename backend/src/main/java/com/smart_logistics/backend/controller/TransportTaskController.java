@@ -5,11 +5,13 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
+import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
+import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -35,11 +37,14 @@ public class TransportTaskController {
 
     private final TransportTaskService transportTaskService;
     private final TaskTrackQueryService taskTrackQueryService;
+    private final EtaPlannedRouteService etaPlannedRouteService;
 
     public TransportTaskController(TransportTaskService transportTaskService,
-                                   TaskTrackQueryService taskTrackQueryService) {
+                                   TaskTrackQueryService taskTrackQueryService,
+                                   EtaPlannedRouteService etaPlannedRouteService) {
         this.transportTaskService = transportTaskService;
         this.taskTrackQueryService = taskTrackQueryService;
+        this.etaPlannedRouteService = etaPlannedRouteService;
     }
 
     @GetMapping("/{id}/track-points")
@@ -47,6 +52,14 @@ public class TransportTaskController {
     public ApiResponse<List<VehicleLocationResponse>> getTrackPoints(
             @PathVariable @Positive Long id) {
         return ApiResponse.success(taskTrackQueryService.getTrackPoints(id));
+    }
+
+    @GetMapping("/{id}/planned-route")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<PlannedRouteResponse> getPlannedRoute(
+            @PathVariable @Positive Long id) {
+        TransportTaskResponse task = transportTaskService.getTransportTask(id);
+        return ApiResponse.success(etaPlannedRouteService.getResponse(task));
     }
 
     @GetMapping

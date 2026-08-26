@@ -1,6 +1,7 @@
 package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.common.PageResult;
+import com.smart_logistics.backend.dto.request.VehicleCreateRequest;
 import com.smart_logistics.backend.dto.response.VehicleResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.VehicleStatus;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,6 +27,7 @@ import java.util.List;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -56,7 +59,7 @@ class VehicleControllerTest {
         mockMvc.perform(post("/api/v1/vehicles")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"plateNumber":" ","type":"VAN","capacity":10}
+                                {"plateNumber":" ","type":"VAN","capacity":10,"simCode":"sim_001"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
@@ -68,7 +71,7 @@ class VehicleControllerTest {
         mockMvc.perform(post("/api/v1/vehicles")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"plateNumber":"沪A10003","type":"VAN","capacity":-1}
+                                {"plateNumber":"沪A10003","type":"VAN","capacity":-1,"simCode":"sim_003"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
@@ -80,12 +83,79 @@ class VehicleControllerTest {
         mockMvc.perform(post("/api/v1/vehicles")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"plateNumber":"123456789012345678901","capacity":10}
+                                {"plateNumber":"123456789012345678901","capacity":10,"simCode":"sim_004"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
                 .andExpect(jsonPath("$.message")
                         .value("plateNumber must not exceed 20 characters"));
+    }
+
+    @Test
+    void createAcceptsSimCodeAndReturnsOnlyCamelCaseField() throws Exception {
+        when(vehicleService.createVehicle(any(VehicleCreateRequest.class)))
+                .thenReturn(response("sim_008"));
+
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","type":"厢式货车","capacity":10.5,
+                                 "driverId":null,"simCode":"sim_008"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.simCode").value("sim_008"))
+                .andExpect(jsonPath("$.data.sim_code").doesNotExist());
+
+        ArgumentCaptor<VehicleCreateRequest> captor =
+                ArgumentCaptor.forClass(VehicleCreateRequest.class);
+        verify(vehicleService).createVehicle(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("sim_008",
+                captor.getValue().getSimCode());
+    }
+
+    @Test
+    void createAcceptsSnakeCaseSimCodeAlias() throws Exception {
+        when(vehicleService.createVehicle(any(VehicleCreateRequest.class)))
+                .thenReturn(response("sim_008"));
+
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","type":"厢式货车","capacity":10.5,
+                                 "sim_code":"sim_008"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.simCode").value("sim_008"))
+                .andExpect(jsonPath("$.data.sim_code").doesNotExist());
+
+        ArgumentCaptor<VehicleCreateRequest> captor =
+                ArgumentCaptor.forClass(VehicleCreateRequest.class);
+        verify(vehicleService).createVehicle(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("sim_008",
+                captor.getValue().getSimCode());
+    }
+
+    @Test
+    void createRejectsMissingSimCode() throws Exception {
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","type":"厢式货车","capacity":10.5}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("simCode must not be blank"));
+    }
+
+    @Test
+    void createRejectsBlankSimCode() throws Exception {
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","type":"厢式货车","capacity":10.5,
+                                 "simCode":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("simCode must not be blank"));
     }
 
     @Test
@@ -103,7 +173,7 @@ class VehicleControllerTest {
 
     @Test
     void listReturnsStandardPageStructureAndPassesStatusFilter() throws Exception {
-        VehicleResponse vehicle = response();
+        VehicleResponse vehicle = response("sim_008");
         when(vehicleService.listVehicles(2, 5, "沪A", VehicleStatus.IDLE, null))
                 .thenReturn(new PageResult<>(List.of(vehicle), 6, 2, 5));
 
@@ -116,6 +186,7 @@ class VehicleControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.message").value("success"))
                 .andExpect(jsonPath("$.data.records[0].plateNumber").value("沪A10001"))
+                .andExpect(jsonPath("$.data.records[0].simCode").value("sim_008"))
                 .andExpect(jsonPath("$.data.records[0].createdAt")
                         .value("2026-08-22T10:30:00+08:00"))
                 .andExpect(jsonPath("$.data.total").value(6))
@@ -126,8 +197,17 @@ class VehicleControllerTest {
     }
 
     @Test
+    void detailReturnsSimCode() throws Exception {
+        when(vehicleService.getVehicle(1L)).thenReturn(response("sim_008"));
+
+        mockMvc.perform(get("/api/v1/vehicles/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.simCode").value("sim_008"));
+    }
+
+    @Test
     void availableEndpointReturnsEnrichedVehicles() throws Exception {
-        when(vehicleService.listAvailableVehicles()).thenReturn(List.of(response()));
+        when(vehicleService.listAvailableVehicles()).thenReturn(List.of(response("sim_008")));
         mockMvc.perform(get("/api/v1/vehicles/available"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(1))
@@ -151,7 +231,7 @@ class VehicleControllerTest {
                 .andExpect(jsonPath("$.data.taskId").value(10));
     }
 
-    private VehicleResponse response() {
+    private VehicleResponse response(String simCode) {
         return new VehicleResponse(
                 1L,
                 "沪A10001",
@@ -160,6 +240,7 @@ class VehicleControllerTest {
                 VehicleStatus.IDLE,
                 null,
                 "Driver Name",
+                simCode,
                 OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
                 null,

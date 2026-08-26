@@ -67,6 +67,8 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/transport-tasks/1/track-points"))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/cargos/1/status-records"))
                 .andExpect(status().isUnauthorized());
     }
@@ -275,12 +277,15 @@ class RbacAuthorizationIntegrationTest {
     }
 
     private String vehicleJson() {
-        return "{\"plateNumber\":\"沪A10001\",\"type\":\"Truck\",\"capacity\":10}";
+        return "{\"plateNumber\":\"沪A10001\",\"type\":\"Truck\",\"capacity\":10,"
+                + "\"simCode\":\"sim_008\"}";
     }
 
     private String taskJson() {
         return "{\"cargoId\":10,\"ownerId\":3,\"vehicleId\":20,"
-                + "\"startLocation\":\"A\",\"endLocation\":\"B\"}";
+                + "\"startLocation\":\"A\",\"startLongitude\":106.735012,"
+                + "\"startLatitude\":29.610634,\"endLocation\":\"B\","
+                + "\"endLongitude\":106.759396,\"endLatitude\":29.620115}";
     }
 
     private String taskBaseUpdateJson() {

@@ -14,6 +14,7 @@ public class VehicleResponse {
     private final VehicleStatus status;
     private final Long driverId;
     private final String driverName;
+    private final String simCode;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime updatedAt;
     private final BigDecimal lastLongitude;
@@ -22,6 +23,7 @@ public class VehicleResponse {
 
     public VehicleResponse(Long id, String plateNumber, String type, BigDecimal capacity,
                            VehicleStatus status, Long driverId, String driverName,
+                           String simCode,
                            OffsetDateTime createdAt,
                            OffsetDateTime updatedAt, BigDecimal lastLongitude,
                            BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt) {
@@ -32,6 +34,7 @@ public class VehicleResponse {
         this.status = status;
         this.driverId = driverId;
         this.driverName = driverName;
+        this.simCode = simCode;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.lastLongitude = lastLongitude;
@@ -65,6 +68,10 @@ public class VehicleResponse {
 
     public String getDriverName() {
         return driverName;
+    }
+
+    public String getSimCode() {
+        return simCode;
     }
 
     public OffsetDateTime getCreatedAt() {

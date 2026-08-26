@@ -122,6 +122,10 @@ class TransportTaskServiceTest {
         assertTrue(inserted.getTaskNo().matches("T\\d{17}[0-9A-F]{8}"));
         assertEquals(TransportTaskStatus.WAITING.name(), inserted.getStatus());
         assertEquals("Shanghai", inserted.getStartLocation());
+        assertEquals(106.735012, inserted.getStartLongitude());
+        assertEquals(29.610634, inserted.getStartLatitude());
+        assertEquals(106.759396, inserted.getEndLongitude());
+        assertEquals(29.620115, inserted.getEndLatitude());
         assertNull(inserted.getActualStartTime());
         assertNull(inserted.getEstimatedArrivalTime());
         assertEquals(TransportTaskStatus.WAITING, response.getStatus());
@@ -299,6 +303,32 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void createRejectsIncompleteCoordinatesBeforeBusinessWrites() {
+        TransportTaskCreateRequest request = createRequest();
+        request.setStartLongitude(null);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createTransportTask(request));
+
+        assertEquals(ErrorCode.INVALID_PARAMETER, exception.getErrorCode());
+        verify(cargoService, never()).getCargoForTransportForUpdate(any());
+        verify(transportTaskMapper, never()).insert(any(TransportTask.class));
+    }
+
+    @Test
+    void createRejectsCoordinateOutsideRangeBeforeBusinessWrites() {
+        TransportTaskCreateRequest request = createRequest();
+        request.setEndLatitude(90.000001);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createTransportTask(request));
+
+        assertEquals(ErrorCode.INVALID_PARAMETER, exception.getErrorCode());
+        verify(cargoService, never()).getCargoForTransportForUpdate(any());
+        verify(transportTaskMapper, never()).insert(any(TransportTask.class));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void listReturnsPageAndAppliesKeywordAndStatusFilters() {
         TransportTask task = task(1L, TransportTaskStatus.WAITING);
@@ -350,6 +380,10 @@ class TransportTaskServiceTest {
         assertEquals(OffsetDateTime.parse("2026-08-24T15:00:00+08:00"),
                 response.getEstimatedArrivalTime());
         assertEquals(TransportTaskStatus.TRANSPORTING, response.getStatus());
+        assertNull(response.getStartLongitude());
+        assertNull(response.getStartLatitude());
+        assertNull(response.getEndLongitude());
+        assertNull(response.getEndLatitude());
     }
 
     @Test
@@ -534,6 +568,48 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void legacyUpdatePreservesCoordinatesWhenLocationsAreUnchanged() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setStartLongitude(106.501);
+        waiting.setStartLatitude(29.501);
+        waiting.setEndLongitude(106.601);
+        waiting.setEndLatitude(29.601);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setEndLocation(waiting.getEndLocation());
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertEquals(106.501, response.getStartLongitude());
+        assertEquals(29.501, response.getStartLatitude());
+        assertEquals(106.601, response.getEndLongitude());
+        assertEquals(29.601, response.getEndLatitude());
+    }
+
+    @Test
+    void legacyUpdateClearsCoordinatesWhenLocationTextChanges() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setEndLongitude(106.601);
+        waiting.setEndLatitude(29.601);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setEndLocation("Changed Destination");
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertNull(response.getEndLongitude());
+        assertNull(response.getEndLatitude());
+    }
+
+    @Test
     void baseUpdateRejectsTransportingTask() {
         when(transportTaskMapper.selectById(1L)).thenReturn(
                 task(1L, TransportTaskStatus.TRANSPORTING));
@@ -646,7 +722,11 @@ class TransportTaskServiceTest {
         request.setOwnerId(30L);
         request.setVehicleId(20L);
         request.setStartLocation(" Shanghai ");
+        request.setStartLongitude(106.735012);
+        request.setStartLatitude(29.610634);
         request.setEndLocation(" Beijing ");
+        request.setEndLongitude(106.759396);
+        request.setEndLatitude(29.620115);
         request.setPlanStartTime(OffsetDateTime.parse("2026-08-24T10:00:00+08:00"));
         request.setPlanEndTime(OffsetDateTime.parse("2026-08-24T15:00:00+08:00"));
         return request;

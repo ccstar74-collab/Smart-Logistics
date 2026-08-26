@@ -111,7 +111,9 @@ public class VehicleService {
     @Transactional
     public VehicleResponse createVehicle(VehicleCreateRequest request) {
         String plateNumber = request.getPlateNumber().trim();
+        String simCode = normalizeRequiredSimCode(request.getSimCode());
         ensurePlateNumberAvailable(plateNumber, null);
+        ensureSimCodeAvailable(simCode);
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Vehicle vehicle = new Vehicle();
@@ -119,6 +121,7 @@ public class VehicleService {
         vehicle.setType(trimToNull(request.getType()));
         vehicle.setCapacity(request.getCapacity());
         vehicle.setDriverId(request.getDriverId());
+        vehicle.setSimCode(simCode);
         requireActiveDriverIfPresent(request.getDriverId());
         vehicle.setStatus(VehicleStatus.IDLE.name());
         vehicle.setCreatedAt(now);
@@ -129,7 +132,7 @@ public class VehicleService {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to create vehicle");
             }
         } catch (DuplicateKeyException exception) {
-            throw duplicatePlateNumber(exception);
+            throw duplicateVehicleKey(exception);
         }
         return toResponse(getRequiredVehicle(vehicle.getId()));
     }
@@ -249,6 +252,35 @@ public class VehicleService {
         return exception;
     }
 
+    private void ensureSimCodeAvailable(String simCode) {
+        if (vehicleMapper.selectCount(new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getSimCode, simCode)) > 0) {
+            throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                    "GPS device code already exists");
+        }
+    }
+
+    private BusinessException duplicateVehicleKey(DuplicateKeyException cause) {
+        Throwable current = cause;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(java.util.Locale.ROOT);
+                if (normalized.contains("sim_code")
+                        || normalized.contains("uk_vehicle_sim_code")) {
+                    BusinessException exception = new BusinessException(
+                            ErrorCode.DATA_CONFLICT,
+                            "GPS device code already exists"
+                    );
+                    exception.initCause(cause);
+                    return exception;
+                }
+            }
+            current = current.getCause();
+        }
+        return duplicatePlateNumber(cause);
+    }
+
     private List<VehicleResponse> toResponses(List<Vehicle> vehicles) {
         Map<Long, String> driverNames = userDisplayNameService.getDriverNames(
                 vehicles.stream().map(Vehicle::getDriverId).toList());
@@ -276,6 +308,7 @@ public class VehicleService {
                 parseStatus(vehicle.getStatus()),
                 vehicle.getDriverId(),
                 driverName,
+                vehicle.getSimCode(),
                 toOffsetDateTime(vehicle.getCreatedAt()),
                 toOffsetDateTime(vehicle.getUpdatedAt()),
                 vehicle.getLastLongitude(),
@@ -299,6 +332,14 @@ public class VehicleService {
     private String trimToNull(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
+        }
+        return value.trim();
+    }
+
+    private String normalizeRequiredSimCode(String value) {
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "simCode must not be blank");
         }
         return value.trim();
     }
