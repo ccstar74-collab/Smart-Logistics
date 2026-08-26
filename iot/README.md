@@ -73,43 +73,32 @@ python .\iot\simulator\mqtt_data_generator.py --vehicles 1 --duration 10 --demo-
 
 `--alert-mode raw` 只制造可由GPS推断的停车/偏航，不直接发告警；异常开箱没有GPS原始特征，必须使用默认的 `precomputed` 模式发布告警消息。
 
-## 业务任务与高德真实路线
+## 业务任务路线
 
-本项目道路规划统一使用高德Web服务。先在当前PowerShell会话设置Key（不要提交到Git）：
-
-```powershell
-$env:AMAP_WEB_SERVICE_KEY = '<高德Web服务Key>'
-```
-
-也可以把 `AMAP_WEB_SERVICE_KEY=...` 增加到本机的
-`$env:USERPROFILE\.smart-logistics\mqtt_cloud.env`，发生器和任务指令工具在使用
-`--credentials` 时会自动读取，无需每次重新设置环境变量。
-
-按指定起终点启动：
+业务后端负责调用高德并保存路线；模拟器不调用高德，只根据taskId读取route API。启动并加载任务：
 
 ```powershell
+$env:SMART_LOGISTICS_API_TOKEN = '<接口不鉴权时可不设置>'
+
 python .\iot\simulator\mqtt_data_generator.py `
   --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
-  --vehicles 20 --duration 3600 --interval 1 `
-  --road-route "106.730553,29.613528;106.754928,29.622890" `
-  --output .\iot\samples\long_track_20v_1h.jsonl `
-  --seed 2026
+  --business-api-base "http://服务器地址:8080" `
+  --task-id 1001 `
+  --vehicles 20 --duration 0 --interval 1
 ```
 
-也可以运行发生器后，使用 `mqtt_route_command.py --task-url <任务详情API>` 从业务后端读取任务起终点并动态改线。完整字段和联调步骤见 [业务后端与高德真实路线模拟联调说明](../docs/business-backend-amap-route-integration.md)。
-
-高德返回国内GCJ-02道路折线，发生器会自动转换为WGS84后再发布GPS。
+业务后端路线READY后也可通过 `TASK_ROUTE_READY` 通知触发加载。完整字段和联调步骤见 [业务路线API与GPS模拟器最终联调合同](../docs/business-backend-amap-route-integration.md)。
 
 ## 长时间轨迹与断线恢复
 
-20辆车沿真实道路连续运行1小时，并保存同一份JSONL：
+加载业务任务路线后连续运行1小时，并保存同一份JSONL：
 
 ```powershell
 python .\iot\simulator\mqtt_data_generator.py `
-  --amap-key-env AMAP_WEB_SERVICE_KEY `
   --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
+  --business-api-base "http://服务器地址:8080" `
+  --task-id 1001 `
   --vehicles 20 --duration 3600 --interval 1 `
-  --road-route "106.731,29.613;106.790,29.615" `
   --output .\iot\samples\long_track_20v_1h.jsonl `
   --seed 2026
 ```
@@ -153,13 +142,13 @@ python -m unittest discover -s .\iot\tests -v
 - GPS：`iot/carla/vehicle/{vehicle_id}/gps`
 - 状态：`iot/carla/vehicle/{vehicle_id}/status`
 - 告警：`iot/carla/alert`
-- 路线指令：`iot/carla/vehicle/{vehicle_id}/command`
+- 路线READY引用通知：`iot/carla/vehicle/{vehicle_id}/command`
 - 指令回执：`iot/carla/vehicle/{vehicle_id}/command/ack`
 - MQTT内统一使用WGS84；高德地图需要在展示层转换为GCJ-02。
 - `sim_000...` 表示模拟车辆，`real_001...` 表示真实设备，二者使用相同Topic和JSON格式。
 
 ## 安全要求
 
-- 不提交MQTT账号、密码、Wi-Fi密码、地图Key或安全密钥。
+- 不提交MQTT账号、密码、Wi-Fi密码或业务API Token；模拟端不需要地图Key。
 - 云端固件会把配置编译进二进制，因此带真实凭据的 `.bin` 不进入公共仓库。
 - `status` 使用retain，GPS和告警不使用retain；发布QoS默认是1。

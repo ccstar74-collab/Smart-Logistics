@@ -48,18 +48,18 @@ python .\iot\simulator\mqtt_replay.py .\iot\samples\guoyuan_anomaly_20v_5m.jsonl
 
 `planning_guoyuan_20v_30tasks/` 包含与 `sim_000`～`sim_019` 对齐的车辆、待分配任务、真实道路节点、距离时间矩阵和完整规划请求。智能体成员可先读取其中的 `planning_request.json` 离线开发，正式联调时再切换为后端 API。
 
-## 告警后调整路线闭环
+## 业务路线加载闭环
 
-先启动支持调度指令的实时发生器：
+先启动发生器并配置业务route API：
 
 ```powershell
 python .\iot\simulator\mqtt_data_generator.py `
   --host localhost `
+  --business-api-base "http://localhost:8080" `
   --vehicles 20 `
   --duration 0 `
   --interval 1 `
-  --anomaly-rate 0.005 `
-  --road-route "106.731,29.613;106.790,29.615"
+  --anomaly-rate 0.005
 ```
 
 另开终端，模拟后端给 `sim_000` 下发新路线并等待 ACK：
@@ -69,7 +69,8 @@ python .\iot\simulator\mqtt_route_command.py `
   --host localhost `
   --vehicle sim_000 `
   --task-id 1001 `
-  --waypoints "106.750000,29.613500;106.770000,29.614500;106.790000,29.615000"
+  --route-id ROUTE_1001 `
+  --route-version 1
 ```
 
-发生器订阅 `iot/carla/vehicle/+/command`，在后台加载真实道路路线（规划期间 GPS 不停发），然后发布 `iot/carla/vehicle/{vehicle_id}/command/ack`。`iot/samples/route_change_command.json` 可用于 MQTTX 手工发布；其 Topic 应填写 `iot/carla/vehicle/sim_000/command`，Retain 必须关闭。成功回执示例见 `iot/samples/route_change_ack.json`。
+发生器订阅 `iot/carla/vehicle/+/command`，收到路线引用后通过业务API读取完整polyline，然后发布 `iot/carla/vehicle/{vehicle_id}/command/ack`。`iot/samples/task_route_ready_command.json` 可用于MQTTX手工发布；Topic填写 `iot/carla/vehicle/sim_000/command`，Retain必须关闭。成功回执见 `iot/samples/task_route_ready_ack.json`，route API样例见 `iot/samples/task_route_api_ready.json`。

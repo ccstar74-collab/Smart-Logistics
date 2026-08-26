@@ -61,16 +61,17 @@ python -m unittest discover -s .\iot\tests -v
 
 ## 5. 云端与真实设备证据
 
-### 5.1 高德真实道路规划测试
+### 5.1 业务route API路线测试
 
-2026-08-26 使用高德Web服务驾车路径规划2.0测试果园港附近两个WGS84点：
+2026-08-26 最终架构调整为业务后端保存高德路线，模拟端不再调用高德：
 
-- 高德接口调用成功；
-- 单程道路距离约2.94 km；
-- 解析并转换后得到80个往返轨迹节点；
-- 高德GCJ-02折线已在模拟端转换为WGS84；
-- 单元测试覆盖坐标转换、高德polyline解析、业务任务DTO和地址兜底解析。
-- 模拟任务API → MQTT路线指令 → 高德规划 → `EXECUTED` ACK端到端测试通过，动态路线得到126个往返节点。
+- route API的READY响应和 `TASK_ROUTE_READY` MQTT通知均有JSON Schema；
+- 模拟端可将业务后端返回的GCJ02 polyline转换为WGS84；
+- 模拟端校验taskId、routeId、routeVersion和vehicleDeviceCode；
+- 相同或更旧路线版本不会重复安装或回退；
+- 车辆沿单程polyline运行，到达终点后速度为0且不折返；
+- 单元测试覆盖route API解析、PLANNING状态、Bearer Token、URL拼接、版本缓存和终点停止。
+- 模拟业务route API + 本机MQTT端到端测试通过：V1和V2各请求并应用一次，随后旧版V1直接ACK且未再次请求API；运行链路没有高德HTTP请求。
 
 ### 5.2 MQTT断线恢复测试
 

@@ -8,17 +8,17 @@ import argparse
 import datetime
 import json
 import math
+import os
 import pathlib
 import queue
 import random
 import threading
 import time
-import os
 
 import paho.mqtt.client as mqtt
 
 from mqtt_credentials import load_mqtt_credentials
-from route_planner import load_road_route
+from task_route import fetch_task_route
 
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -73,15 +73,20 @@ def bearing_between(lat1, lon1, lat2, lon2):
 
 
 def advance_on_route(vehicle, route_points, distance_m):
-    """让车辆沿规划路线前进指定距离。"""
-    while distance_m > 0:
+    """沿业务后端保存的单程路线前进，到达终点后保持静止。"""
+    while distance_m > 0 and not vehicle.get("route_complete"):
         next_index = vehicle["route_next_index"]
+        if next_index >= len(route_points):
+            vehicle["route_complete"] = True
+            vehicle["speed_kmh"] = 0.0
+            vehicle["transport_status"] = "已送达"
+            return
         target_lat, target_lon = route_points[next_index]
         segment_m = distance_between(
             vehicle["lat"], vehicle["lon"], target_lat, target_lon
         )
         if segment_m < 0.05:
-            vehicle["route_next_index"] = (next_index + 1) % len(route_points)
+            vehicle["route_next_index"] = next_index + 1
             continue
 
         vehicle["heading"] = bearing_between(
@@ -89,7 +94,7 @@ def advance_on_route(vehicle, route_points, distance_m):
         )
         if distance_m >= segment_m:
             vehicle["lat"], vehicle["lon"] = target_lat, target_lon
-            vehicle["route_next_index"] = (next_index + 1) % len(route_points)
+            vehicle["route_next_index"] = next_index + 1
             distance_m -= segment_m
         else:
             ratio = distance_m / segment_m
@@ -98,16 +103,9 @@ def advance_on_route(vehicle, route_points, distance_m):
             distance_m = 0
 
 
-def make_vehicle(index, vehicle_count, origin_lat, origin_lon, rng, route_points=None):
-    if route_points:
-        route_index = (len(route_points) * index // vehicle_count) % len(route_points)
-        lat, lon = route_points[route_index]
-        next_index = (route_index + 1) % len(route_points)
-        heading = bearing_between(lat, lon, *route_points[next_index])
-    else:
-        lat, lon = move_point(origin_lat, origin_lon, rng.uniform(0, 2500), rng.uniform(0, 360))
-        next_index = None
-        heading = rng.uniform(0, 360)
+def make_vehicle(index, vehicle_count, origin_lat, origin_lon, rng):
+    lat, lon = move_point(origin_lat, origin_lon, rng.uniform(0, 2500), rng.uniform(0, 360))
+    heading = rng.uniform(0, 360)
 
     vehicle = {
         "vehicle_id": f"sim_{index:03d}",
@@ -118,13 +116,48 @@ def make_vehicle(index, vehicle_count, origin_lat, origin_lon, rng, route_points
         "transport_status": rng.choice(["已装货", "运输中", "运输中", "运输中"]),
         "anomaly": None,
         "anomaly_ticks": 0,
+        "route_points": None,
+        "route_complete": False,
+        "active_task_id": None,
+        "route_id": None,
+        "route_version": 0,
     }
-    if route_points:
-        vehicle["route_next_index"] = next_index
-        vehicle["route_points"] = route_points
-    else:
-        vehicle["route_points"] = None
     return vehicle
+
+
+def install_task_route(vehicle, route):
+    """Install a READY route unless the vehicle already has this or a newer version."""
+    current_route_id = vehicle.get("route_id")
+    current_version = int(vehicle.get("route_version") or 0)
+    if current_route_id == route["route_id"] and current_version >= route["route_version"]:
+        return False
+
+    points = route["points"]
+    same_task = vehicle.get("active_task_id") == route["task_id"]
+    if same_task and vehicle.get("route_points"):
+        nearest_index = min(
+            range(len(points)),
+            key=lambda index: distance_between(
+                vehicle["lat"], vehicle["lon"], points[index][0], points[index][1]
+            ),
+        )
+        vehicle["route_next_index"] = min(nearest_index + 1, len(points))
+    else:
+        vehicle["lat"], vehicle["lon"] = points[0]
+        vehicle["route_next_index"] = 1
+
+    vehicle["route_points"] = points
+    vehicle["route_complete"] = False
+    vehicle["active_task_id"] = route["task_id"]
+    vehicle["route_id"] = route["route_id"]
+    vehicle["route_version"] = route["route_version"]
+    vehicle["transport_status"] = "运输中"
+    vehicle["speed_kmh"] = max(20.0, vehicle["speed_kmh"])
+    if vehicle["route_next_index"] < len(points):
+        vehicle["heading"] = bearing_between(
+            vehicle["lat"], vehicle["lon"], *points[vehicle["route_next_index"]]
+        )
+    return True
 
 
 def main():
@@ -136,12 +169,12 @@ def main():
                         help="每批 GPS 发布间隔秒数，默认 1")
     parser.add_argument("--origin", default="106.55,29.56",
                         help="中心点，经度,纬度，默认重庆")
-    parser.add_argument("--road-route",
-                        help="沿真实道路循环行驶，格式：起点经度,纬度;终点经度,纬度，可含途经点")
-    parser.add_argument("--amap-key-env", default="AMAP_WEB_SERVICE_KEY",
-                        help="保存高德Web服务Key的环境变量名")
-    parser.add_argument("--amap-strategy", type=int, default=32,
-                        help="高德驾车算路策略，默认32（高德推荐）")
+    parser.add_argument("--task-id", action="append", type=int, default=[],
+                        help="启动时加载的运输任务ID；可重复指定")
+    parser.add_argument("--business-api-base",
+                        help="业务后端地址，例如http://server:8080或其/api/v1地址")
+    parser.add_argument("--business-token-env", default="SMART_LOGISTICS_API_TOKEN",
+                        help="保存业务API Bearer Token的环境变量名")
     parser.add_argument("--seed", type=int, default=42,
                         help="随机种子；相同种子可复现相同车流")
     parser.add_argument("--anomaly-rate", type=float, default=0.0,
@@ -190,23 +223,21 @@ def main():
     except ValueError:
         parser.error("--origin 格式应为 经度,纬度")
 
-    rng = random.Random(args.seed)
-    amap_key = (
-        os.environ.get(args.amap_key_env)
-        or credential_values.get("AMAP_WEB_SERVICE_KEY")
+    if any(task_id <= 0 for task_id in args.task_id):
+        parser.error("--task-id必须大于0")
+    business_api_base = (
+        args.business_api_base
+        or os.environ.get("SMART_LOGISTICS_API_BASE_URL")
+        or credential_values.get("BUSINESS_API_BASE_URL")
     )
-    if args.road_route and not amap_key:
-        parser.error(f"--road-route需要设置环境变量{args.amap_key_env}")
-    route_points = None
-    if args.road_route:
-        try:
-            route_points = load_road_route(
-                args.road_route,
-                amap_key=amap_key,
-                strategy=args.amap_strategy,
-            )
-        except Exception as exc:
-            parser.error("真实道路加载失败：%s" % exc)
+    business_api_token = (
+        os.environ.get(args.business_token_env)
+        or credential_values.get("SMART_LOGISTICS_API_TOKEN")
+    )
+    if args.task_id and not business_api_base:
+        parser.error("使用--task-id时必须配置--business-api-base")
+
+    rng = random.Random(args.seed)
     vehicles = [
         make_vehicle(
             i,
@@ -214,11 +245,27 @@ def main():
             origin_lat,
             origin_lon,
             rng,
-            route_points=route_points,
         )
         for i in range(args.vehicles)
     ]
     vehicles_by_id = {vehicle["vehicle_id"]: vehicle for vehicle in vehicles}
+    for task_id in args.task_id:
+        try:
+            initial_route = fetch_task_route(
+                business_api_base, task_id, token=business_api_token
+            )
+        except Exception as exc:
+            parser.error(f"任务{task_id}路线加载失败：{exc}")
+        initial_vehicle = vehicles_by_id.get(initial_route["vehicle_id"])
+        if initial_vehicle is None:
+            parser.error(
+                f"任务{task_id}绑定车辆{initial_route['vehicle_id']}不在本次模拟车队中"
+            )
+        install_task_route(initial_vehicle, initial_route)
+        print(
+            f"[ROUTE][LOADED] task_id={task_id}，route_id={initial_route['route_id']}，"
+            f"version={initial_route['route_version']}，points={len(initial_route['points'])}"
+        )
     connected = threading.Event()
     ever_connected = threading.Event()
     online_status_pending = threading.Event()
@@ -383,7 +430,7 @@ def main():
             "schema_version": "1.0",
             "command_id": command_id,
             "vehicle_id": vehicle_id,
-            "command_type": "ROUTE_CHANGE",
+            "command_type": "TASK_ROUTE_READY",
             "status": status,
             "message": message,
             "timestamp": now_iso(),
@@ -443,83 +490,107 @@ def main():
         if command.get("schema_version") != "1.0":
             fail_command(command_id, vehicle_id, "schema_version必须为1.0")
             return
-        if command.get("command_type") != "ROUTE_CHANGE":
-            fail_command(command_id, vehicle_id, "当前仅支持ROUTE_CHANGE")
+        if command.get("command_type") != "TASK_ROUTE_READY":
+            fail_command(command_id, vehicle_id, "当前仅支持TASK_ROUTE_READY")
             return
         vehicle = vehicles_by_id.get(vehicle_id)
         if vehicle is None:
             fail_command(command_id, vehicle_id, "模拟器中不存在该车辆")
             return
 
-        route = command.get("route")
-        if not isinstance(route, dict) or route.get("coordinate_system") != "WGS84":
-            fail_command(command_id, vehicle_id, "route.coordinate_system必须为WGS84")
+        task_id = command.get("task_id")
+        route_id = command.get("route_id")
+        route_version = command.get("route_version")
+        if (
+            isinstance(task_id, bool) or not isinstance(task_id, int) or task_id <= 0
+        ):
+            fail_command(command_id, vehicle_id, "task_id必须是正整数")
             return
-        waypoints = route.get("waypoints")
-        if not isinstance(waypoints, list) or len(waypoints) < 2:
-            fail_command(command_id, vehicle_id, "route.waypoints至少需要2个点")
+        if not isinstance(route_id, str) or not route_id.strip():
+            fail_command(command_id, vehicle_id, "route_id不能为空")
             return
-
-        coordinates = [(vehicle["lon"], vehicle["lat"])]
-        for index, waypoint in enumerate(waypoints):
-            if not isinstance(waypoint, dict):
-                fail_command(command_id, vehicle_id, f"waypoints[{index}]必须是对象")
-                return
-            lon = waypoint.get("lon")
-            lat = waypoint.get("lat")
-            if (
-                isinstance(lon, bool) or not isinstance(lon, (int, float))
-                or isinstance(lat, bool) or not isinstance(lat, (int, float))
-                or not -180 <= lon <= 180
-                or not -90 <= lat <= 90
-            ):
-                fail_command(command_id, vehicle_id, f"waypoints[{index}]经纬度无效")
-                return
-            if distance_between(coordinates[-1][1], coordinates[-1][0], lat, lon) >= 0.5:
-                coordinates.append((float(lon), float(lat)))
-
-        if len(coordinates) < 2:
-            fail_command(command_id, vehicle_id, "新路线与车辆当前位置重合")
+        if (
+            isinstance(route_version, bool)
+            or not isinstance(route_version, int)
+            or route_version <= 0
+        ):
+            fail_command(command_id, vehicle_id, "route_version必须是正整数")
+            return
+        if not business_api_base:
+            fail_command(command_id, vehicle_id, "未配置业务后端API地址")
             return
 
-        route_text = ";".join(f"{lon:.6f},{lat:.6f}" for lon, lat in coordinates)
+        if (
+            vehicle.get("route_id") == route_id
+            and int(vehicle.get("route_version") or 0) >= route_version
+        ):
+            command_count += 1
+            ack = publish_command_ack(
+                command_id,
+                vehicle_id,
+                "EXECUTED",
+                "该路线版本已加载，无需重复请求",
+                route_point_count=len(vehicle.get("route_points") or []),
+            )
+            processed_commands[command_id] = ack
+            return
+
         active_commands.add(command_id)
 
         def load_route_in_background():
             try:
-                points = load_road_route(
-                    route_text,
-                    amap_key=amap_key,
-                    strategy=args.amap_strategy,
+                route = fetch_task_route(
+                    business_api_base,
+                    task_id,
+                    token=business_api_token,
                 )
-                route_result_queue.put((command_id, vehicle_id, points, None))
+                route_result_queue.put((
+                    command_id, vehicle_id, task_id, route_id.strip(), route_version,
+                    route, None,
+                ))
             except Exception as exc:
-                route_result_queue.put((command_id, vehicle_id, None, str(exc)))
+                route_result_queue.put((
+                    command_id, vehicle_id, task_id, route_id.strip(), route_version,
+                    None, str(exc),
+                ))
 
         threading.Thread(
             target=load_route_in_background,
-            name=f"route-{command_id}",
+            name=f"task-route-{command_id}",
             daemon=True,
         ).start()
-        print(f"[指令接收] command_id={command_id}，vehicle_id={vehicle_id}，正在后台规划道路")
+        print(
+            f"[ROUTE][FETCHING] command_id={command_id}，task_id={task_id}，"
+            f"route_id={route_id}，version={route_version}"
+        )
 
-    def apply_route_result(command_id, vehicle_id, new_route_points, error):
+    def apply_route_result(command_id, vehicle_id, task_id, expected_route_id,
+                           expected_version, route, error):
         nonlocal command_count
         if error:
-            fail_command(command_id, vehicle_id, f"道路路线加载失败：{error}")
+            fail_command(command_id, vehicle_id, f"业务路线加载失败：{error}")
             return
         vehicle = vehicles_by_id.get(vehicle_id)
         if vehicle is None:
             fail_command(command_id, vehicle_id, "路线加载完成时车辆已不存在")
             return
 
-        # 车辆在后台规划期间仍持续行驶；应用路线时重新使用其最新位置，避免瞬移。
-        new_route_points[0] = (vehicle["lat"], vehicle["lon"])
-        vehicle["route_points"] = new_route_points
-        vehicle["route_next_index"] = 1
+        if route["task_id"] != task_id:
+            fail_command(command_id, vehicle_id, "route API返回的taskId不一致")
+            return
+        if route["vehicle_id"] != vehicle_id:
+            fail_command(command_id, vehicle_id, "route API返回的vehicleDeviceCode不一致")
+            return
+        if route["route_id"] != expected_route_id:
+            fail_command(command_id, vehicle_id, "route API返回的routeId不一致")
+            return
+        if route["route_version"] != expected_version:
+            fail_command(command_id, vehicle_id, "route API返回的routeVersion不一致")
+            return
+
+        installed = install_task_route(vehicle, route)
         vehicle["anomaly"] = None
         vehicle["anomaly_ticks"] = 0
-        vehicle["speed_kmh"] = max(20.0, vehicle["speed_kmh"])
         vehicle["active_command_id"] = command_id
 
         active_commands.discard(command_id)
@@ -528,15 +599,17 @@ def main():
             command_id,
             vehicle_id,
             "EXECUTED",
-            "新路线已加载，车辆开始沿调整后路线行驶",
-            route_point_count=len(new_route_points),
+            "业务路线已加载，车辆开始沿保存的polyline行驶"
+            if installed else "该路线版本已加载，无需重复切换",
+            route_point_count=len(route["points"]),
         )
         processed_commands[command_id] = ack
         if len(processed_commands) > 1000:
             processed_commands.pop(next(iter(processed_commands)))
         print(
-            f"[指令执行] command_id={command_id}，vehicle_id={vehicle_id}，"
-            f"新路线节点={len(new_route_points)}"
+            f"[ROUTE][APPLIED] command_id={command_id}，vehicle_id={vehicle_id}，"
+            f"route_id={route['route_id']}，version={route['route_version']}，"
+            f"points={len(route['points'])}"
         )
 
     def drain_commands():
@@ -563,7 +636,7 @@ def main():
         f"[启动] {args.vehicles} 辆车，间隔 {args.interval}s，"
         f"Broker={args.host}:{args.port}，异常概率={args.anomaly_rate}"
     )
-    print(f"[订阅] {command_topic}（接收路线调整指令）")
+    print(f"[订阅] {command_topic}（接收TASK_ROUTE_READY路线引用通知）")
     try:
         while args.duration == 0 or time.monotonic() - started < args.duration:
             if not wait_for_connection():
@@ -595,7 +668,9 @@ def main():
                         anomaly_types.append("异常开箱")
                     start_anomaly(vehicle, rng.choice(anomaly_types))
 
-                if vehicle["anomaly"] != "异常停留":
+                if vehicle.get("route_complete"):
+                    vehicle["speed_kmh"] = 0.0
+                elif vehicle["anomaly"] != "异常停留":
                     vehicle["speed_kmh"] = min(70, max(5, vehicle["speed_kmh"] + rng.uniform(-2, 2)))
                     distance_m = vehicle["speed_kmh"] / 3.6 * args.interval
                     vehicle_route = vehicle.get("route_points")

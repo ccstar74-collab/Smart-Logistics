@@ -1,35 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Road route providers and coordinate conversion helpers.
+"""Parse backend-owned route polylines and normalize them to WGS84."""
 
-The simulator publishes GPS in WGS84. AMap's domestic Web Service APIs use
-GCJ-02 coordinates, so AMap inputs and outputs are converted at this boundary.
-"""
-
-import json
 import math
-import urllib.parse
-import urllib.request
-
-
-AMAP_DRIVING_URL = "https://restapi.amap.com/v5/direction/driving"
-AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
-
-
-def parse_route_coordinates(route_text):
-    coordinates = []
-    try:
-        for item in route_text.split(";"):
-            lon, lat = (float(value.strip()) for value in item.split(","))
-            if not -180 <= lon <= 180 or not -90 <= lat <= 90:
-                raise ValueError("coordinate out of range")
-            coordinates.append((lon, lat))
-    except (AttributeError, ValueError) as exc:
-        raise ValueError("路线格式应为 经度,纬度;经度,纬度") from exc
-    if len(coordinates) < 2:
-        raise ValueError("路线至少需要起点和终点")
-    if len(coordinates) > 18:
-        raise ValueError("高德驾车规划最多支持起点、终点和16个途经点")
-    return coordinates
 
 
 def _outside_china(lon, lat):
@@ -61,7 +33,7 @@ def _transform_lon(x, y):
 
 
 def wgs84_to_gcj02(lon, lat):
-    """Convert WGS84 to GCJ-02 for a mainland China AMap request."""
+    """Convert WGS84 to GCJ-02; retained for coordinate-contract tests."""
     if _outside_china(lon, lat):
         return lon, lat
     latitude_delta = _transform_lat(lon - 105.0, lat - 35.0)
@@ -82,97 +54,39 @@ def wgs84_to_gcj02(lon, lat):
 
 
 def gcj02_to_wgs84(lon, lat):
-    """Convert GCJ-02 to WGS84 with sub-GPS-noise accuracy."""
+    """Convert a backend-owned GCJ-02 route point to WGS84 GPS."""
     if _outside_china(lon, lat):
         return lon, lat
     converted_lon, converted_lat = wgs84_to_gcj02(lon, lat)
     return lon * 2 - converted_lon, lat * 2 - converted_lat
 
 
-def _request_json(url, parameters, service_name):
-    query = urllib.parse.urlencode(parameters)
-    request = urllib.request.Request(
-        f"{url}?{query}", headers={"User-Agent": "smart-logistics-demo/1.0"}
-    )
+def parse_polyline(polyline, coordinate_system):
+    """Return a list of ``(lat, lon)`` WGS84 points from a route API string."""
+    normalized_system = str(coordinate_system or "").upper().replace("-", "")
+    if normalized_system not in ("GCJ02", "WGS84"):
+        raise ValueError("route.coordinateSystem必须为GCJ02或WGS84")
+    if not isinstance(polyline, str) or not polyline.strip():
+        raise ValueError("route.polyline不能为空")
+
+    points = []
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        # Do not include request.get_full_url(): it contains the AMap key.
-        raise RuntimeError(f"{service_name}请求失败：{type(exc).__name__}") from exc
-
-
-def _round_trip(forward_points):
-    # Avoid jumping from destination back to origin during a long-running demo.
-    return forward_points + list(reversed(forward_points[1:-1]))
-
-
-def load_amap_road_route(coordinates, amap_key, strategy=32):
-    if not amap_key:
-        raise ValueError("使用高德路线规划时必须设置 AMAP_WEB_SERVICE_KEY")
-
-    gcj_coordinates = [wgs84_to_gcj02(lon, lat) for lon, lat in coordinates]
-    parameters = {
-        "key": amap_key,
-        "origin": "%.6f,%.6f" % gcj_coordinates[0],
-        "destination": "%.6f,%.6f" % gcj_coordinates[-1],
-        "strategy": str(strategy),
-        "show_fields": "polyline,cost",
-        "output": "json",
-    }
-    if len(gcj_coordinates) > 2:
-        parameters["waypoints"] = ";".join(
-            "%.6f,%.6f" % item for item in gcj_coordinates[1:-1]
-        )
-
-    result = _request_json(AMAP_DRIVING_URL, parameters, "高德驾车路线规划")
-    route = result.get("route") or {}
-    paths = route.get("paths") or []
-    if str(result.get("status")) != "1" or not paths:
-        info = result.get("info") or result.get("infocode") or "unknown"
-        raise RuntimeError(f"高德驾车路线规划失败：{info}")
-
-    path = paths[0]
-    forward_points = []
-    for step in path.get("steps") or []:
-        for item in (step.get("polyline") or "").split(";"):
-            if not item:
+        for index, item in enumerate(polyline.split(";")):
+            if not item.strip():
                 continue
-            gcj_lon, gcj_lat = (float(value) for value in item.split(","))
-            wgs_lon, wgs_lat = gcj02_to_wgs84(gcj_lon, gcj_lat)
-            point = (wgs_lat, wgs_lon)
-            if not forward_points or point != forward_points[-1]:
-                forward_points.append(point)
+            lon, lat = (float(value.strip()) for value in item.split(","))
+            if not -180 <= lon <= 180 or not -90 <= lat <= 90:
+                raise ValueError(f"第{index + 1}个路线点超出经纬度范围")
+            if normalized_system == "GCJ02":
+                lon, lat = gcj02_to_wgs84(lon, lat)
+            point = (lat, lon)
+            if not points or point != points[-1]:
+                points.append(point)
+    except (TypeError, ValueError) as exc:
+        if str(exc).startswith("第"):
+            raise
+        raise ValueError("route.polyline格式应为lon,lat;lon,lat;...") from exc
 
-    if len(forward_points) < 2:
-        raise RuntimeError("高德驾车路线规划没有返回足够的polyline轨迹点")
-    distance_m = float(path.get("distance") or 0)
-    print(
-        "[ROUTE][AMAP] 已加载高德真实道路：%.2f km，%d 个轨迹节点（GCJ-02已转WGS84，往返循环）"
-        % (distance_m / 1000.0, len(_round_trip(forward_points)))
-    )
-    return _round_trip(forward_points)
-
-
-def load_road_route(route_text, amap_key, strategy=32):
-    """Load a road-snapped round trip from WGS84 lon/lat waypoints."""
-    coordinates = parse_route_coordinates(route_text)
-    return load_amap_road_route(coordinates, amap_key, strategy=strategy)
-
-
-def geocode_amap(address, amap_key, city=None):
-    """Resolve an address through AMap and return a WGS84 (lon, lat) pair."""
-    if not address or not str(address).strip():
-        raise ValueError("待解析地址不能为空")
-    if not amap_key:
-        raise ValueError("地址解析需要设置 AMAP_WEB_SERVICE_KEY")
-    parameters = {"key": amap_key, "address": str(address).strip(), "output": "json"}
-    if city:
-        parameters["city"] = city
-    result = _request_json(AMAP_GEOCODE_URL, parameters, "高德地理编码")
-    geocodes = result.get("geocodes") or []
-    if str(result.get("status")) != "1" or not geocodes:
-        info = result.get("info") or result.get("infocode") or "unknown"
-        raise RuntimeError(f"高德无法解析地址“{address}”：{info}")
-    gcj_lon, gcj_lat = (float(value) for value in geocodes[0]["location"].split(","))
-    return gcj02_to_wgs84(gcj_lon, gcj_lat)
+    if len(points) < 2:
+        raise ValueError("route.polyline至少需要两个不同的路线点")
+    return points

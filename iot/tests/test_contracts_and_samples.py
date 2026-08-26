@@ -30,7 +30,7 @@ class ContractAndSampleTest(unittest.TestCase):
     def setUpClass(cls):
         cls.schemas = {
             name: json.loads((CONTRACTS / f"{name}.schema.json").read_text(encoding="utf-8"))
-            for name in ("gps", "status", "alert", "command", "command_ack")
+            for name in ("gps", "status", "alert", "command", "command_ack", "route_api")
         }
 
     def test_all_jsonl_events_match_contracts(self):
@@ -48,11 +48,14 @@ class ContractAndSampleTest(unittest.TestCase):
 
     def test_command_examples_match_contracts(self):
         examples = {
-            "route_change_command.json": "command",
-            "route_change_ack.json": "command_ack",
+            "task_route_ready_command.json": "command",
+            "task_route_ready_ack.json": "command_ack",
+            "task_route_api_ready.json": "route_api",
         }
         for filename, kind in examples.items():
             payload = json.loads((SAMPLES / filename).read_text(encoding="utf-8"))
+            if kind == "route_api":
+                payload = payload["data"]
             SCHEMA_VALIDATOR(self.schemas[kind]).validate(payload)
 
     def test_all_required_alarm_scenarios_are_present(self):

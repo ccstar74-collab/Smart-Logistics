@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "command_id": "CMD_ROUTE_1001_V1",
+  "vehicle_id": "sim_000",
+  "command_type": "TASK_ROUTE_READY",
+  "status": "EXECUTED",
+  "message": "业务路线已加载，车辆开始沿保存的polyline行驶",
+  "route_point_count": 4,
+  "timestamp": "2026-08-26T08:00:01.000Z"
+}

@@ -7,11 +7,13 @@
 | `iot/carla/vehicle/{vehicle_id}/gps` | `gps.schema.json` | 1 | 否 | 车辆实时位置，默认 1 Hz |
 | `iot/carla/vehicle/{vehicle_id}/status` | `status.schema.json` | 1 | 是 | 在线/离线及运输状态 |
 | `iot/carla/alert` | `alert.schema.json` | 1 | 否 | 模拟器、后端或真设备产生的告警 |
-| `iot/carla/vehicle/{vehicle_id}/command` | `command.schema.json` | 1 | 否 | 后端向指定车辆下发路线调整指令 |
-| `iot/carla/vehicle/{vehicle_id}/command/ack` | `command_ack.schema.json` | 1 | 否 | 模拟车辆返回指令执行结果 |
+| `iot/carla/vehicle/{vehicle_id}/command` | `command.schema.json` | 1 | 否 | 后端通知指定车辆某个任务路线已READY，只携带路线引用 |
+| `iot/carla/vehicle/{vehicle_id}/command/ack` | `command_ack.schema.json` | 1 | 否 | 模拟车辆读取route API后的执行结果 |
 
 坐标约定：MQTT 中统一使用 WGS84，`lat` 在前、`lon` 在后。若前端使用高德地图，由前端或后端统一转换为 GCJ-02，不在模拟器中混用坐标系。
 
 兼容规则：新增可选字段属于向后兼容；删除字段、改名、改变类型或单位时必须提升主版本并通知接口消费方。
 
-调度约定：`command_id` 是全链路幂等键，后端重发相同指令时模拟器不得重复切换路线，只需重发首次 ACK。命令和 ACK 均不得使用 retain；后端收到 `EXECUTED` 后更新 `dispatch_command`，再结合车辆恢复正常的 GPS 将关联告警更新为 `RESOLVED`，不得删除历史告警。
+路线约定：业务后端负责调用高德并保存GCJ02 polyline；模拟器不得调用高德。业务后端只在路线READY或版本更新后发布 `TASK_ROUTE_READY`，消息包含 `task_id / route_id / route_version / vehicle_id`，不得发送大polyline。模拟器通过 `GET /api/v1/transport-tasks/{taskId}/route` 读取完整路线，转换成WGS84后发布GPS。
+
+幂等约定：`command_id` 是消息幂等键；`route_id + route_version` 是路线版本键。后端重发相同指令时模拟器只重发首次ACK，不重复切换；新 `command_id` 携带相同或更旧路线版本时也不得回退。命令和ACK均为QoS 1、`retain=false`。

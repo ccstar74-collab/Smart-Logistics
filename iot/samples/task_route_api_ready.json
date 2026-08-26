@@ -1,0 +1,22 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "taskId": 1001,
+    "routeId": "ROUTE_1001",
+    "routeVersion": 1,
+    "routeStatus": "READY",
+    "vehicleId": 1,
+    "vehicleDeviceCode": "sim_000",
+    "coordinateSystem": "GCJ02",
+    "startLocation": "重庆果园港装卸点A",
+    "startLongitude": 106.735012,
+    "startLatitude": 29.610634,
+    "endLocation": "重庆鱼嘴工业园配送点A",
+    "endLongitude": 106.759396,
+    "endLatitude": 29.620115,
+    "totalDistanceMeters": 2943,
+    "estimatedDurationSeconds": 420,
+    "polyline": "106.735012,29.610634;106.741312,29.615804;106.751240,29.618910;106.759396,29.620115"
+  }
+}
