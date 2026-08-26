@@ -10,6 +10,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.CargoStatus;
@@ -18,6 +19,7 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import com.smart_logistics.backend.security.CurrentUserService;
 import org.springframework.dao.DuplicateKeyException;
@@ -30,6 +32,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -39,32 +42,41 @@ public class TransportTaskService {
     private static final DateTimeFormatter TASK_NO_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     private final TransportTaskMapper transportTaskMapper;
+    private final OwnerMapper ownerMapper;
     private final CargoService cargoService;
     private final VehicleService vehicleService;
     private final TransportTaskAvailabilityService availabilityService;
     private final BusinessDataScopeService dataScopeService;
     private final CurrentUserService currentUserService;
+    private final TransportTaskStatusRecordService statusRecordService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
+                                OwnerMapper ownerMapper,
                                 CargoService cargoService,
                                 VehicleService vehicleService,
                                 TransportTaskAvailabilityService availabilityService,
                                 BusinessDataScopeService dataScopeService,
-                                CurrentUserService currentUserService) {
+                                CurrentUserService currentUserService,
+                                TransportTaskStatusRecordService statusRecordService) {
         this.transportTaskMapper = transportTaskMapper;
+        this.ownerMapper = ownerMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
         this.availabilityService = availabilityService;
         this.dataScopeService = dataScopeService;
         this.currentUserService = currentUserService;
+        this.statusRecordService = statusRecordService;
     }
 
     @Transactional
     public TransportTaskResponse createTransportTask(TransportTaskCreateRequest request) {
         validatePlanTimes(request);
-        Cargo cargo = cargoService.getCargoForTransport(request.getCargoId());
+        validateCreateCoordinates(request);
+        requireOwner(request.getOwnerId());
+        Cargo cargo = cargoService.getCargoForTransportForUpdate(request.getCargoId());
         Vehicle vehicle = vehicleService.getVehicleForTransport(request.getVehicleId());
         requireCargoStatus(cargo, CargoStatus.WAITING);
+        requireCompatibleOwner(cargo, request.getOwnerId());
         requireVehicleStatus(vehicle, VehicleStatus.IDLE);
         availabilityService.ensureCargoAvailable(request.getCargoId());
         availabilityService.ensureVehicleAvailable(request.getVehicleId());
@@ -72,13 +84,18 @@ public class TransportTaskService {
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         String taskNo = generateTaskNo(now);
         ensureTaskNoAvailable(taskNo);
+        cargoService.bindOwnerForTransport(cargo, request.getOwnerId());
 
         TransportTask task = new TransportTask();
         task.setTaskNo(taskNo);
         task.setCargoId(request.getCargoId());
         task.setVehicleId(request.getVehicleId());
         task.setStartLocation(request.getStartLocation().trim());
+        task.setStartLongitude(request.getStartLongitude());
+        task.setStartLatitude(request.getStartLatitude());
         task.setEndLocation(request.getEndLocation().trim());
+        task.setEndLongitude(request.getEndLongitude());
+        task.setEndLatitude(request.getEndLatitude());
         task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
         task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
         task.setStatus(TransportTaskStatus.WAITING.name());
@@ -169,13 +186,20 @@ public class TransportTaskService {
     public TransportTaskResponse updateTransportTask(Long id,
                                                      TransportTaskUpdateRequest request) {
         validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+        validateCoordinatePair("start", request.getStartLongitude(), request.getStartLatitude());
+        validateCoordinatePair("end", request.getEndLongitude(), request.getEndLatitude());
         TransportTask task = getRequiredTransportTask(id);
         if (parseStatus(task.getStatus()) != TransportTaskStatus.WAITING) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "only waiting transport task can be modified");
         }
-        task.setStartLocation(request.getStartLocation().trim());
-        task.setEndLocation(request.getEndLocation().trim());
+        String startLocation = request.getStartLocation().trim();
+        String endLocation = request.getEndLocation().trim();
+        boolean startLocationChanged = !Objects.equals(task.getStartLocation(), startLocation);
+        boolean endLocationChanged = !Objects.equals(task.getEndLocation(), endLocation);
+        task.setStartLocation(startLocation);
+        task.setEndLocation(endLocation);
+        applyCoordinateUpdate(task, request, startLocationChanged, endLocationChanged);
         task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
         task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
         task.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
@@ -218,6 +242,7 @@ public class TransportTaskService {
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         updateTaskStatus(task, currentStatus, targetStatus, now);
         applyAssociatedStatusChanges(task, currentStatus, targetStatus);
+        statusRecordService.recordTransition(task, currentStatus, targetStatus, now);
         return toResponse(getRequiredTransportTaskRaw(id));
     }
 
@@ -225,11 +250,73 @@ public class TransportTaskService {
         validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
     }
 
+    private Owner requireOwner(Long ownerId) {
+        Owner owner = ownerMapper.selectById(ownerId);
+        if (owner == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "owner not found");
+        }
+        return owner;
+    }
+
+    private void requireCompatibleOwner(Cargo cargo, Long ownerId) {
+        if (cargo.getOwnerId() != null && !cargo.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                    "cargo is already assigned to another owner");
+        }
+    }
+
     private void validatePlanTimes(OffsetDateTime planStartTime, OffsetDateTime planEndTime) {
         if (planStartTime != null && planEndTime != null
                 && planEndTime.isBefore(planStartTime)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
                     "planEndTime must not be before planStartTime");
+        }
+    }
+
+    private void validateCoordinatePair(String name, Double longitude, Double latitude) {
+        if ((longitude == null) != (latitude == null)) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    name + "Longitude and " + name + "Latitude must be provided together");
+        }
+    }
+
+    private void validateCreateCoordinates(TransportTaskCreateRequest request) {
+        if (request.getStartLongitude() == null || request.getStartLatitude() == null
+                || request.getEndLongitude() == null || request.getEndLatitude() == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "start and end coordinates must be complete");
+        }
+        validateCoordinateRange("startLongitude", request.getStartLongitude(), -180, 180);
+        validateCoordinateRange("startLatitude", request.getStartLatitude(), -90, 90);
+        validateCoordinateRange("endLongitude", request.getEndLongitude(), -180, 180);
+        validateCoordinateRange("endLatitude", request.getEndLatitude(), -90, 90);
+    }
+
+    private void validateCoordinateRange(String name, double value,
+                                         double minimum, double maximum) {
+        if (!Double.isFinite(value) || value < minimum || value > maximum) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    name + " is outside the valid range");
+        }
+    }
+
+    private void applyCoordinateUpdate(TransportTask task,
+                                       TransportTaskUpdateRequest request,
+                                       boolean startLocationChanged,
+                                       boolean endLocationChanged) {
+        if (request.getStartLongitude() != null) {
+            task.setStartLongitude(request.getStartLongitude());
+            task.setStartLatitude(request.getStartLatitude());
+        } else if (startLocationChanged) {
+            task.setStartLongitude(null);
+            task.setStartLatitude(null);
+        }
+        if (request.getEndLongitude() != null) {
+            task.setEndLongitude(request.getEndLongitude());
+            task.setEndLatitude(request.getEndLatitude());
+        } else if (endLocationChanged) {
+            task.setEndLongitude(null);
+            task.setEndLatitude(null);
         }
     }
 
@@ -392,13 +479,15 @@ public class TransportTaskService {
     private TransportTaskResponse toResponse(TransportTask task) {
         return new TransportTaskResponse(
                 task.getId(), task.getTaskNo(), task.getCargoId(), task.getVehicleId(),
-                task.getStartLocation(), task.getEndLocation(),
+                task.getStartLocation(), task.getStartLongitude(), task.getStartLatitude(),
+                task.getEndLocation(), task.getEndLongitude(), task.getEndLatitude(),
                 toOffsetDateTime(task.getPlanStartTime()),
                 toOffsetDateTime(task.getPlanEndTime()),
                 toOffsetDateTime(task.getActualStartTime()),
                 toOffsetDateTime(task.getActualEndTime()),
                 parseStatus(task.getStatus()),
                 toOffsetDateTime(task.getEstimatedArrivalTime()),
+                toOffsetDateTime(task.getEtaCalculatedAt()),
                 toOffsetDateTime(task.getCreatedAt()),
                 toOffsetDateTime(task.getUpdatedAt())
         );

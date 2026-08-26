@@ -1,5 +1,6 @@
 package com.smart_logistics.backend.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -21,6 +22,11 @@ public class VehicleCreateRequest {
     private BigDecimal capacity;
 
     private Long driverId;
+
+    @JsonAlias("sim_code")
+    @NotBlank(message = "simCode must not be blank")
+    @Size(max = 64, message = "simCode must not exceed 64 characters")
+    private String simCode;
 
     public String getPlateNumber() {
         return plateNumber;
@@ -52,5 +58,13 @@ public class VehicleCreateRequest {
 
     public void setDriverId(Long driverId) {
         this.driverId = driverId;
+    }
+
+    public String getSimCode() {
+        return simCode;
+    }
+
+    public void setSimCode(String simCode) {
+        this.simCode = simCode;
     }
 }

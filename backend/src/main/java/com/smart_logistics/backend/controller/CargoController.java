@@ -5,8 +5,10 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.CargoCreateRequest;
 import com.smart_logistics.backend.dto.request.CargoUpdateRequest;
 import com.smart_logistics.backend.dto.response.CargoResponse;
+import com.smart_logistics.backend.dto.response.CargoStatusRecordResponse;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.service.CargoService;
+import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -15,6 +17,7 @@ import jakarta.validation.constraints.Size;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -31,9 +34,12 @@ import java.util.List;
 public class CargoController {
 
     private final CargoService cargoService;
+    private final TransportTaskStatusRecordService statusRecordService;
 
-    public CargoController(CargoService cargoService) {
+    public CargoController(CargoService cargoService,
+                           TransportTaskStatusRecordService statusRecordService) {
         this.cargoService = cargoService;
+        this.statusRecordService = statusRecordService;
     }
 
     @GetMapping
@@ -73,5 +79,19 @@ public class CargoController {
             @PathVariable @Positive Long id,
             @Valid @RequestBody CargoUpdateRequest request) {
         return ApiResponse.success(cargoService.updateCargo(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public ApiResponse<Boolean> deleteCargo(@PathVariable @Positive Long id) {
+        cargoService.deleteCargo(id);
+        return ApiResponse.success(true);
+    }
+
+    @GetMapping("/{id}/status-records")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<List<CargoStatusRecordResponse>> getStatusRecords(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(statusRecordService.listCargoStatusRecords(id));
     }
 }

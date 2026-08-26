@@ -6,8 +6,10 @@ import com.smart_logistics.backend.dto.request.VehicleCreateRequest;
 import com.smart_logistics.backend.dto.request.VehicleUpdateRequest;
 import com.smart_logistics.backend.dto.request.VehicleDriverUpdateRequest;
 import com.smart_logistics.backend.dto.response.VehicleResponse;
+import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.service.VehicleService;
+import com.smart_logistics.backend.service.VehicleLocationQueryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -26,16 +28,43 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.time.OffsetDateTime;
 
 @Validated
 @RestController
 @RequestMapping("/api/v1/vehicles")
-public class VehicleController {
+public class VehicleController{
 
     private final VehicleService vehicleService;
+    private final VehicleLocationQueryService vehicleLocationQueryService;
 
-    public VehicleController(VehicleService vehicleService) {
+    public VehicleController(VehicleService vehicleService,
+                             VehicleLocationQueryService vehicleLocationQueryService) {
         this.vehicleService = vehicleService;
+        this.vehicleLocationQueryService = vehicleLocationQueryService;
+    }
+
+    @GetMapping("/locations/latest")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<List<VehicleLocationResponse>> getLatestLocations() {
+        return ApiResponse.success(vehicleLocationQueryService.getLatestLocations());
+    }
+
+    @GetMapping("/{id}/location/latest")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<VehicleLocationResponse> getLatestLocation(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(vehicleLocationQueryService.getLatestLocation(id));
+    }
+
+    @GetMapping("/{id}/location-history")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<List<VehicleLocationResponse>> getLocationHistory(
+            @PathVariable @Positive Long id,
+            @RequestParam OffsetDateTime startTime,
+            @RequestParam OffsetDateTime endTime) {
+        return ApiResponse.success(
+                vehicleLocationQueryService.getLocationHistory(id, startTime, endTime));
     }
 
     @GetMapping
