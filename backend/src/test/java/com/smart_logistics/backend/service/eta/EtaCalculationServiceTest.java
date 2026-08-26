@@ -33,7 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,7 +44,7 @@ class EtaCalculationServiceTest {
     @Mock private TransportTaskMapper transportTaskMapper;
     @Mock private VehicleMapper vehicleMapper;
     @Mock private GpsInfluxService gpsInfluxService;
-    @Mock private EtaRouteProvider routeProvider;
+    @Mock private EtaPlannedRouteService plannedRouteService;
     @Mock private GpsWebSocketHandler webSocketHandler;
 
     private EtaCalculationService service;
@@ -56,7 +55,7 @@ class EtaCalculationServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "eta-test"),
                 TransportTask.class);
         service = new EtaCalculationService(
-                transportTaskMapper, vehicleMapper, gpsInfluxService, routeProvider,
+                transportTaskMapper, vehicleMapper, gpsInfluxService, plannedRouteService,
                 new RouteProgressProjector(), webSocketHandler,
                 Duration.ofMinutes(2), Duration.ofMinutes(10),
                 Duration.ofHours(1), Duration.ofMinutes(2),
@@ -70,34 +69,15 @@ class EtaCalculationServiceTest {
         when(gpsInfluxService.querySamples(any(), any(), any())).thenReturn(List.of(
                 sample(106.5750, 29.4950, 20.0, NOW.minusSeconds(60)),
                 sample(106.5800, 29.5000, 30.0, NOW.minusSeconds(5))));
-        when(routeProvider.plan(106.5700, 29.4900, 106.6100, 29.5200))
-                .thenReturn(plannedRoute());
+        when(plannedRouteService.getRoute(task)).thenReturn(plannedRoute());
         when(transportTaskMapper.update(isNull(), any(LambdaUpdateWrapper.class)))
                 .thenReturn(1);
 
         assertTrue(service.refreshTask(task, NOW));
 
-        verify(routeProvider).plan(106.5700, 29.4900, 106.6100, 29.5200);
+        verify(plannedRouteService).getRoute(task);
         verify(transportTaskMapper).update(isNull(), any(LambdaUpdateWrapper.class));
         verify(webSocketHandler).broadcastEta(any(EtaRealtimeMessage.class));
-    }
-
-    @Test
-    void cachesTaskPolylineAcrossRefreshes() {
-        TransportTask task = transportingTask();
-        when(vehicleMapper.selectById(2L)).thenReturn(vehicle());
-        when(gpsInfluxService.querySamples(any(), any(), any())).thenReturn(List.of(
-                sample(106.5800, 29.5000, 30.0, NOW.minusSeconds(5))));
-        when(routeProvider.plan(any(Double.class), any(Double.class),
-                any(Double.class), any(Double.class))).thenReturn(plannedRoute());
-        when(transportTaskMapper.update(isNull(), any(LambdaUpdateWrapper.class)))
-                .thenReturn(1);
-
-        assertTrue(service.refreshTask(task, NOW));
-        assertTrue(service.refreshTask(task, NOW.plusSeconds(10)));
-
-        verify(routeProvider, times(1)).plan(any(Double.class), any(Double.class),
-                any(Double.class), any(Double.class));
     }
 
     @Test
@@ -119,8 +99,7 @@ class EtaCalculationServiceTest {
 
         assertFalse(service.refreshTask(transportingTask(), NOW));
 
-        verify(routeProvider, never()).plan(any(Double.class), any(Double.class),
-                any(Double.class), any(Double.class));
+        verify(plannedRouteService, never()).getRoute(any());
     }
 
     @Test
@@ -132,8 +111,7 @@ class EtaCalculationServiceTest {
         when(vehicleMapper.selectById(2L)).thenReturn(vehicle());
         when(gpsInfluxService.querySamples(any(), any(), any())).thenReturn(List.of(
                 sample(106.5800, 29.5000, 30.0, NOW.minusSeconds(5))));
-        when(routeProvider.plan(any(Double.class), any(Double.class),
-                any(Double.class), any(Double.class))).thenReturn(plannedRoute());
+        when(plannedRouteService.getRoute(task)).thenReturn(plannedRoute());
 
         assertFalse(service.refreshTask(task, NOW));
 
@@ -147,8 +125,7 @@ class EtaCalculationServiceTest {
         when(vehicleMapper.selectById(2L)).thenReturn(vehicle());
         when(gpsInfluxService.querySamples(any(), any(), any())).thenReturn(List.of(
                 sample(106.5800, 29.5000, 30.0, NOW.minusSeconds(5))));
-        when(routeProvider.plan(any(Double.class), any(Double.class),
-                any(Double.class), any(Double.class)))
+        when(plannedRouteService.getRoute(any(TransportTask.class)))
                 .thenThrow(new EtaProviderException("provider unavailable"));
 
         EtaCalculationService.EtaRefreshSummary summary =

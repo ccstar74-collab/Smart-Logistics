@@ -24,9 +24,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class EtaCalculationService {
@@ -39,7 +36,7 @@ public class EtaCalculationService {
     private final TransportTaskMapper transportTaskMapper;
     private final VehicleMapper vehicleMapper;
     private final GpsInfluxService gpsInfluxService;
-    private final EtaRouteProvider routeProvider;
+    private final EtaPlannedRouteService plannedRouteService;
     private final RouteProgressProjector routeProjector;
     private final GpsWebSocketHandler webSocketHandler;
     private final Duration gpsMaxAge;
@@ -47,20 +44,19 @@ public class EtaCalculationService {
     private final Duration minEtaChange;
     private final Duration forcePersistInterval;
     private final Clock clock;
-    private final Map<Long, CachedRoute> routeCache = new ConcurrentHashMap<>();
 
     @Autowired
     public EtaCalculationService(
             TransportTaskMapper transportTaskMapper,
             VehicleMapper vehicleMapper,
             GpsInfluxService gpsInfluxService,
-            EtaRouteProvider routeProvider,
+            EtaPlannedRouteService plannedRouteService,
             GpsWebSocketHandler webSocketHandler,
             @Value("${app.eta.gps-max-age:PT2M}") Duration gpsMaxAge,
             @Value("${app.eta.speed-history-window:PT10M}") Duration speedHistoryWindow,
             @Value("${app.eta.min-change:PT30S}") Duration minEtaChange,
             @Value("${app.eta.force-persist-interval:PT2M}") Duration forcePersistInterval) {
-        this(transportTaskMapper, vehicleMapper, gpsInfluxService, routeProvider,
+        this(transportTaskMapper, vehicleMapper, gpsInfluxService, plannedRouteService,
                 new RouteProgressProjector(), webSocketHandler, gpsMaxAge,
                 speedHistoryWindow, minEtaChange, forcePersistInterval, Clock.systemUTC());
     }
@@ -68,7 +64,7 @@ public class EtaCalculationService {
     EtaCalculationService(TransportTaskMapper transportTaskMapper,
                           VehicleMapper vehicleMapper,
                           GpsInfluxService gpsInfluxService,
-                          EtaRouteProvider routeProvider,
+                          EtaPlannedRouteService plannedRouteService,
                           RouteProgressProjector routeProjector,
                           GpsWebSocketHandler webSocketHandler,
                           Duration gpsMaxAge,
@@ -79,7 +75,7 @@ public class EtaCalculationService {
         this.transportTaskMapper = transportTaskMapper;
         this.vehicleMapper = vehicleMapper;
         this.gpsInfluxService = gpsInfluxService;
-        this.routeProvider = routeProvider;
+        this.plannedRouteService = plannedRouteService;
         this.routeProjector = routeProjector;
         this.webSocketHandler = webSocketHandler;
         this.gpsMaxAge = gpsMaxAge;
@@ -94,9 +90,6 @@ public class EtaCalculationService {
                 new LambdaQueryWrapper<TransportTask>()
                         .eq(TransportTask::getStatus, TransportTaskStatus.TRANSPORTING.name())
                         .orderByAsc(TransportTask::getId));
-        Set<Long> activeTaskIds = tasks.stream().map(TransportTask::getId)
-                .collect(java.util.stream.Collectors.toSet());
-        routeCache.keySet().removeIf(taskId -> !activeTaskIds.contains(taskId));
         int updated = 0;
         int skipped = 0;
         int failed = 0;
@@ -140,7 +133,7 @@ public class EtaCalculationService {
             return false;
         }
 
-        EtaPlannedRoute plannedRoute = routeFor(task);
+        EtaPlannedRoute plannedRoute = plannedRouteService.getRoute(task);
         Wgs84ToGcj02Converter.Coordinate convertedCurrent =
                 Wgs84ToGcj02Converter.convert(latest.longitude(), latest.latitude());
         EtaRouteProgress progress = routeProjector.project(
@@ -186,20 +179,6 @@ public class EtaCalculationService {
                 && task.getEndLongitude() != null && task.getEndLatitude() != null;
     }
 
-    private EtaPlannedRoute routeFor(TransportTask task) {
-        RouteKey key = new RouteKey(task.getStartLongitude(), task.getStartLatitude(),
-                task.getEndLongitude(), task.getEndLatitude());
-        CachedRoute cached = routeCache.get(task.getId());
-        if (cached != null && cached.key().equals(key)) {
-            return cached.route();
-        }
-        EtaPlannedRoute route = routeProvider.plan(
-                key.startLongitude(), key.startLatitude(),
-                key.endLongitude(), key.endLatitude());
-        routeCache.put(task.getId(), new CachedRoute(key, route));
-        return route;
-    }
-
     private double effectiveSpeedKmh(List<GpsSample> samples, GpsSample latest,
                                      EtaPlannedRoute plannedRoute) {
         double historyAverage = samples.stream()
@@ -242,10 +221,4 @@ public class EtaCalculationService {
     public record EtaRefreshSummary(int total, int updated, int skipped, int failed) {
     }
 
-    private record RouteKey(double startLongitude, double startLatitude,
-                            double endLongitude, double endLatitude) {
-    }
-
-    private record CachedRoute(RouteKey key, EtaPlannedRoute route) {
-    }
 }

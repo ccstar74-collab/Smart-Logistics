@@ -21,6 +21,34 @@ GPS 的任务参与计算。旧任务的坐标字段允许为空，字段为空�
    `transport_task.estimated_arrival_time` 与 `eta_calculated_at`。
 7. 写库成功后通过 `/ws/logistics` 推送 `ETA_UPDATED` 消息。
 
+## 前端规划路线接口
+
+任务详情页通过以下接口获取 ETA 服务生成并缓存的同一条任务路线：
+
+```http
+GET /api/v1/transport-tasks/{id}/planned-route
+```
+
+响应中的 polyline 是高德地图可直接显示的 `GCJ02` 坐标：
+
+```json
+{
+  "taskId": 12,
+  "provider": "AMAP",
+  "coordinateSystem": "GCJ02",
+  "distanceMeters": 5500,
+  "referenceDurationSeconds": 720,
+  "generatedAt": "2026-08-26T16:00:00+08:00",
+  "points": [
+    {"longitude": 106.5701, "latitude": 29.4901},
+    {"longitude": 106.6101, "latitude": 29.5201}
+  ]
+}
+```
+
+前端进入页面时请求一次并绘制 `points`。ETA 定时计算复用该缓存路线，
+`ETA_UPDATED` 只推送变化的 ETA 数据，不重复携带整条 polyline。
+
 ## 运输任务坐标字段
 
 创建、编辑和查询运输任务增加以下可空字段：

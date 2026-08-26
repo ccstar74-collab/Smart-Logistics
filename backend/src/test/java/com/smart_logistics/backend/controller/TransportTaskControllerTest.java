@@ -3,6 +3,7 @@ package com.smart_logistics.backend.controller;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
@@ -11,6 +12,7 @@ import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.TransportTaskService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
+import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,6 +43,8 @@ class TransportTaskControllerTest {
     private TransportTaskService transportTaskService;
     @Mock
     private TaskTrackQueryService taskTrackQueryService;
+    @Mock
+    private EtaPlannedRouteService etaPlannedRouteService;
 
     private MockMvc mockMvc;
 
@@ -53,7 +57,8 @@ class TransportTaskControllerTest {
         methodValidation.setValidator(validator);
         methodValidation.afterPropertiesSet();
         Object controller = methodValidation.postProcessAfterInitialization(
-                new TransportTaskController(transportTaskService, taskTrackQueryService),
+                new TransportTaskController(transportTaskService, taskTrackQueryService,
+                        etaPlannedRouteService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
@@ -87,6 +92,24 @@ class TransportTaskControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].taskId").value(1))
                 .andExpect(jsonPath("$.data[0].longitude").value(121.5));
+    }
+
+    @Test
+    void plannedRouteReturnsFrontendReadyGcj02Polyline() throws Exception {
+        TransportTaskResponse task = response(TransportTaskStatus.WAITING);
+        when(transportTaskService.getTransportTask(1L)).thenReturn(task);
+        when(etaPlannedRouteService.getResponse(task)).thenReturn(
+                new PlannedRouteResponse(1L, "AMAP", "GCJ02", 5500, 720,
+                        OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
+                        List.of(
+                                new PlannedRouteResponse.RoutePoint(106.57, 29.49),
+                                new PlannedRouteResponse.RoutePoint(106.61, 29.52))));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.coordinateSystem").value("GCJ02"))
+                .andExpect(jsonPath("$.data.distanceMeters").value(5500))
+                .andExpect(jsonPath("$.data.points.length()").value(2));
     }
 
     @Test
