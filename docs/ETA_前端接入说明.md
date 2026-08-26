@@ -61,6 +61,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
   "message": "success",
   "data": {
     "taskId": 12,
+    "vehicleDeviceCode": "sim_000",
     "provider": "AMAP",
     "coordinateSystem": "GCJ02",
     "distanceMeters": 5500,
@@ -80,6 +81,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `taskId` | Long | 运输任务 ID |
+| `vehicleDeviceCode` | String | 车辆 `vehicle.sim_code`，与 MQTT/Influx 的 `vehicle_id` 一致 |
 | `provider` | String | 路线提供方，当前固定为 `AMAP` |
 | `coordinateSystem` | String | 路线坐标系，当前固定为 `GCJ02` |
 | `distanceMeters` | Long | 完整规划路线总距离，单位米 |
@@ -254,6 +256,7 @@ ETA_UPDATED：更新 ETA、剩余距离和有效速度
 - [ ] 已取得可用登录 Token。
 - [ ] 运输任务存在且当前账号有访问权限。
 - [ ] 任务已经保存完整的 WGS84 起点和终点坐标。
+- [ ] 路线接口返回的 `vehicleDeviceCode` 与 MQTT/Influx 的 `vehicle_id` 一致。
 - [ ] 路线接口返回 `coordinateSystem=GCJ02` 和至少两个 `points`。
 - [ ] 高德地图可以正确绘制路线且没有二次偏移。
 - [ ] 任务状态为 `TRANSPORTING`。

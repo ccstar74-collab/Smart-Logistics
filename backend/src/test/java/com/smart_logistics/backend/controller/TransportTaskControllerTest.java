@@ -99,7 +99,7 @@ class TransportTaskControllerTest {
         TransportTaskResponse task = response(TransportTaskStatus.WAITING);
         when(transportTaskService.getTransportTask(1L)).thenReturn(task);
         when(etaPlannedRouteService.getResponse(task)).thenReturn(
-                new PlannedRouteResponse(1L, "AMAP", "GCJ02", 5500, 720,
+                new PlannedRouteResponse(1L, "sim_000", "AMAP", "GCJ02", 5500, 720,
                         OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
                         List.of(
                                 new PlannedRouteResponse.RoutePoint(106.57, 29.49),
@@ -107,6 +107,7 @@ class TransportTaskControllerTest {
 
         mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.vehicleDeviceCode").value("sim_000"))
                 .andExpect(jsonPath("$.data.coordinateSystem").value("GCJ02"))
                 .andExpect(jsonPath("$.data.distanceMeters").value(5500))
                 .andExpect(jsonPath("$.data.points.length()").value(2));

@@ -4,6 +4,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 public record PlannedRouteResponse(Long taskId,
+                                   String vehicleDeviceCode,
                                    String provider,
                                    String coordinateSystem,
                                    long distanceMeters,

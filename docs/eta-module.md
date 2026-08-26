@@ -34,6 +34,7 @@ GET /api/v1/transport-tasks/{id}/planned-route
 ```json
 {
   "taskId": 12,
+  "vehicleDeviceCode": "real_001",
   "provider": "AMAP",
   "coordinateSystem": "GCJ02",
   "distanceMeters": 5500,
@@ -45,6 +46,9 @@ GET /api/v1/transport-tasks/{id}/planned-route
   ]
 }
 ```
+
+`vehicleDeviceCode` 取自 `vehicle.sim_code`，与 MQTT/Influx 的
+`vehicle_id` 使用同一设备编号，供前端把任务路线与实时车辆位置关联。
 
 前端进入页面时请求一次并绘制 `points`。ETA 定时计算复用该缓存路线，
 `ETA_UPDATED` 只推送变化的 ETA 数据，不重复携带整条 polyline。
