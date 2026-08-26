@@ -302,3 +302,244 @@ Ctrl+C
 3. 检查 WebSocket 和前端车辆位置更新；
 4. 使用 `--demo-anomaly` 测试 Alarm；
 5. 使用 `--task-id` 测试道路规划路线和动态 ETA。
+
+## 十二、使用 eta_service 账号联调任务路线
+
+本节是从登录业务后端到启动任务路线模拟器的完整操作流程。所有命令必须在同一个 PowerShell 窗口依次执行。
+
+当前联调信息：
+
+```text
+业务后端：http://111.170.148.177:58080
+用户名：eta_service
+密码：shenyuxueshenyuxue
+角色：DISPATCHER
+```
+
+### 1. 登录并保存 JWT
+
+```powershell
+$apiBase = 'http://111.170.148.177:58080'
+
+$loginBody = @{
+    username = 'eta_service'
+    password = 'shenyuxueshenyuxue'
+} | ConvertTo-Json
+
+$response = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$apiBase/api/v1/auth/login" `
+    -ContentType 'application/json' `
+    -Body $loginBody
+
+$env:SMART_LOGISTICS_API_TOKEN = $response.data.accessToken
+
+if ([string]::IsNullOrWhiteSpace($env:SMART_LOGISTICS_API_TOKEN)) {
+    throw '登录失败：响应中没有 data.accessToken'
+}
+
+$headers = @{
+    Authorization = "Bearer $env:SMART_LOGISTICS_API_TOKEN"
+}
+
+Write-Host '登录成功，Token已经保存到当前PowerShell窗口' `
+    -ForegroundColor Green
+```
+
+该 Token 只保存在当前 PowerShell 窗口。关闭窗口、Token过期或重新打开终端后，需要从本节第一步重新登录。
+
+### 2. 验证账号和角色
+
+```powershell
+$me = Invoke-RestMethod `
+    -Method Get `
+    -Uri "$apiBase/api/v1/users/me" `
+    -Headers $headers
+
+$me.data | Format-List
+```
+
+正常应该包含：
+
+```text
+username : eta_service
+role     : DISPATCHER
+```
+
+### 3. 查询云端运输任务
+
+```powershell
+$tasks = Invoke-RestMethod `
+    -Method Get `
+    -Uri "$apiBase/api/v1/transport-tasks?page=1&pageSize=100" `
+    -Headers $headers
+
+$records = @($tasks.data.records)
+
+Write-Host "任务总数：$($records.Count)" -ForegroundColor Cyan
+
+$records |
+    Select-Object id, taskNo, status, vehicleId,
+        startLocation, startLongitude, startLatitude,
+        endLocation, endLongitude, endLatitude,
+        @{
+            Name = 'coordinatesComplete'
+            Expression = {
+                $null -ne $_.startLongitude -and
+                $null -ne $_.startLatitude -and
+                $null -ne $_.endLongitude -and
+                $null -ne $_.endLatitude
+            }
+        } |
+    Format-Table -AutoSize
+```
+
+查看各任务状态数量：
+
+```powershell
+$records |
+    Group-Object status |
+    Select-Object Name, Count |
+    Format-Table -AutoSize
+```
+
+### 4. 自动选择可以模拟的任务
+
+```powershell
+$task = $records |
+    Where-Object {
+        $_.status -in @('WAITING', 'TRANSPORTING') -and
+        $null -ne $_.startLongitude -and
+        $null -ne $_.startLatitude -and
+        $null -ne $_.endLongitude -and
+        $null -ne $_.endLatitude
+    } |
+    Select-Object -First 1
+
+if ($null -eq $task) {
+    Write-Host '当前没有起终点坐标完整的WAITING或TRANSPORTING任务' `
+        -ForegroundColor Yellow
+} else {
+    $taskId = $task.id
+    Write-Host "已选择任务：taskId=$taskId，taskNo=$($task.taskNo)" `
+        -ForegroundColor Green
+}
+```
+
+如果显示：
+
+```text
+当前没有起终点坐标完整的WAITING或TRANSPORTING任务
+```
+
+表示登录和查询操作已经成功，只是云端暂时没有可用于路线模拟的任务。此时不需要继续操作，也不要运行带 `--task-id` 的模拟器，等待后端准备测试任务即可。
+
+后端需要完成：
+
+1. 部署最新 `feature/eta-calculation`；
+2. 执行 `007_transport_task_eta.sql`；
+3. 创建或更新一个完整起终点坐标的任务；
+4. 任务状态为 `WAITING` 或 `TRANSPORTING`；
+5. 给任务绑定车辆；
+6. 给绑定车辆配置 `vehicle.sim_code`，例如 `sim_000`；
+7. 部署包含 `vehicleDeviceCode` 的 `/planned-route` 接口。
+
+可以直接发给后端同学：
+
+> eta_service 登录和任务列表查询已经成功，但当前云端没有起终点坐标完整的 WAITING/TRANSPORTING 任务，所以模拟器无法加载路线。请部署包含 007 坐标字段、planned-route 和 vehicleDeviceCode 的最新 ETA 后端，并创建或更新一个起终点坐标完整、绑定 vehicle.sim_code 的 WAITING/TRANSPORTING 测试任务。完成后请把 taskId 发给我。
+
+### 5. 后端给出 taskId 后验证规划路线
+
+假设后端给出的任务ID是 `12`：
+
+```powershell
+$taskId = 12
+
+$route = Invoke-RestMethod `
+    -Method Get `
+    -Uri "$apiBase/api/v1/transport-tasks/$taskId/planned-route" `
+    -Headers $headers
+
+$route.data |
+    Select-Object taskId, vehicleDeviceCode, provider,
+        coordinateSystem, distanceMeters,
+        referenceDurationSeconds, generatedAt |
+    Format-List
+
+$route.data.points |
+    Select-Object -First 10 |
+    Format-Table longitude, latitude
+```
+
+成功响应必须满足：
+
+```text
+taskId与请求一致
+vehicleDeviceCode不为空，例如sim_000
+provider为AMAP
+coordinateSystem为GCJ02
+distanceMeters大于0
+referenceDurationSeconds大于0
+points至少包含两个路线点
+```
+
+如果返回 `404`，通常表示新版接口尚未部署或任务不存在。如果返回 `409`，通常表示任务坐标不完整或绑定车辆没有配置 `sim_code`。如果返回 `403`，需要让后端检查 `DISPATCHER` 对该任务的访问权限。
+
+### 6. 自动计算车辆数量并启动路线模拟器
+
+规划路线查询成功后执行：
+
+```powershell
+$vehicleDeviceCode = $route.data.vehicleDeviceCode
+
+if ($vehicleDeviceCode -match '^sim_(\d+)$') {
+    $vehicleCount = [int]$Matches[1] + 1
+} else {
+    throw "车辆设备编号不是sim_数字格式：$vehicleDeviceCode"
+}
+
+if ($vehicleCount -lt 1) {
+    $vehicleCount = 1
+}
+
+Write-Host "任务绑定车辆：$vehicleDeviceCode" -ForegroundColor Cyan
+Write-Host "模拟车辆数量：$vehicleCount" -ForegroundColor Cyan
+
+Set-Location -LiteralPath `
+    'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
+
+python .\tools\mqtt_data_generator.py `
+    --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
+    --business-api-base $apiBase `
+    --task-id $taskId `
+    --vehicles $vehicleCount `
+    --duration 0 `
+    --interval 1 `
+    --anomaly-rate 0
+```
+
+成功时会出现：
+
+```text
+[ROUTE][LOADED] task_id=...，vehicle=sim_...，generated_at=...，points=...
+```
+
+模拟器会读取ETA规划路线、把GCJ02转换为WGS84、沿路线发布MQTT GPS，并在到达终点后停止。按 `Ctrl+C` 结束运行。
+
+### 7. 当前没有任务时仍可运行普通模拟
+
+普通随机GPS模拟不依赖业务任务和 `/planned-route`，可以随时运行：
+
+```powershell
+Set-Location -LiteralPath `
+    'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
+
+python .\tools\mqtt_data_generator.py `
+    --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
+    --vehicles 20 `
+    --duration 0 `
+    --interval 1 `
+    --anomaly-rate 0
+```
+
+普通模式可以继续测试 MQTT、InfluxDB、车辆位置、WebSocket 和 Alarm，但它不会关联具体 TransportTask，也不会验证任务规划路线。
