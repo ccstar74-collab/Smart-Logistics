@@ -12,6 +12,7 @@ import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -136,33 +137,34 @@ public class GpsInfluxService {
     }
 
     /**
-     * Returns at most the latest value for each vehicle and GPS field within the range. The
-     * server-side reduction preserves the full lookback window without transferring its entire
-     * high-frequency time series to the application.
+     * Returns the latest value for each vehicle and GPS field within a relative lookback window.
+     * Two-stage server-side reduction first collapses individual Influx series, then selects the
+     * newest record across series that differ by additional tags.
      */
     public List<GpsSample> queryLatestSamples(Collection<String> vehicleIds,
-                                              Instant start, Instant stop) {
+                                              Duration lookback) {
+        long lookbackSeconds = validateLatestLookback(lookback);
         List<String> normalizedIds = normalizeVehicleIds(vehicleIds);
         if (normalizedIds.isEmpty()) {
             return List.of();
         }
-        validateRange(start, stop);
 
         String vehicleSet = normalizedIds.stream()
                 .map(this::fluxString)
                 .collect(Collectors.joining(","));
         String flux = String.format("""
                 from(bucket: %s)
-                |> range(start: time(v: %s), stop: time(v: %s))
+                |> range(start: -%ds)
                 |> filter(fn: (r) => r._measurement == %s)
                 |> filter(fn: (r) => contains(value: r.vehicle_id, set: [%s]))
                 |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
+                |> last()
                 |> group(columns: ["vehicle_id", "_field"])
+                |> sort(columns: ["_time"])
                 |> last()
                 |> keep(columns: ["_time","_field","_value","vehicle_id"])
                 """,
-                fluxString(bucket), fluxString(start.toString()), fluxString(stop.toString()),
-                fluxString(MEASUREMENT), vehicleSet
+                fluxString(bucket), lookbackSeconds, fluxString(MEASUREMENT), vehicleSet
         );
         return executeQuery(flux);
     }
@@ -198,6 +200,17 @@ public class GpsInfluxService {
         if (start == null || stop == null || !start.isBefore(stop)) {
             throw new IllegalArgumentException("GPS query range must have start before stop");
         }
+    }
+
+    private long validateLatestLookback(Duration lookback) {
+        if (lookback == null || lookback.isNegative() || lookback.isZero()) {
+            throw new IllegalArgumentException("GPS latest lookback must be positive");
+        }
+        long seconds = lookback.toSeconds();
+        if (seconds < 1) {
+            throw new IllegalArgumentException("GPS latest lookback must be at least one second");
+        }
+        return seconds;
     }
 
     /**

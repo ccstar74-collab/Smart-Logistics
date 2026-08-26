@@ -67,7 +67,7 @@ public class VehicleLocationQueryService {
         Instant now = Instant.now();
         List<GpsSample> samples = queryLatestRealtime(
                 mappedVehicles.stream().map(Vehicle::getSimCode).toList(),
-                now.minus(latestLookback), now);
+                latestLookback);
         Map<String, GpsSample> latestBySimCode = new HashMap<>();
         for (GpsSample sample : samples) {
             latestBySimCode.merge(sample.vehicleId(), sample,
@@ -90,7 +90,7 @@ public class VehicleLocationQueryService {
         }
         Instant now = Instant.now();
         GpsSample latest = queryLatestRealtime(List.of(vehicle.getSimCode()),
-                now.minus(latestLookback), now).stream()
+                latestLookback).stream()
                 .max(java.util.Comparator.comparing(GpsSample::collectedAt))
                 .orElseThrow(this::locationNotFound);
         return toResponse(vehicle, latest, activeTaskIds(List.of(vehicleId)).get(vehicleId), now);
@@ -131,13 +131,14 @@ public class VehicleLocationQueryService {
     }
 
     private List<GpsSample> queryLatestRealtime(List<String> simCodes,
-                                                Instant start, Instant end) {
+                                                Duration lookback) {
         try {
-            return gpsInfluxService.queryLatestSamples(simCodes, start, end);
+            return gpsInfluxService.queryLatestSamples(simCodes, lookback);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            logProviderFailure("latest", simCodes, start, end, exception);
+            LOGGER.error("Realtime GPS latest query failed simCodes={} lookback={}",
+                    simCodes, lookback, exception);
             throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
                     "realtime location provider unavailable");
         }

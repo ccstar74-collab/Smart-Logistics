@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -82,7 +83,12 @@ class GpsInfluxServiceTest {
     @Test
     void latestQueryReducesCanonicalFieldsPerVehicleOnInfluxServer() {
         Instant collectedAt = Instant.parse("2026-08-26T06:00:00Z");
+        Instant staleAt = collectedAt.minus(Duration.ofHours(5));
         List<FluxRecord> records = List.of(
+                record("sim_001", "lat", 28.100000, staleAt),
+                record("sim_001", "lon", 105.100000, staleAt),
+                record("sim_001", "speed", 12.0, staleAt),
+                record("sim_001", "direction", 30.0, staleAt),
                 record("sim_001", "latitude", 29.610634, collectedAt),
                 record("sim_001", "longitude", 106.735012, collectedAt),
                 record("sim_001", "speed_kmh", 36.5, collectedAt),
@@ -96,16 +102,21 @@ class GpsInfluxServiceTest {
         when(table.getRecords()).thenReturn(records);
 
         List<GpsSample> samples = service.queryLatestSamples(
-                List.of("sim_001", "sim_002"),
-                collectedAt.minus(Duration.ofHours(24)), collectedAt.plusSeconds(1));
+                List.of("sim_001", "sim_002"), Duration.ofHours(24));
 
-        assertEquals(2, samples.size());
-        assertEquals(List.of("sim_001", "sim_002"),
-                samples.stream().map(GpsSample::vehicleId).toList());
-        assertEquals(106.735012, samples.getFirst().longitude());
-        assertEquals(29.610634, samples.getFirst().latitude());
-        assertEquals(36.5, samples.getFirst().speed());
-        assertEquals(92.0, samples.getFirst().direction());
+        assertEquals(3, samples.size());
+        GpsSample latestSim001 = samples.stream()
+                .filter(sample -> sample.vehicleId().equals("sim_001"))
+                .max(java.util.Comparator.comparing(GpsSample::collectedAt))
+                .orElseThrow();
+        assertEquals(106.735012, latestSim001.longitude());
+        assertEquals(29.610634, latestSim001.latitude());
+        assertEquals(36.5, latestSim001.speed());
+        assertEquals(92.0, latestSim001.direction());
+        assertTrue(samples.stream().anyMatch(sample -> sample.vehicleId().equals("sim_002")));
+        assertTrue(samples.stream().anyMatch(sample -> sample.vehicleId().equals("sim_001")
+                && sample.collectedAt().equals(staleAt)
+                && sample.longitude() == 105.100000));
 
         ArgumentCaptor<String> fluxCaptor = ArgumentCaptor.forClass(String.class);
         verify(queryApi).query(fluxCaptor.capture());
@@ -113,9 +124,32 @@ class GpsInfluxServiceTest {
         assertTrue(flux.contains("r._measurement == \"vehicle_gps\""));
         assertTrue(flux.contains("r.vehicle_id"));
         assertTrue(flux.contains("\"sim_001\",\"sim_002\""));
-        assertTrue(flux.contains("|> group(columns: [\"vehicle_id\", \"_field\"])"));
-        assertTrue(flux.contains("|> last()"));
+        assertTrue(flux.contains("|> range(start: -86400s)"));
+        assertFalse(flux.contains("time(v:"));
+        int firstLast = flux.indexOf("|> last()");
+        int group = flux.indexOf("|> group(columns: [\"vehicle_id\", \"_field\"])");
+        int sort = flux.indexOf("|> sort(columns: [\"_time\"])");
+        int secondLast = flux.indexOf("|> last()", firstLast + 1);
+        assertTrue(firstLast >= 0 && firstLast < group);
+        assertTrue(group < sort && sort < secondLast);
         assertTrue(flux.contains("\"latitude\",\"longitude\",\"speed_kmh\",\"heading\""));
+        assertTrue(flux.contains("\"lat\",\"lon\",\"speed\",\"direction\""));
+    }
+
+    @Test
+    void latestQueryRejectsUnsafeOrSubsecondLookback() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.queryLatestSamples(List.of("sim_001"), null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.queryLatestSamples(List.of(), null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.queryLatestSamples(List.of("sim_001"), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.queryLatestSamples(
+                        List.of("sim_001"), Duration.ofSeconds(-1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.queryLatestSamples(
+                        List.of("sim_001"), Duration.ofMillis(999)));
     }
 
     @Test

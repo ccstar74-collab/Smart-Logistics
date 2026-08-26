@@ -56,7 +56,9 @@ class VehicleLocationQueryServiceTest {
         Vehicle vehicle = vehicle();
         when(vehicleMapper.selectById(1L)).thenReturn(vehicle);
         when(transportTaskMapper.selectList(any())).thenReturn(List.of(task()));
-        when(gpsInfluxService.queryLatestSamples(any(), any(), any())).thenReturn(List.of(
+        when(gpsInfluxService.queryLatestSamples(any(), any())).thenReturn(List.of(
+                new GpsSample("sim_019", 120.0, 30.0, 10.0, 45.0,
+                        Instant.now().minus(Duration.ofHours(23))),
                 new GpsSample("sim_019", 121.5, 31.2, 42.0, 90.0,
                         Instant.now().minusSeconds(5))));
 
@@ -68,6 +70,8 @@ class VehicleLocationQueryServiceTest {
         assertEquals(10L, response.getTaskId());
         assertTrue(response.isOnline());
         verify(dataScopeService).requireVehicleAccess(vehicle);
+        verify(gpsInfluxService).queryLatestSamples(
+                eq(List.of("sim_019")), eq(Duration.ofHours(24)));
         verify(gpsInfluxService, never()).querySamples(any(), any(), any());
     }
 
@@ -77,7 +81,7 @@ class VehicleLocationQueryServiceTest {
         Vehicle second = vehicle(2L, "sim_020", "沪A00020");
         when(vehicleMapper.selectList(any())).thenReturn(List.of(vehicle, second));
         when(transportTaskMapper.selectList(any())).thenReturn(List.of());
-        when(gpsInfluxService.queryLatestSamples(any(), any(), any())).thenReturn(List.of(
+        when(gpsInfluxService.queryLatestSamples(any(), any())).thenReturn(List.of(
                 new GpsSample("sim_019", 121.5, 31.2, null, null,
                         Instant.now().minusSeconds(5)),
                 new GpsSample("sim_020", 121.6, 31.3, null, null,
@@ -88,7 +92,7 @@ class VehicleLocationQueryServiceTest {
         verify(dataScopeService).applyVehicleScope(any(),
                 org.mockito.ArgumentMatchers.isNull());
         verify(gpsInfluxService).queryLatestSamples(
-                eq(List.of("sim_019", "sim_020")), any(), any());
+                eq(List.of("sim_019", "sim_020")), eq(Duration.ofHours(24)));
         verify(gpsInfluxService, never()).querySamples(any(), any(), any());
     }
 
@@ -104,7 +108,7 @@ class VehicleLocationQueryServiceTest {
 
         assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
         verify(gpsInfluxService, never()).querySamples(any(), any(), any());
-        verify(gpsInfluxService, never()).queryLatestSamples(any(), any(), any());
+        verify(gpsInfluxService, never()).queryLatestSamples(any(), any());
     }
 
     @Test
@@ -124,7 +128,7 @@ class VehicleLocationQueryServiceTest {
         OffsetDateTime start = OffsetDateTime.parse("2026-08-25T09:00:00+08:00");
         assertEquals(List.of(), service.getLocationHistory(1L, start, start.plusHours(1)));
         verify(gpsInfluxService).querySamples(any(), any(), any());
-        verify(gpsInfluxService, never()).queryLatestSamples(any(), any(), any());
+        verify(gpsInfluxService, never()).queryLatestSamples(any(), any());
     }
 
     @Test
@@ -132,27 +136,21 @@ class VehicleLocationQueryServiceTest {
         Vehicle vehicle = vehicle();
         when(vehicleMapper.selectById(1L)).thenReturn(vehicle);
         when(transportTaskMapper.selectList(any())).thenReturn(List.of());
-        when(gpsInfluxService.queryLatestSamples(any(), any(), any())).thenReturn(List.of(
+        when(gpsInfluxService.queryLatestSamples(any(), any())).thenReturn(List.of(
                 new GpsSample("sim_019", 121.5, 31.2, 42.0, 90.0,
                         Instant.now().minus(Duration.ofHours(23)))));
 
         VehicleLocationResponse response = service.getLatestLocation(1L);
 
         assertEquals(false, response.isOnline());
-        org.mockito.ArgumentCaptor<Instant> startCaptor =
-                org.mockito.ArgumentCaptor.forClass(Instant.class);
-        org.mockito.ArgumentCaptor<Instant> endCaptor =
-                org.mockito.ArgumentCaptor.forClass(Instant.class);
         verify(gpsInfluxService).queryLatestSamples(
-                eq(List.of("sim_019")), startCaptor.capture(), endCaptor.capture());
-        assertEquals(Duration.ofHours(24),
-                Duration.between(startCaptor.getValue(), endCaptor.getValue()));
+                eq(List.of("sim_019")), eq(Duration.ofHours(24)));
     }
 
     @Test
     void mapsProviderFailureToStandardUnavailableError() {
         when(vehicleMapper.selectById(1L)).thenReturn(vehicle());
-        when(gpsInfluxService.queryLatestSamples(any(), any(), any()))
+        when(gpsInfluxService.queryLatestSamples(any(), any()))
                 .thenThrow(new IllegalStateException("test provider failure"));
 
         BusinessException exception = assertThrows(BusinessException.class,
