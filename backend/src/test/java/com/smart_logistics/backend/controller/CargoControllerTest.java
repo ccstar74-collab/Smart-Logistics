@@ -70,6 +70,37 @@ class CargoControllerTest {
     }
 
     @Test
+    void createAllowsOwnerIdToBeOmitted() throws Exception {
+        when(cargoService.createCargo(any(CargoCreateRequest.class)))
+                .thenReturn(unassignedResponse());
+
+        mockMvc.perform(post("/api/v1/cargos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoNo":"CGO-002","name":"Unassigned cargo",
+                                 "weight":12.5,"volume":3.2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ownerId").doesNotExist())
+                .andExpect(jsonPath("$.data.ownerName").doesNotExist());
+    }
+
+    @Test
+    void createAllowsExplicitNullOwnerId() throws Exception {
+        when(cargoService.createCargo(any(CargoCreateRequest.class)))
+                .thenReturn(unassignedResponse());
+
+        mockMvc.perform(post("/api/v1/cargos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoNo":"CGO-003","name":"Unassigned cargo",
+                                 "weight":12.5,"volume":3.2,"ownerId":null}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ownerId").doesNotExist());
+    }
+
+    @Test
     void deleteReturnsUnifiedSuccess() throws Exception {
         mockMvc.perform(delete("/api/v1/cargos/1"))
                 .andExpect(status().isOk())
@@ -217,5 +248,14 @@ class CargoControllerTest {
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00")
         );
+    }
+
+    private CargoResponse unassignedResponse() {
+        return new CargoResponse(
+                2L, "CGO-002", "Unassigned cargo", null,
+                new BigDecimal("12.50"), new BigDecimal("3.20"),
+                null, null, CargoStatus.WAITING,
+                OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
+                OffsetDateTime.parse("2026-08-23T10:30:00+08:00"));
     }
 }

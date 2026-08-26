@@ -13,6 +13,10 @@ public class TransportTaskCreateRequest {
     @Positive(message = "cargoId must be greater than 0")
     private Long cargoId;
 
+    @NotNull(message = "ownerId must not be null")
+    @Positive(message = "ownerId must be greater than 0")
+    private Long ownerId;
+
     @NotNull(message = "vehicleId must not be null")
     @Positive(message = "vehicleId must be greater than 0")
     private Long vehicleId;
@@ -30,6 +34,8 @@ public class TransportTaskCreateRequest {
 
     public Long getCargoId() { return cargoId; }
     public void setCargoId(Long cargoId) { this.cargoId = cargoId; }
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
     public Long getVehicleId() { return vehicleId; }
     public void setVehicleId(Long vehicleId) { this.vehicleId = vehicleId; }
     public String getStartLocation() { return startLocation; }

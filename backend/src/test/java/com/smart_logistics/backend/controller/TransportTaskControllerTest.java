@@ -94,7 +94,7 @@ class TransportTaskControllerTest {
         mockMvc.perform(post("/api/v1/transport-tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"vehicleId":20,"startLocation":"Shanghai",
+                                {"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
                                  "endLocation":"Beijing"}
                                 """))
                 .andExpect(status().isBadRequest())
@@ -103,11 +103,24 @@ class TransportTaskControllerTest {
     }
 
     @Test
+    void createRejectsMissingOwnerId() throws Exception {
+        mockMvc.perform(post("/api/v1/transport-tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoId":10,"vehicleId":20,"startLocation":"Shanghai",
+                                 "endLocation":"Beijing"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.message").value("ownerId must not be null"));
+    }
+
+    @Test
     void createRejectsBlankStartLocation() throws Exception {
         mockMvc.perform(post("/api/v1/transport-tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"cargoId":10,"vehicleId":20,"startLocation":" ",
+                                {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":" ",
                                  "endLocation":"Beijing"}
                                 """))
                 .andExpect(status().isBadRequest())
@@ -264,7 +277,7 @@ class TransportTaskControllerTest {
 
     private String validCreateJson() {
         return """
-                {"cargoId":10,"vehicleId":20,"startLocation":"Shanghai",
+                {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
                  "endLocation":"Beijing",
                  "planStartTime":"2026-08-24T10:00:00+08:00",
                  "planEndTime":"2026-08-24T15:00:00+08:00"}

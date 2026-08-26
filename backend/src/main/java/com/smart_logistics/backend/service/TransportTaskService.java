@@ -10,6 +10,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
+import com.smart_logistics.backend.entity.Owner;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.CargoStatus;
@@ -18,6 +19,7 @@ import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import com.smart_logistics.backend.security.CurrentUserService;
 import org.springframework.dao.DuplicateKeyException;
@@ -39,6 +41,7 @@ public class TransportTaskService {
     private static final DateTimeFormatter TASK_NO_TIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     private final TransportTaskMapper transportTaskMapper;
+    private final OwnerMapper ownerMapper;
     private final CargoService cargoService;
     private final VehicleService vehicleService;
     private final TransportTaskAvailabilityService availabilityService;
@@ -47,6 +50,7 @@ public class TransportTaskService {
     private final TransportTaskStatusRecordService statusRecordService;
 
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
+                                OwnerMapper ownerMapper,
                                 CargoService cargoService,
                                 VehicleService vehicleService,
                                 TransportTaskAvailabilityService availabilityService,
@@ -54,6 +58,7 @@ public class TransportTaskService {
                                 CurrentUserService currentUserService,
                                 TransportTaskStatusRecordService statusRecordService) {
         this.transportTaskMapper = transportTaskMapper;
+        this.ownerMapper = ownerMapper;
         this.cargoService = cargoService;
         this.vehicleService = vehicleService;
         this.availabilityService = availabilityService;
@@ -65,9 +70,11 @@ public class TransportTaskService {
     @Transactional
     public TransportTaskResponse createTransportTask(TransportTaskCreateRequest request) {
         validatePlanTimes(request);
-        Cargo cargo = cargoService.getCargoForTransport(request.getCargoId());
+        requireOwner(request.getOwnerId());
+        Cargo cargo = cargoService.getCargoForTransportForUpdate(request.getCargoId());
         Vehicle vehicle = vehicleService.getVehicleForTransport(request.getVehicleId());
         requireCargoStatus(cargo, CargoStatus.WAITING);
+        requireCompatibleOwner(cargo, request.getOwnerId());
         requireVehicleStatus(vehicle, VehicleStatus.IDLE);
         availabilityService.ensureCargoAvailable(request.getCargoId());
         availabilityService.ensureVehicleAvailable(request.getVehicleId());
@@ -75,6 +82,7 @@ public class TransportTaskService {
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         String taskNo = generateTaskNo(now);
         ensureTaskNoAvailable(taskNo);
+        cargoService.bindOwnerForTransport(cargo, request.getOwnerId());
 
         TransportTask task = new TransportTask();
         task.setTaskNo(taskNo);
@@ -227,6 +235,21 @@ public class TransportTaskService {
 
     private void validatePlanTimes(TransportTaskCreateRequest request) {
         validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
+    }
+
+    private Owner requireOwner(Long ownerId) {
+        Owner owner = ownerMapper.selectById(ownerId);
+        if (owner == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "owner not found");
+        }
+        return owner;
+    }
+
+    private void requireCompatibleOwner(Cargo cargo, Long ownerId) {
+        if (cargo.getOwnerId() != null && !cargo.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                    "cargo is already assigned to another owner");
+        }
     }
 
     private void validatePlanTimes(OffsetDateTime planStartTime, OffsetDateTime planEndTime) {

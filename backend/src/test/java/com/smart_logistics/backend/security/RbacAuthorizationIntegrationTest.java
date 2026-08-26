@@ -279,7 +279,8 @@ class RbacAuthorizationIntegrationTest {
     }
 
     private String taskJson() {
-        return "{\"cargoId\":10,\"vehicleId\":20,\"startLocation\":\"A\",\"endLocation\":\"B\"}";
+        return "{\"cargoId\":10,\"ownerId\":3,\"vehicleId\":20,"
+                + "\"startLocation\":\"A\",\"endLocation\":\"B\"}";
     }
 
     private String taskBaseUpdateJson() {

@@ -95,7 +95,7 @@ $env:JWT_EXPIRES_SECONDS="28800"
 
 ### 7. Cargo 测试数据依赖
 
-`Cargo.ownerId` 对应数据库中的 `owner.id`，数据关系为：
+`Cargo.ownerId` 可为空；非空时对应数据库中的 `owner.id`，数据关系为：
 
 ```text
 user
@@ -105,7 +105,9 @@ owner
 cargo
 ```
 
-手动测试 Cargo 创建接口前，应先确认本地数据库中存在真实、合法的 `owner.id`。不要假定或硬编码固定的 Owner ID，不同成员数据库中的实际 ID 可能不同。
+入库调用 `POST /api/v1/cargos` 时可以省略 `ownerId`，Cargo 将作为未分配货主的 `WAITING` 库存保存。创建运输任务时，`POST /api/v1/transport-tasks` 必须携带合法 `ownerId`；后端会在同一事务中将未分配 Cargo 绑定给该 Owner 并创建任务。已有非空且不同的 `ownerId` 不会被覆盖。
+
+手动测试兼容旧调用或创建运输任务前，应先确认本地数据库中存在真实、合法的 `owner.id`。不要假定或硬编码固定的 Owner ID，不同成员数据库中的实际 ID 可能不同。
 
 ### 8. 确认 8080 端口
 
