@@ -111,20 +111,12 @@ public class GpsInfluxService {
      */
     public List<GpsSample> querySamples(Collection<String> vehicleIds,
                                         Instant start, Instant stop) {
-        List<String> normalizedIds = vehicleIds.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(value -> !value.isEmpty())
-                .distinct()
-                .toList();
+        List<String> normalizedIds = normalizeVehicleIds(vehicleIds);
         if (normalizedIds.isEmpty()) {
             return List.of();
         }
-        if (start == null || stop == null || !start.isBefore(stop)) {
-            throw new IllegalArgumentException("GPS query range must have start before stop");
-        }
+        validateRange(start, stop);
 
-        QueryApi queryApi = influxDBClient.getQueryApi();
         String vehicleSet = normalizedIds.stream()
                 .map(this::fluxString)
                 .collect(Collectors.joining(","));
@@ -140,7 +132,43 @@ public class GpsInfluxService {
                 fluxString(bucket), fluxString(start.toString()), fluxString(stop.toString()),
                 fluxString(MEASUREMENT), vehicleSet
         );
+        return executeQuery(flux);
+    }
 
+    /**
+     * Returns at most the latest value for each vehicle and GPS field within the range. The
+     * server-side reduction preserves the full lookback window without transferring its entire
+     * high-frequency time series to the application.
+     */
+    public List<GpsSample> queryLatestSamples(Collection<String> vehicleIds,
+                                              Instant start, Instant stop) {
+        List<String> normalizedIds = normalizeVehicleIds(vehicleIds);
+        if (normalizedIds.isEmpty()) {
+            return List.of();
+        }
+        validateRange(start, stop);
+
+        String vehicleSet = normalizedIds.stream()
+                .map(this::fluxString)
+                .collect(Collectors.joining(","));
+        String flux = String.format("""
+                from(bucket: %s)
+                |> range(start: time(v: %s), stop: time(v: %s))
+                |> filter(fn: (r) => r._measurement == %s)
+                |> filter(fn: (r) => contains(value: r.vehicle_id, set: [%s]))
+                |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
+                |> group(columns: ["vehicle_id", "_field"])
+                |> last()
+                |> keep(columns: ["_time","_field","_value","vehicle_id"])
+                """,
+                fluxString(bucket), fluxString(start.toString()), fluxString(stop.toString()),
+                fluxString(MEASUREMENT), vehicleSet
+        );
+        return executeQuery(flux);
+    }
+
+    private List<GpsSample> executeQuery(String flux) {
+        QueryApi queryApi = influxDBClient.getQueryApi();
         List<FluxTable> tables = queryApi.query(flux);
         List<GpsFieldRecord> rawRecords = new ArrayList<>();
         for (FluxTable table : tables) {
@@ -155,6 +183,21 @@ public class GpsInfluxService {
             }
         }
         return gpsSampleReconstructor.reconstruct(rawRecords);
+    }
+
+    private List<String> normalizeVehicleIds(Collection<String> vehicleIds) {
+        return vehicleIds.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    private void validateRange(Instant start, Instant stop) {
+        if (start == null || stop == null || !start.isBefore(stop)) {
+            throw new IllegalArgumentException("GPS query range must have start before stop");
+        }
     }
 
     /**

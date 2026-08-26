@@ -80,6 +80,45 @@ class GpsInfluxServiceTest {
     }
 
     @Test
+    void latestQueryReducesCanonicalFieldsPerVehicleOnInfluxServer() {
+        Instant collectedAt = Instant.parse("2026-08-26T06:00:00Z");
+        List<FluxRecord> records = List.of(
+                record("sim_001", "latitude", 29.610634, collectedAt),
+                record("sim_001", "longitude", 106.735012, collectedAt),
+                record("sim_001", "speed_kmh", 36.5, collectedAt),
+                record("sim_001", "heading", 92.0, collectedAt),
+                record("sim_002", "latitude", 29.620115, collectedAt),
+                record("sim_002", "longitude", 106.759396, collectedAt),
+                record("sim_002", "speed_kmh", 28.0, collectedAt),
+                record("sim_002", "heading", 120.0, collectedAt));
+        when(influxDBClient.getQueryApi()).thenReturn(queryApi);
+        when(queryApi.query(anyString())).thenReturn(List.of(table));
+        when(table.getRecords()).thenReturn(records);
+
+        List<GpsSample> samples = service.queryLatestSamples(
+                List.of("sim_001", "sim_002"),
+                collectedAt.minus(Duration.ofHours(24)), collectedAt.plusSeconds(1));
+
+        assertEquals(2, samples.size());
+        assertEquals(List.of("sim_001", "sim_002"),
+                samples.stream().map(GpsSample::vehicleId).toList());
+        assertEquals(106.735012, samples.getFirst().longitude());
+        assertEquals(29.610634, samples.getFirst().latitude());
+        assertEquals(36.5, samples.getFirst().speed());
+        assertEquals(92.0, samples.getFirst().direction());
+
+        ArgumentCaptor<String> fluxCaptor = ArgumentCaptor.forClass(String.class);
+        verify(queryApi).query(fluxCaptor.capture());
+        String flux = fluxCaptor.getValue();
+        assertTrue(flux.contains("r._measurement == \"vehicle_gps\""));
+        assertTrue(flux.contains("r.vehicle_id"));
+        assertTrue(flux.contains("\"sim_001\",\"sim_002\""));
+        assertTrue(flux.contains("|> group(columns: [\"vehicle_id\", \"_field\"])"));
+        assertTrue(flux.contains("|> last()"));
+        assertTrue(flux.contains("\"latitude\",\"longitude\",\"speed_kmh\",\"heading\""));
+    }
+
+    @Test
     void productionWriterUsesCanonicalMeasurementTagAndFields() {
         when(influxDBClient.getWriteApiBlocking()).thenReturn(writeApi);
 

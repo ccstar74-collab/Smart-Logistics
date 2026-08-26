@@ -12,6 +12,8 @@ import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -27,6 +29,8 @@ import java.util.Map;
 @Service
 public class VehicleLocationQueryService {
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(VehicleLocationQueryService.class);
 
     private final VehicleMapper vehicleMapper;
     private final TransportTaskMapper transportTaskMapper;
@@ -61,7 +65,7 @@ public class VehicleLocationQueryService {
         if (mappedVehicles.isEmpty()) return List.of();
 
         Instant now = Instant.now();
-        List<GpsSample> samples = queryRealtime(
+        List<GpsSample> samples = queryLatestRealtime(
                 mappedVehicles.stream().map(Vehicle::getSimCode).toList(),
                 now.minus(latestLookback), now);
         Map<String, GpsSample> latestBySimCode = new HashMap<>();
@@ -85,7 +89,7 @@ public class VehicleLocationQueryService {
             throw locationNotFound();
         }
         Instant now = Instant.now();
-        GpsSample latest = queryRealtime(List.of(vehicle.getSimCode()),
+        GpsSample latest = queryLatestRealtime(List.of(vehicle.getSimCode()),
                 now.minus(latestLookback), now).stream()
                 .max(java.util.Comparator.comparing(GpsSample::collectedAt))
                 .orElseThrow(this::locationNotFound);
@@ -120,9 +124,29 @@ public class VehicleLocationQueryService {
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
+            logProviderFailure("history", simCodes, start, end, exception);
             throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
                     "realtime location provider unavailable");
         }
+    }
+
+    private List<GpsSample> queryLatestRealtime(List<String> simCodes,
+                                                Instant start, Instant end) {
+        try {
+            return gpsInfluxService.queryLatestSamples(simCodes, start, end);
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            logProviderFailure("latest", simCodes, start, end, exception);
+            throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
+                    "realtime location provider unavailable");
+        }
+    }
+
+    private void logProviderFailure(String queryType, List<String> simCodes,
+                                    Instant start, Instant end, RuntimeException exception) {
+        LOGGER.error("Realtime GPS {} query failed simCodes={} start={} end={}",
+                queryType, simCodes, start, end, exception);
     }
 
     private Map<Long, Long> activeTaskIds(List<Long> vehicleIds) {
