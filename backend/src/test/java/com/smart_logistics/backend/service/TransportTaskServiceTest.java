@@ -486,6 +486,48 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void legacyUpdatePreservesCoordinatesWhenLocationsAreUnchanged() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setStartLongitude(106.501);
+        waiting.setStartLatitude(29.501);
+        waiting.setEndLongitude(106.601);
+        waiting.setEndLatitude(29.601);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setEndLocation(waiting.getEndLocation());
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertEquals(106.501, response.getStartLongitude());
+        assertEquals(29.501, response.getStartLatitude());
+        assertEquals(106.601, response.getEndLongitude());
+        assertEquals(29.601, response.getEndLatitude());
+    }
+
+    @Test
+    void legacyUpdateClearsCoordinatesWhenLocationTextChanges() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setEndLongitude(106.601);
+        waiting.setEndLatitude(29.601);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setEndLocation("Changed Destination");
+        request.setPlanStartTime(OffsetDateTime.parse("2026-08-25T10:00:00+08:00"));
+        request.setPlanEndTime(OffsetDateTime.parse("2026-08-25T15:00:00+08:00"));
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertNull(response.getEndLongitude());
+        assertNull(response.getEndLatitude());
+    }
+
+    @Test
     void baseUpdateRejectsTransportingTask() {
         when(transportTaskMapper.selectById(1L)).thenReturn(
                 task(1L, TransportTaskStatus.TRANSPORTING));

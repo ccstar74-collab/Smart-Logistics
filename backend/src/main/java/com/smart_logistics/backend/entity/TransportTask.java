@@ -15,13 +15,18 @@ public class TransportTask {
     private Long cargoId;
     private Long vehicleId;
     private String startLocation;
+    private Double startLongitude;
+    private Double startLatitude;
     private String endLocation;
+    private Double endLongitude;
+    private Double endLatitude;
     private LocalDateTime planStartTime;
     private LocalDateTime planEndTime;
     private LocalDateTime actualStartTime;
     private LocalDateTime actualEndTime;
     private String status;
     private LocalDateTime estimatedArrivalTime;
+    private LocalDateTime etaCalculatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -35,8 +40,16 @@ public class TransportTask {
     public void setVehicleId(Long vehicleId) { this.vehicleId = vehicleId; }
     public String getStartLocation() { return startLocation; }
     public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
+    public Double getStartLongitude() { return startLongitude; }
+    public void setStartLongitude(Double startLongitude) { this.startLongitude = startLongitude; }
+    public Double getStartLatitude() { return startLatitude; }
+    public void setStartLatitude(Double startLatitude) { this.startLatitude = startLatitude; }
     public String getEndLocation() { return endLocation; }
     public void setEndLocation(String endLocation) { this.endLocation = endLocation; }
+    public Double getEndLongitude() { return endLongitude; }
+    public void setEndLongitude(Double endLongitude) { this.endLongitude = endLongitude; }
+    public Double getEndLatitude() { return endLatitude; }
+    public void setEndLatitude(Double endLatitude) { this.endLatitude = endLatitude; }
     public LocalDateTime getPlanStartTime() { return planStartTime; }
     public void setPlanStartTime(LocalDateTime planStartTime) { this.planStartTime = planStartTime; }
     public LocalDateTime getPlanEndTime() { return planEndTime; }
@@ -49,6 +62,8 @@ public class TransportTask {
     public void setStatus(String status) { this.status = status; }
     public LocalDateTime getEstimatedArrivalTime() { return estimatedArrivalTime; }
     public void setEstimatedArrivalTime(LocalDateTime estimatedArrivalTime) { this.estimatedArrivalTime = estimatedArrivalTime; }
+    public LocalDateTime getEtaCalculatedAt() { return etaCalculatedAt; }
+    public void setEtaCalculatedAt(LocalDateTime etaCalculatedAt) { this.etaCalculatedAt = etaCalculatedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
