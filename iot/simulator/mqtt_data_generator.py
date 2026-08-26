@@ -241,6 +241,9 @@ def main():
     ]
     vehicles_by_id = {vehicle["vehicle_id"]: vehicle for vehicle in vehicles}
     connected = threading.Event()
+    ever_connected = threading.Event()
+    online_status_pending = threading.Event()
+    shutting_down = threading.Event()
     command_queue = queue.Queue()
     route_result_queue = queue.Queue()
     command_topic = f"{args.prefix}/vehicle/+/command"
@@ -250,23 +253,41 @@ def main():
     )
     if args.username:
         client.username_pw_set(args.username, args.password)
+    client.reconnect_delay_set(min_delay=1, max_delay=30)
 
     def on_connect(client_obj, userdata, flags, reason_code, properties):
         if reason_code == 0:
             client_obj.subscribe(command_topic, qos=args.qos)
             connected.set()
+            online_status_pending.set()
+            if ever_connected.is_set():
+                print("[MQTT][RECONNECTED] 已重新连接 Broker，将恢复车辆在线状态和 GPS 发布")
+            else:
+                print(f"[MQTT][CONNECTED] 已连接 {args.host}:{args.port}")
+                ever_connected.set()
         else:
+            connected.clear()
             print(f"[错误] Broker 拒绝连接：{reason_code}")
+
+    def on_disconnect(client_obj, userdata, disconnect_flags, reason_code, properties):
+        connected.clear()
+        if not shutting_down.is_set():
+            print(
+                f"[MQTT][DISCONNECTED] 连接已断开：{reason_code}；暂停生成新批次，"
+                "后台将按 1~30 秒退避自动重连"
+            )
 
     def on_message(client_obj, userdata, message):
         # MQTT 网络线程只负责入队；路线加载和车辆状态更新由主循环执行。
         command_queue.put((message.topic, bytes(message.payload)))
 
     client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
     client.on_message = on_message
     client.connect(args.host, args.port, keepalive=30)
     client.loop_start()
     if not connected.wait(timeout=5):
+        shutting_down.set()
         client.disconnect()
         client.loop_stop()
         raise TimeoutError("等待 MQTT CONNACK 超时")
@@ -285,16 +306,42 @@ def main():
     processed_commands = {}
     active_commands = set()
 
+    def wait_for_connection():
+        if connected.is_set():
+            return True
+        waiting_started = time.monotonic()
+        last_notice_second = 0
+        print("[MQTT][RECONNECTING] 等待连接恢复，车辆位置保持不变……")
+        while not connected.wait(timeout=1):
+            if shutting_down.is_set():
+                return False
+            waited = int(time.monotonic() - waiting_started)
+            if waited >= 10 and waited // 10 > last_notice_second // 10:
+                last_notice_second = waited
+                print(f"[MQTT][RECONNECTING] 已等待 {waited} 秒，仍在自动重连……")
+        waited = time.monotonic() - waiting_started
+        print(f"[MQTT][RESUMED] 连接已恢复，等待 {waited:.1f} 秒后继续原轨迹")
+        return True
+
     def publish(topic, payload, retain=False):
         nonlocal published, last_output_at
         full_topic = f"{args.prefix}/{topic}"
-        info = client.publish(
-            full_topic,
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            qos=args.qos,
-            retain=retain,
-        )
-        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        encoded_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        while True:
+            if not wait_for_connection():
+                raise RuntimeError("程序正在关闭，停止等待 MQTT 重连")
+            info = client.publish(
+                full_topic,
+                encoded_payload,
+                qos=args.qos,
+                retain=retain,
+            )
+            if info.rc == mqtt.MQTT_ERR_SUCCESS:
+                break
+            if info.rc == mqtt.MQTT_ERR_NO_CONN:
+                connected.clear()
+                print(f"[MQTT][RETRY] 发布时发现连接不可用，将重试同一消息：{full_topic}")
+                continue
             raise RuntimeError(f"发布失败：topic={full_topic}, rc={info.rc}")
         published += 1
         if output_stream is not None:
@@ -523,6 +570,7 @@ def main():
                 return
             apply_route_result(*result)
 
+    online_status_pending.clear()
     for vehicle in vehicles:
         publish_status(vehicle, True)
 
@@ -535,6 +583,13 @@ def main():
     print(f"[订阅] {command_topic}（接收路线调整指令）")
     try:
         while args.duration == 0 or time.monotonic() - started < args.duration:
+            if not wait_for_connection():
+                break
+            if online_status_pending.is_set():
+                online_status_pending.clear()
+                print("[MQTT][ONLINE_RESTORED] 正在恢复全部车辆在线状态……")
+                for vehicle in vehicles:
+                    publish_status(vehicle, True)
             batch_started = time.monotonic()
             batch += 1
             drain_commands()
@@ -589,7 +644,16 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        offline_infos = [publish_status(vehicle, False) for vehicle in vehicles]
+        shutting_down.set()
+        offline_infos = []
+        if connected.is_set():
+            for vehicle in vehicles:
+                try:
+                    offline_infos.append(publish_status(vehicle, False))
+                except RuntimeError:
+                    break
+        else:
+            print("[MQTT][SHUTDOWN] 退出时连接不可用，跳过离线状态发布")
         for info in offline_infos:
             try:
                 info.wait_for_publish(timeout=2)

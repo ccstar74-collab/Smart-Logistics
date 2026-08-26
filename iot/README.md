@@ -73,6 +73,29 @@ python .\iot\simulator\mqtt_data_generator.py --vehicles 1 --duration 10 --demo-
 
 `--alert-mode raw` 只制造可由GPS推断的停车/偏航，不直接发告警；异常开箱没有GPS原始特征，必须使用默认的 `precomputed` 模式发布告警消息。
 
+## 长时间轨迹与断线恢复
+
+20辆车沿真实道路连续运行1小时，并保存同一份JSONL：
+
+```powershell
+python .\iot\simulator\mqtt_data_generator.py `
+  --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
+  --vehicles 20 --duration 3600 --interval 1 `
+  --road-route "106.731,29.613;106.790,29.615" `
+  --output .\iot\samples\long_track_20v_1h.jsonl `
+  --seed 2026
+```
+
+使用 `--duration 0` 可一直运行到按下 `Ctrl+C`。网络中断后，发生器会：
+
+1. 停止生成新批次，保持当前车辆位置；
+2. 按1～30秒退避自动重连MQTT；
+3. 重试中断时尚未成功提交的消息；
+4. 重新发布全部车辆在线状态；
+5. 从原位置继续生成GPS，不会因断线时间产生轨迹跳跃。
+
+日志中的 `[DISCONNECTED]`、`[RECONNECTING]`、`[RECONNECTED]`、`[RESUMED]` 和 `[ONLINE_RESTORED]` 可用于判断恢复进度。
+
 ## 样本回放与验收
 
 回放异常开箱样本：

@@ -61,6 +61,18 @@ python -m unittest discover -s .\iot\tests -v
 
 ## 5. 云端与真实设备证据
 
+### 5.1 MQTT断线恢复测试
+
+使用独立Mosquitto测试端口运行12秒发生器，在第3秒主动停止Broker，等待3秒后重新启动。测试结果：
+
+- 识别到 `[DISCONNECTED]`；
+- 进入 `[RECONNECTING]`，断线期间不生成新位置；
+- Broker恢复后出现 `[RECONNECTED]` 和 `[RESUMED]`；
+- 全部车辆在线状态通过 `[ONLINE_RESTORED]` 重新发布；
+- 发生器退出码为0，恢复后继续发布GPS，未出现二次Traceback。
+
+### 5.2 已有云端证据
+
 - `iot/evidence/cloud_alert_probe.jsonl`：云端MQTT正常/异常消息接收记录；
 - `iot/evidence/real_001_outdoor_capture.jsonl`：E53_ST1真实GPS室外采集记录；
 - 模拟车辆使用 `sim_000...`，真实设备使用 `real_001...`；
