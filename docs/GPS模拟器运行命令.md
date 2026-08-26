@@ -235,6 +235,7 @@ python .\tools\mqtt_data_generator.py `
 | 参数 | 示例 | 说明 |
 |---|---|---|
 | `--vehicles` | `20` | 模拟车辆数量 |
+| `--vehicle-start-index` | `19` | 首辆模拟车编号；配合 `--vehicles 1` 时只发布 `sim_019` |
 | `--duration` | `0` | 运行秒数，`0` 表示持续运行 |
 | `--interval` | `1` | GPS 上报间隔，单位为秒 |
 | `--origin` | `106.55,29.56` | 普通模式的模拟中心点，经度在前 |
@@ -468,7 +469,13 @@ $route.data |
 
 $route.data.points |
     Select-Object -First 10 |
-    Format-Table longitude, latitude
+    ForEach-Object {
+        [pscustomobject]@{
+            longitude = $_[0]
+            latitude  = $_[1]
+        }
+    } |
+    Format-Table -AutoSize
 ```
 
 成功响应必须满足：
@@ -485,7 +492,7 @@ points至少包含两个路线点
 
 如果返回 `404`，通常表示新版接口尚未部署或任务不存在。如果返回 `409`，通常表示任务坐标不完整或绑定车辆没有配置 `sim_code`。如果返回 `403`，需要让后端检查 `DISPATCHER` 对该任务的访问权限。
 
-### 6. 自动计算车辆数量并启动路线模拟器
+### 6. 自动计算车辆编号并只启动任务绑定车辆
 
 规划路线查询成功后执行：
 
@@ -493,17 +500,13 @@ points至少包含两个路线点
 $vehicleDeviceCode = $route.data.vehicleDeviceCode
 
 if ($vehicleDeviceCode -match '^sim_(\d+)$') {
-    $vehicleCount = [int]$Matches[1] + 1
+    $vehicleStartIndex = [int]$Matches[1]
 } else {
     throw "车辆设备编号不是sim_数字格式：$vehicleDeviceCode"
 }
 
-if ($vehicleCount -lt 1) {
-    $vehicleCount = 1
-}
-
 Write-Host "任务绑定车辆：$vehicleDeviceCode" -ForegroundColor Cyan
-Write-Host "模拟车辆数量：$vehicleCount" -ForegroundColor Cyan
+Write-Host "模拟车辆起始编号：$vehicleStartIndex" -ForegroundColor Cyan
 
 Set-Location -LiteralPath `
     'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
@@ -512,10 +515,12 @@ python .\tools\mqtt_data_generator.py `
     --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
     --business-api-base $apiBase `
     --task-id $taskId `
-    --vehicles $vehicleCount `
+    --vehicles 1 `
+    --vehicle-start-index $vehicleStartIndex `
     --duration 0 `
     --interval 1 `
-    --anomaly-rate 0
+    --anomaly-rate 0 `
+    --output ".\${vehicleDeviceCode}_task${taskId}_track.jsonl"
 ```
 
 成功时会出现：
@@ -524,7 +529,7 @@ python .\tools\mqtt_data_generator.py `
 [ROUTE][LOADED] task_id=...，vehicle=sim_...，generated_at=...，points=...
 ```
 
-模拟器会读取ETA规划路线、把GCJ02转换为WGS84、沿路线发布MQTT GPS，并在到达终点后停止。按 `Ctrl+C` 结束运行。
+模拟器只会启动任务绑定的车辆，读取 ETA 规划路线、把 GCJ02 转换为 WGS84、沿路线发布 MQTT GPS，并在到达终点后停止。按 `Ctrl+C` 结束运行。
 
 ### 7. 当前没有任务时仍可运行普通模拟
 
@@ -543,3 +548,111 @@ python .\tools\mqtt_data_generator.py `
 ```
 
 普通模式可以继续测试 MQTT、InfluxDB、车辆位置、WebSocket 和 Alarm，但它不会关联具体 TransportTask，也不会验证任务规划路线。
+
+## 十三、本次任务 9 / sim_019 实测命令
+
+本次联调确认：任务 `9` 绑定 `vehicleId=23`、`vehicle.sim_code=sim_019`，高德规划路线为 GCJ02，共 343 个点。模拟器把路线转换为 WGS84 后发布到 `iot/carla/vehicle/sim_019/gps`。
+
+下面整段可以复制到一个新的 PowerShell 窗口执行：
+
+```powershell
+Set-Location -LiteralPath 'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
+
+$apiBase = 'http://111.170.148.177:58080'
+$taskId = 9
+
+$loginBody = @{
+    username = 'eta_service'
+    password = 'shenyuxueshenyuxue'
+} | ConvertTo-Json
+
+$login = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$apiBase/api/v1/auth/login" `
+    -ContentType 'application/json' `
+    -Body $loginBody
+
+$env:SMART_LOGISTICS_API_TOKEN = $login.data.accessToken
+if ([string]::IsNullOrWhiteSpace($env:SMART_LOGISTICS_API_TOKEN)) {
+    throw '登录失败：响应中没有 data.accessToken'
+}
+
+$headers = @{ Authorization = "Bearer $env:SMART_LOGISTICS_API_TOKEN" }
+
+$task = Invoke-RestMethod `
+    -Method Get `
+    -Uri "$apiBase/api/v1/transport-tasks/$taskId" `
+    -Headers $headers
+
+$route = Invoke-RestMethod `
+    -Method Get `
+    -Uri "$apiBase/api/v1/transport-tasks/$taskId/planned-route" `
+    -Headers $headers
+
+$vehicleDeviceCode = $route.data.vehicleDeviceCode
+if ($vehicleDeviceCode -notmatch '^sim_(\d+)$') {
+    throw "车辆设备编号不是sim_数字格式：$vehicleDeviceCode"
+}
+$vehicleStartIndex = [int]$Matches[1]
+
+[pscustomobject]@{
+    taskId            = $task.data.id
+    taskNo            = $task.data.taskNo
+    status            = $task.data.status
+    vehicleDeviceCode = $vehicleDeviceCode
+    provider          = $route.data.provider
+    coordinateSystem  = $route.data.coordinateSystem
+    routePointCount   = $route.data.points.Count
+} | Format-List
+
+python -u .\tools\mqtt_data_generator.py `
+    --credentials "$env:USERPROFILE\.smart-logistics\mqtt_cloud.env" `
+    --business-api-base $apiBase `
+    --task-id $taskId `
+    --vehicles 1 `
+    --vehicle-start-index $vehicleStartIndex `
+    --duration 0 `
+    --interval 1 `
+    --anomaly-rate 0 `
+    --output ".\${vehicleDeviceCode}_task${taskId}_track.jsonl"
+```
+
+成功时会先看到：
+
+```text
+[ROUTE][LOADED] task_id=9，vehicle=sim_019，...，points=343
+[批次 1] 已发布 1 条 GPS，累计告警 0
+```
+
+验证业务后端正在收到变化的位置：
+
+```powershell
+Invoke-RestMethod `
+    -Method Get `
+    -Uri "$apiBase/api/v1/vehicles/23/location/latest" `
+    -Headers $headers |
+    Select-Object -ExpandProperty data |
+    Format-List
+```
+
+验证 ETA 是否每秒回写：
+
+```powershell
+while ($true) {
+    $currentTask = Invoke-RestMethod `
+        -Method Get `
+        -Uri "$apiBase/api/v1/transport-tasks/$taskId" `
+        -Headers $headers
+
+    [pscustomobject]@{
+        checkedAt            = Get-Date -Format 'HH:mm:ss'
+        status               = $currentTask.data.status
+        estimatedArrivalTime = $currentTask.data.estimatedArrivalTime
+        etaCalculatedAt      = $currentTask.data.etaCalculatedAt
+    } | Format-Table -AutoSize
+
+    Start-Sleep -Seconds 1
+}
+```
+
+按 `Ctrl+C` 停止模拟器或查询循环。不要同时运行多个 `sim_019` 发布器，否则相同 MQTT 主题会混入多条轨迹。
