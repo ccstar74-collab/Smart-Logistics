@@ -22,5 +22,7 @@ public class VehicleTraceWsDTO {
 
     // 采集时间，OffsetDateTime，前端需要
     private OffsetDateTime collectedAt;
-}
 
+    // sim卡编号，输出驼峰 simCode，不要加任何JsonProperty注解
+    private String simCode;
+}

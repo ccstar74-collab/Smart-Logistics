@@ -18,11 +18,14 @@ public class VehicleResponse {
     private final BigDecimal lastLongitude;
     private final BigDecimal lastLatitude;
     private final OffsetDateTime lastUpdatedAt;
+    //新增simCode，final，和其他字段风格保持统一
+    private final String simCode;
 
     public VehicleResponse(Long id, String plateNumber, String type, BigDecimal capacity,
                            VehicleStatus status, Long driverId, OffsetDateTime createdAt,
                            OffsetDateTime updatedAt, BigDecimal lastLongitude,
-                           BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt) {
+                           BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt,
+                           String simCode) { // 构造函数末尾追加 simCode
         this.id = id;
         this.plateNumber = plateNumber;
         this.type = type;
@@ -34,6 +37,7 @@ public class VehicleResponse {
         this.lastLongitude = lastLongitude;
         this.lastLatitude = lastLatitude;
         this.lastUpdatedAt = lastUpdatedAt;
+        this.simCode = simCode; //给新增字段赋值
     }
 
     public Long getId() {
@@ -78,5 +82,10 @@ public class VehicleResponse {
 
     public OffsetDateTime getLastUpdatedAt() {
         return lastUpdatedAt;
+    }
+
+    //新增getter，没有setter（本类是不可变对象）
+    public String getSimCode() {
+        return simCode;
     }
 }

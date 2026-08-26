@@ -1,5 +1,6 @@
 package com.smart_logistics.backend.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -21,6 +22,10 @@ public class VehicleCreateRequest {
     private BigDecimal capacity;
 
     private Long driverId;
+
+    // ✅注解直接写在唯一的simCode字段上，不要复制一份变量
+    @JsonProperty(value = "sim_code", access = JsonProperty.Access.WRITE_ONLY)
+    private String simCode;
 
     public String getPlateNumber() {
         return plateNumber;
@@ -52,5 +57,13 @@ public class VehicleCreateRequest {
 
     public void setDriverId(Long driverId) {
         this.driverId = driverId;
+    }
+
+    public String getSimCode() {
+        return simCode;
+    }
+
+    public void setSimCode(String simCode) {
+        this.simCode = simCode;
     }
 }

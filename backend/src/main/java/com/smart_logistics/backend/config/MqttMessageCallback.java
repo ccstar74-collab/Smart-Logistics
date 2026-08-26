@@ -6,7 +6,10 @@ import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.client.write.Point;
 import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
+import com.smart_logistics.backend.entity.Vehicle;
+import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
+import com.smart_logistics.backend.service.VehicleService;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -32,9 +35,11 @@ public class MqttMessageCallback implements MqttCallback {
     @Autowired
     private GpsWebSocketHandler gpsWebSocketHandler;
 
-    // ========= 这里就是 WriteApi 注入位置 =========
     @Autowired
     private WriteApi writeApi;
+
+    @Autowired
+    private VehicleService vehicleService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -128,7 +133,6 @@ public class MqttMessageCallback implements MqttCallback {
             internalDto.setHeading(heading);
             internalDto.setTimestamp(ts);
 
-            // ========= 这里就是 InfluxDB Point 写入代码 =========
             Point point = Point.measurement("vehicle_gps")
                     .addTag("vehicle_id", vehicleId)
                     .addField("lat", lat)
@@ -138,7 +142,6 @@ public class MqttMessageCallback implements MqttCallback {
                     .time(Instant.ofEpochMilli(ts), WritePrecision.MS);
             writeApi.writePoint(point);
 
-            // 转换WebSocket对外输出DTO
             VehicleTraceWsDTO outDto = new VehicleTraceWsDTO();
             outDto.setVehicleId(vehicleId);
             outDto.setLatitude(internalDto.getLat());
@@ -147,6 +150,16 @@ public class MqttMessageCallback implements MqttCallback {
             outDto.setDirection(internalDto.getHeading());
             OffsetDateTime collectedAt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(ts), ZoneId.systemDefault());
             outDto.setCollectedAt(collectedAt);
+
+            // ========= 新增：查询MySQL获取simCode =========
+            try {
+                Long vidLong = Long.parseLong(vehicleId);
+                Vehicle vehicle = vehicleService.getVehicleForTransport(vidLong);
+                outDto.setSimCode(vehicle.getSimCode());
+            } catch (NumberFormatException | BusinessException e) {
+                log.warn("获取车辆simCode失败 vehicleId={}", vehicleId);
+                outDto.setSimCode(null);
+            }
 
             gpsWebSocketHandler.broadcastGps(outDto);
 

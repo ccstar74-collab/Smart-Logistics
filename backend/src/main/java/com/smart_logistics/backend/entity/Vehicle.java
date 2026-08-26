@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
+import com.baomidou.mybatisplus.annotation.TableField;
 @TableName("vehicle")
 public class Vehicle {
 
@@ -23,6 +23,8 @@ public class Vehicle {
     private BigDecimal lastLatitude;
     private LocalDateTime lastUpdatedAt;
     // =====新增simCode字段=====
+    // 显式绑定数据库 sim_code 字段，Java属性驼峰 simCode
+    @TableField("sim_code")
     private String simCode;
     public Long getId() {
         return id;

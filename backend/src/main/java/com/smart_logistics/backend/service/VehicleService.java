@@ -34,7 +34,7 @@ public class VehicleService {
     }
 
     public PageResult<VehicleResponse> listVehicles(long page, long pageSize,
-                                                     String keyword, VehicleStatus status) {
+                                                    String keyword, VehicleStatus status) {
         LambdaQueryWrapper<Vehicle> query = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
             query.like(Vehicle::getPlateNumber, keyword.trim());
@@ -83,6 +83,7 @@ public class VehicleService {
         vehicle.setType(trimToNull(request.getType()));
         vehicle.setCapacity(request.getCapacity());
         vehicle.setDriverId(request.getDriverId());
+        vehicle.setSimCode(trimToNull(request.getSimCode()));
         vehicle.setStatus(VehicleStatus.IDLE.name());
         vehicle.setCreatedAt(now);
         vehicle.setUpdatedAt(now);
@@ -109,6 +110,7 @@ public class VehicleService {
                 .set(Vehicle::getType, trimToNull(request.getType()))
                 .set(Vehicle::getCapacity, request.getCapacity())
                 .set(Vehicle::getDriverId, request.getDriverId())
+                .set(Vehicle::getSimCode, trimToNull(request.getSimCode()))
                 .set(Vehicle::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
 
         try {
@@ -184,7 +186,8 @@ public class VehicleService {
                 toOffsetDateTime(vehicle.getUpdatedAt()),
                 vehicle.getLastLongitude(),
                 vehicle.getLastLatitude(),
-                toOffsetDateTime(vehicle.getLastUpdatedAt())
+                toOffsetDateTime(vehicle.getLastUpdatedAt()),
+                vehicle.getSimCode()
         );
     }
 
