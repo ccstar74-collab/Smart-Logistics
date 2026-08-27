@@ -52,10 +52,11 @@ public class EtaCalculationService {
             GpsInfluxService gpsInfluxService,
             EtaPlannedRouteService plannedRouteService,
             GpsWebSocketHandler webSocketHandler,
-            @Value("${app.eta.gps-max-age:PT2M}") Duration gpsMaxAge,
-            @Value("${app.eta.speed-history-window:PT10M}") Duration speedHistoryWindow,
-            @Value("${app.eta.min-change:PT0S}") Duration minEtaChange,
-            @Value("${app.eta.force-persist-interval:PT1S}") Duration forcePersistInterval) {
+            // 默认值唯一配置源为application.yml，此处不再写fallback，避免多处硬编码不一致
+            @Value("${app.eta.gps-max-age}") Duration gpsMaxAge,
+            @Value("${app.eta.speed-history-window}") Duration speedHistoryWindow,
+            @Value("${app.eta.min-change}") Duration minEtaChange,
+            @Value("${app.eta.force-persist-interval}") Duration forcePersistInterval) {
         this(transportTaskMapper, vehicleMapper, gpsInfluxService, plannedRouteService,
                 new RouteProgressProjector(), webSocketHandler, gpsMaxAge,
                 speedHistoryWindow, minEtaChange, forcePersistInterval, Clock.systemUTC());

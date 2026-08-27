@@ -1,10 +1,7 @@
 package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.dto.VehicleTracePointDTO;
-import com.smart_logistics.backend.dto.response.SimGpsPointDTO;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
-import com.smart_logistics.backend.entity.Vehicle;
-import com.smart_logistics.backend.service.VehicleService;
 import com.smart_logistics.backend.service.VehicleTraceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -21,9 +18,6 @@ public class VehicleTraceController {
 
     @Autowired
     private VehicleTraceService vehicleTraceService;
-
-    @Autowired
-    private VehicleService vehicleService;
 
     private static final ZoneId SHANGHAI_ZONE = ZoneId.of("Asia/Shanghai");
 
@@ -129,32 +123,5 @@ public class VehicleTraceController {
             dto.setCollectedAt(OffsetDateTime.ofInstant(Instant.ofEpochMilli(inner.getTimestamp()), SHANGHAI_ZONE));
         }
         return dto;
-    }
-
-    // ====================== 大屏全量车辆最新点位 ======================
-    @GetMapping("/locations/latest")
-    public List<VehicleTraceWsDTO> getAllVehiclesLatestLocation(){
-        List<SimGpsPointDTO> simPointList = vehicleTraceService.getAllVehicleLatestPoints();
-        List<VehicleTraceWsDTO> result = new ArrayList<>();
-
-        for (SimGpsPointDTO simPoint : simPointList) {
-            VehicleTraceWsDTO dto = new VehicleTraceWsDTO();
-            Vehicle vehicle = vehicleService.getVehicleBySimCode(simPoint.getSimCode());
-            if(vehicle != null){
-                dto.setVehicleId(vehicle.getId().toString());
-            }else{
-                dto.setVehicleId(null);
-            }
-
-            dto.setLatitude(simPoint.getLat());
-            dto.setLongitude(simPoint.getLon());
-            dto.setSpeed(simPoint.getSpeed());
-            dto.setDirection(simPoint.getHeading());
-            if(simPoint.getTimestamp() != null){
-                dto.setCollectedAt(OffsetDateTime.ofInstant(Instant.ofEpochMilli(simPoint.getTimestamp()), SHANGHAI_ZONE));
-            }
-            result.add(dto);
-        }
-        return result;
     }
 }

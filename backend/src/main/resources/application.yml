@@ -51,6 +51,6 @@ mqtt:
 
 influxdb2:
   url: ${INFLUXDB_URL:http://127.0.0.1:8086}
-  token: ${INFLUXDB_TOKEN:}
+  token: ${INFLUXDB_TOKEN:yzHnHcCg7ptAo8InfxQZ48bwJ8SRiBUU0x3hCTc-iEN3FM1joYgYobbNQF0e5lH1WiMIeX3hVAxGDmADy15u-w==}
   org: ${INFLUXDB_ORG:smart_logistics}
   bucket: ${INFLUXDB_BUCKET:gps_track}
