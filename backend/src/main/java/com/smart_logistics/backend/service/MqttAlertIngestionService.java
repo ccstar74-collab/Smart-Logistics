@@ -1,5 +1,6 @@
 package com.smart_logistics.backend.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
 import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.enums.AlarmLevel;
@@ -32,6 +33,9 @@ public class MqttAlertIngestionService {
         DUPLICATE
     }
 
+    public record AlarmIngestionResult(Long alarmId, boolean created) {
+    }
+
     private static final ZoneId DATABASE_TIME_ZONE = ZoneId.of("Asia/Shanghai");
     private static final Pattern DEVICE_CODE_PATTERN =
             Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
@@ -51,10 +55,23 @@ public class MqttAlertIngestionService {
 
     @Transactional
     public IngestionResult ingest(MqttAlertPayload payload) {
+        return toLegacyResult(ingestWithIdentity(payload, null));
+    }
+
+    @Transactional
+    public IngestionResult ingest(MqttAlertPayload payload, Long taskId) {
+        return toLegacyResult(ingestWithIdentity(payload, taskId));
+    }
+
+    @Transactional
+    public AlarmIngestionResult ingestWithIdentity(MqttAlertPayload payload, Long taskId) {
         ValidatedAlert validated = validate(payload);
+        if (taskId != null && taskId <= 0) {
+            throw new IllegalArgumentException("invalid alert task_id");
+        }
 
         Alarm alarm = new Alarm();
-        alarm.setTaskId(null);
+        alarm.setTaskId(taskId);
         alarm.setDeviceCode(payload.vehicleId());
         alarm.setAlarmType(validated.alarmType().name());
         alarm.setLevel(levelFor(validated.alarmType()).name());
@@ -72,10 +89,21 @@ public class MqttAlertIngestionService {
                 throw new DataAccessResourceFailureException(
                         "failed to insert MQTT alert");
             }
-            return IngestionResult.STORED;
+            return new AlarmIngestionResult(alarm.getId(), true);
         } catch (DuplicateKeyException exception) {
-            return IngestionResult.DUPLICATE;
+            Alarm existing = alarmMapper.selectOne(new LambdaQueryWrapper<Alarm>()
+                    .eq(Alarm::getEventKey, alarm.getEventKey())
+                    .last("LIMIT 1"));
+            if (existing == null || existing.getId() == null) {
+                throw new DataAccessResourceFailureException(
+                        "duplicate alert exists but its identity is unavailable", exception);
+            }
+            return new AlarmIngestionResult(existing.getId(), false);
         }
+    }
+
+    private IngestionResult toLegacyResult(AlarmIngestionResult result) {
+        return result.created() ? IngestionResult.STORED : IngestionResult.DUPLICATE;
     }
 
     private ValidatedAlert validate(MqttAlertPayload payload) {

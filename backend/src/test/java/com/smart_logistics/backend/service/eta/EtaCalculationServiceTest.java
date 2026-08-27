@@ -12,6 +12,7 @@ import com.smart_logistics.backend.handler.GpsWebSocketHandler;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.service.GpsInfluxService;
+import com.smart_logistics.backend.service.anomaly.RealtimeAnomalyDetectionService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +48,7 @@ class EtaCalculationServiceTest {
     @Mock private GpsInfluxService gpsInfluxService;
     @Mock private EtaPlannedRouteService plannedRouteService;
     @Mock private GpsWebSocketHandler webSocketHandler;
+    @Mock private RealtimeAnomalyDetectionService anomalyDetectionService;
 
     private EtaCalculationService service;
 
@@ -56,7 +59,7 @@ class EtaCalculationServiceTest {
                 TransportTask.class);
         service = new EtaCalculationService(
                 transportTaskMapper, vehicleMapper, gpsInfluxService, plannedRouteService,
-                new RouteProgressProjector(), webSocketHandler,
+                new RouteProgressProjector(), webSocketHandler, anomalyDetectionService,
                 Duration.ofMinutes(2), Duration.ofMinutes(10),
                 Duration.ofHours(1), Duration.ofMinutes(2),
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -76,6 +79,7 @@ class EtaCalculationServiceTest {
         assertTrue(service.refreshTask(task, NOW));
 
         verify(plannedRouteService).getRoute(task);
+        verify(anomalyDetectionService).evaluate(any(), any(), any(), any(), any(), any());
         verify(transportTaskMapper).update(isNull(), any(LambdaUpdateWrapper.class));
         verify(webSocketHandler).broadcastEta(any(EtaRealtimeMessage.class));
     }
@@ -90,6 +94,7 @@ class EtaCalculationServiceTest {
 
         verify(vehicleMapper, never()).selectById(any());
         verify(gpsInfluxService, never()).querySamples(any(), any(), any());
+        verify(anomalyDetectionService).clearTask(1L);
     }
 
     @Test
@@ -100,6 +105,7 @@ class EtaCalculationServiceTest {
         assertFalse(service.refreshTask(transportingTask(), NOW));
 
         verify(plannedRouteService, never()).getRoute(any());
+        verify(anomalyDetectionService).clearTask(1L);
     }
 
     @Test
@@ -115,8 +121,28 @@ class EtaCalculationServiceTest {
 
         assertFalse(service.refreshTask(task, NOW));
 
+        verify(anomalyDetectionService).evaluate(any(), any(), any(), any(), any(), any());
         verify(transportTaskMapper, never()).update(isNull(), any(LambdaUpdateWrapper.class));
         verify(webSocketHandler, never()).broadcastEta(any());
+    }
+
+    @Test
+    void anomalyFailureDoesNotBlockEtaUpdate() {
+        TransportTask task = transportingTask();
+        when(vehicleMapper.selectById(2L)).thenReturn(vehicle());
+        when(gpsInfluxService.querySamples(any(), any(), any())).thenReturn(List.of(
+                sample(106.5800, 29.5000, 30.0, NOW.minusSeconds(5))));
+        when(plannedRouteService.getRoute(task)).thenReturn(plannedRoute());
+        doThrow(new IllegalStateException("alarm database unavailable"))
+                .when(anomalyDetectionService)
+                .evaluate(any(), any(), any(), any(), any(), any());
+        when(transportTaskMapper.update(isNull(), any(LambdaUpdateWrapper.class)))
+                .thenReturn(1);
+
+        assertTrue(service.refreshTask(task, NOW));
+
+        verify(transportTaskMapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(webSocketHandler).broadcastEta(any(EtaRealtimeMessage.class));
     }
 
     @Test
