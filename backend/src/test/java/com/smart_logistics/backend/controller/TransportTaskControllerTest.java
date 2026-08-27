@@ -6,6 +6,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
+import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
@@ -100,7 +101,9 @@ class TransportTaskControllerTest {
         TransportTaskResponse task = response(TransportTaskStatus.WAITING);
         when(transportTaskService.getTransportTask(1L)).thenReturn(task);
         when(etaPlannedRouteService.getResponse(task)).thenReturn(
-                new PlannedRouteResponse(1L, "sim_000", "AMAP", "GCJ02", 5500, 720,
+                new PlannedRouteResponse(1L, "route_fixed", 1,
+                        TransportTaskRouteStatus.ACTIVE,
+                        "sim_000", "AMAP", "GCJ02", 5500, 720,
                         OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
                         List.of(
                                 List.of(106.57, 29.49),
@@ -108,7 +111,11 @@ class TransportTaskControllerTest {
 
         mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_fixed"))
+                .andExpect(jsonPath("$.data.routeVersion").value(1))
+                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.vehicleDeviceCode").value("sim_000"))
+                .andExpect(jsonPath("$.data.provider").value("AMAP"))
                 .andExpect(jsonPath("$.data.coordinateSystem").value("GCJ02"))
                 .andExpect(jsonPath("$.data.distanceMeters").value(5500))
                 .andExpect(jsonPath("$.data.points[0][0]").value(106.57))

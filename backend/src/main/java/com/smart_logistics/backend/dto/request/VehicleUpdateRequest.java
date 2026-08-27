@@ -1,7 +1,9 @@
 package com.smart_logistics.backend.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
@@ -21,6 +23,11 @@ public class VehicleUpdateRequest {
     private BigDecimal capacity;
 
     private Long driverId;
+
+    @JsonAlias("sim_code")
+    @Pattern(regexp = "^sim_\\d{3}$",
+            message = "simCode must match ^sim_\\d{3}$")
+    private String simCode;
 
     public String getPlateNumber() {
         return plateNumber;
@@ -52,5 +59,13 @@ public class VehicleUpdateRequest {
 
     public void setDriverId(Long driverId) {
         this.driverId = driverId;
+    }
+
+    public String getSimCode() {
+        return simCode;
+    }
+
+    public void setSimCode(String simCode) {
+        this.simCode = simCode;
     }
 }

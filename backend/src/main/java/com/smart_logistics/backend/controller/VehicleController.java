@@ -91,6 +91,13 @@ public class VehicleController{
         return ApiResponse.success(vehicleService.listAvailableVehicles());
     }
 
+    @GetMapping("/sim-codes/available")
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public ApiResponse<List<String>> listAvailableSimCodes(
+            @RequestParam(required = false) @Size(max = 20) String keyword) {
+        return ApiResponse.success(vehicleService.listAvailableSimCodes(keyword));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
     public ApiResponse<VehicleResponse> createVehicle(

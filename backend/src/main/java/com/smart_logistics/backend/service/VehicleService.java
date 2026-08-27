@@ -22,14 +22,17 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 @Service
 public class VehicleService {
 
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Pattern SIM_CODE_PATTERN = Pattern.compile("^sim_\\d{3}$");
 
     private final VehicleMapper vehicleMapper;
     private final UserDisplayNameService userDisplayNameService;
@@ -91,6 +94,24 @@ public class VehicleService {
                 .toList());
     }
 
+    public List<String> listAvailableSimCodes(String keyword) {
+        List<Vehicle> assignedVehicles = vehicleMapper.selectList(
+                new LambdaQueryWrapper<Vehicle>()
+                        .select(Vehicle::getSimCode)
+                        .isNotNull(Vehicle::getSimCode));
+        Set<String> assignedCodes = assignedVehicles.stream()
+                .map(Vehicle::getSimCode)
+                .filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
+        String normalizedKeyword = StringUtils.hasText(keyword)
+                ? keyword.trim().toLowerCase(Locale.ROOT) : null;
+        return java.util.stream.IntStream.rangeClosed(0, 999)
+                .mapToObj(number -> String.format(Locale.ROOT, "sim_%03d", number))
+                .filter(code -> !assignedCodes.contains(code))
+                .filter(code -> normalizedKeyword == null || code.contains(normalizedKeyword))
+                .toList();
+    }
+
     public Vehicle getVehicleForTransport(Long id) {
         return getRequiredVehicleRaw(id);
     }
@@ -111,9 +132,9 @@ public class VehicleService {
     @Transactional
     public VehicleResponse createVehicle(VehicleCreateRequest request) {
         String plateNumber = request.getPlateNumber().trim();
-        String simCode = normalizeRequiredSimCode(request.getSimCode());
+        String simCode = normalizeSimCode(request.getSimCode());
         ensurePlateNumberAvailable(plateNumber, null);
-        ensureSimCodeAvailable(simCode);
+        ensureSimCodeAvailable(simCode, null);
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Vehicle vehicle = new Vehicle();
@@ -143,6 +164,11 @@ public class VehicleService {
         validateDriverChange(current, request.getDriverId());
         String plateNumber = request.getPlateNumber().trim();
         ensurePlateNumberAvailable(plateNumber, id);
+        String simCode = request.getSimCode() == null
+                ? current.getSimCode() : normalizeSimCode(request.getSimCode());
+        if (!Objects.equals(current.getSimCode(), simCode)) {
+            ensureSimCodeAvailable(simCode, id);
+        }
 
         LambdaUpdateWrapper<Vehicle> update = new LambdaUpdateWrapper<>();
         update.eq(Vehicle::getId, id)
@@ -150,6 +176,7 @@ public class VehicleService {
                 .set(Vehicle::getType, trimToNull(request.getType()))
                 .set(Vehicle::getCapacity, request.getCapacity())
                 .set(Vehicle::getDriverId, request.getDriverId())
+                .set(Vehicle::getSimCode, simCode)
                 .set(Vehicle::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
 
         try {
@@ -157,7 +184,7 @@ public class VehicleService {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to update vehicle");
             }
         } catch (DuplicateKeyException exception) {
-            throw duplicatePlateNumber(exception);
+            throw duplicateVehicleKey(exception);
         }
         return toResponse(getRequiredVehicle(id));
     }
@@ -252,11 +279,15 @@ public class VehicleService {
         return exception;
     }
 
-    private void ensureSimCodeAvailable(String simCode) {
-        if (vehicleMapper.selectCount(new LambdaQueryWrapper<Vehicle>()
-                .eq(Vehicle::getSimCode, simCode)) > 0) {
+    private void ensureSimCodeAvailable(String simCode, Long excludedId) {
+        LambdaQueryWrapper<Vehicle> query = new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getSimCode, simCode);
+        if (excludedId != null) {
+            query.ne(Vehicle::getId, excludedId);
+        }
+        if (vehicleMapper.selectCount(query) > 0) {
             throw new BusinessException(ErrorCode.DATA_CONFLICT,
-                    "GPS device code already exists");
+                    "simCode is already assigned to another vehicle");
         }
     }
 
@@ -270,7 +301,7 @@ public class VehicleService {
                         || normalized.contains("uk_vehicle_sim_code")) {
                     BusinessException exception = new BusinessException(
                             ErrorCode.DATA_CONFLICT,
-                            "GPS device code already exists"
+                            "simCode is already assigned to another vehicle"
                     );
                     exception.initCause(cause);
                     return exception;
@@ -336,11 +367,15 @@ public class VehicleService {
         return value.trim();
     }
 
-    private String normalizeRequiredSimCode(String value) {
+    private String normalizeSimCode(String value) {
         if (!StringUtils.hasText(value)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
                     "simCode must not be blank");
         }
-        return value.trim();
+        if (!SIM_CODE_PATTERN.matcher(value).matches()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "simCode must match ^sim_\\d{3}$");
+        }
+        return value;
     }
 }

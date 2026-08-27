@@ -140,7 +140,7 @@ class VehicleServiceTest {
     @Test
     void createVehicleUsesOnlyAllowedFieldsAndDefaultsToIdle() {
         VehicleCreateRequest request = createRequest(" 沪A10002 ", new BigDecimal("12.50"));
-        request.setSimCode("  sim_008  ");
+        request.setSimCode("sim_008");
         Vehicle[] insertedHolder = new Vehicle[1];
         when(vehicleMapper.selectCount(any())).thenReturn(0L);
         when(vehicleMapper.insert(any(Vehicle.class))).thenAnswer(invocation -> {
@@ -207,7 +207,8 @@ class VehicleServiceTest {
         );
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
-        assertEquals("GPS device code already exists", exception.getMessage());
+        assertEquals("simCode is already assigned to another vehicle",
+                exception.getMessage());
         verify(vehicleMapper, never()).insert(any(Vehicle.class));
     }
 
@@ -225,7 +226,22 @@ class VehicleServiceTest {
         );
 
         assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
-        assertEquals("GPS device code already exists", exception.getMessage());
+        assertEquals("simCode is already assigned to another vehicle",
+                exception.getMessage());
+    }
+
+    @Test
+    void createVehicleRejectsEveryNonCanonicalSimCode() {
+        for (String simCode : List.of("sim_8", "sim_08", "sim_1000", "abc")) {
+            VehicleCreateRequest request = createRequest("沪A10002", BigDecimal.TEN);
+            request.setSimCode(simCode);
+
+            BusinessException exception = assertThrows(BusinessException.class,
+                    () -> vehicleService.createVehicle(request));
+
+            assertEquals(ErrorCode.INVALID_PARAMETER, exception.getErrorCode());
+            assertEquals("simCode must match ^sim_\\d{3}$", exception.getMessage());
+        }
     }
 
     @Test
@@ -243,6 +259,75 @@ class VehicleServiceTest {
         assertEquals("沪A20001", response.getPlateNumber());
         assertEquals(new BigDecimal("20"), response.getCapacity());
         verify(vehicleMapper).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void updateVehicleBindsValidSimCode() {
+        Vehicle existing = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        existing.setSimCode("sim_008");
+        Vehicle updated = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        updated.setSimCode("sim_009");
+        when(vehicleMapper.selectById(1L)).thenReturn(existing, updated);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L, 0L);
+        when(vehicleMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        VehicleUpdateRequest request = updateRequest("沪A10001", BigDecimal.TEN);
+        request.setSimCode("sim_009");
+
+        VehicleResponse response = vehicleService.updateVehicle(1L, request);
+
+        assertEquals("sim_009", response.getSimCode());
+        ArgumentCaptor<LambdaUpdateWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(vehicleMapper).update(isNull(), captor.capture());
+        assertTrue(captor.getValue().getSqlSet().contains("sim_code"));
+    }
+
+    @Test
+    void updateVehicleRejectsSimCodeAssignedToAnotherVehicle() {
+        Vehicle existing = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        existing.setSimCode("sim_008");
+        when(vehicleMapper.selectById(1L)).thenReturn(existing);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L, 1L);
+        VehicleUpdateRequest request = updateRequest("沪A10001", BigDecimal.TEN);
+        request.setSimCode("sim_009");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> vehicleService.updateVehicle(1L, request));
+
+        assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
+        assertEquals("simCode is already assigned to another vehicle",
+                exception.getMessage());
+        verify(vehicleMapper, never()).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void updateVehiclePreservesSimCodeWhenLegacyClientOmitsField() {
+        Vehicle existing = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        existing.setSimCode("sim_008");
+        when(vehicleMapper.selectById(1L)).thenReturn(existing, existing);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L);
+        when(vehicleMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        VehicleUpdateRequest request = updateRequest("沪A10001", BigDecimal.TEN);
+
+        VehicleResponse response = vehicleService.updateVehicle(1L, request);
+
+        assertEquals("sim_008", response.getSimCode());
+    }
+
+    @Test
+    void availableSimCodesExcludeAssignmentsAndSupportAllKeywordForms() {
+        Vehicle assigned = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        assigned.setSimCode("sim_108");
+        when(vehicleMapper.selectList(any())).thenReturn(List.of(assigned));
+
+        List<String> byShortDigit = vehicleService.listAvailableSimCodes("8");
+        List<String> byPaddedDigits = vehicleService.listAvailableSimCodes("008");
+        List<String> byFullCode = vehicleService.listAvailableSimCodes("sim_008");
+
+        assertTrue(byShortDigit.contains("sim_008"));
+        assertEquals(List.of("sim_008"), byPaddedDigits);
+        assertEquals(List.of("sim_008"), byFullCode);
+        assertTrue(!byShortDigit.contains("sim_108"));
     }
 
     @Test
