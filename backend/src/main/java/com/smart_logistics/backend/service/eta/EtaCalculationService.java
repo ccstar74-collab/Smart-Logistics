@@ -11,6 +11,7 @@ import com.smart_logistics.backend.handler.GpsWebSocketHandler;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.service.GpsInfluxService;
+import com.smart_logistics.backend.service.anomaly.RealtimeAnomalyDetectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class EtaCalculationService {
@@ -39,6 +42,7 @@ public class EtaCalculationService {
     private final EtaPlannedRouteService plannedRouteService;
     private final RouteProgressProjector routeProjector;
     private final GpsWebSocketHandler webSocketHandler;
+    private final RealtimeAnomalyDetectionService anomalyDetectionService;
     private final Duration gpsMaxAge;
     private final Duration speedHistoryWindow;
     private final Duration minEtaChange;
@@ -52,12 +56,13 @@ public class EtaCalculationService {
             GpsInfluxService gpsInfluxService,
             EtaPlannedRouteService plannedRouteService,
             GpsWebSocketHandler webSocketHandler,
+            RealtimeAnomalyDetectionService anomalyDetectionService,
             @Value("${app.eta.gps-max-age:PT2M}") Duration gpsMaxAge,
             @Value("${app.eta.speed-history-window:PT10M}") Duration speedHistoryWindow,
             @Value("${app.eta.min-change:PT30S}") Duration minEtaChange,
             @Value("${app.eta.force-persist-interval:PT2M}") Duration forcePersistInterval) {
         this(transportTaskMapper, vehicleMapper, gpsInfluxService, plannedRouteService,
-                new RouteProgressProjector(), webSocketHandler, gpsMaxAge,
+                new RouteProgressProjector(), webSocketHandler, anomalyDetectionService, gpsMaxAge,
                 speedHistoryWindow, minEtaChange, forcePersistInterval, Clock.systemUTC());
     }
 
@@ -67,6 +72,7 @@ public class EtaCalculationService {
                           EtaPlannedRouteService plannedRouteService,
                           RouteProgressProjector routeProjector,
                           GpsWebSocketHandler webSocketHandler,
+                          RealtimeAnomalyDetectionService anomalyDetectionService,
                           Duration gpsMaxAge,
                           Duration speedHistoryWindow,
                           Duration minEtaChange,
@@ -78,6 +84,7 @@ public class EtaCalculationService {
         this.plannedRouteService = plannedRouteService;
         this.routeProjector = routeProjector;
         this.webSocketHandler = webSocketHandler;
+        this.anomalyDetectionService = anomalyDetectionService;
         this.gpsMaxAge = gpsMaxAge;
         this.speedHistoryWindow = speedHistoryWindow;
         this.minEtaChange = minEtaChange;
@@ -90,6 +97,10 @@ public class EtaCalculationService {
                 new LambdaQueryWrapper<TransportTask>()
                         .eq(TransportTask::getStatus, TransportTaskStatus.TRANSPORTING.name())
                         .orderByAsc(TransportTask::getId));
+        Set<Long> activeTaskIds = tasks.stream()
+                .map(TransportTask::getId)
+                .collect(Collectors.toSet());
+        anomalyDetectionService.retainTasks(activeTaskIds);
         int updated = 0;
         int skipped = 0;
         int failed = 0;
@@ -109,15 +120,18 @@ public class EtaCalculationService {
 
     boolean refreshTask(TransportTask task, Instant now) {
         if (!TransportTaskStatus.TRANSPORTING.name().equals(task.getStatus())) {
+            anomalyDetectionService.clearTask(task.getId());
             return false;
         }
         if (!hasRouteCoordinates(task)) {
+            anomalyDetectionService.clearTask(task.getId());
             LOGGER.debug("Skip ETA taskId={} because route coordinates are missing",
                     task.getId());
             return false;
         }
         Vehicle vehicle = vehicleMapper.selectById(task.getVehicleId());
         if (vehicle == null || vehicle.getSimCode() == null || vehicle.getSimCode().isBlank()) {
+            anomalyDetectionService.clearTask(task.getId());
             LOGGER.debug("Skip ETA taskId={} because vehicle simCode is missing",
                     task.getId());
             return false;
@@ -129,6 +143,7 @@ public class EtaCalculationService {
                 .max(Comparator.comparing(GpsSample::collectedAt))
                 .orElse(null);
         if (latest == null) {
+            anomalyDetectionService.clearTask(task.getId());
             LOGGER.debug("Skip ETA taskId={} because recent GPS is unavailable", task.getId());
             return false;
         }
@@ -139,6 +154,13 @@ public class EtaCalculationService {
         EtaRouteProgress progress = routeProjector.project(
                 new EtaCoordinate(convertedCurrent.longitude(), convertedCurrent.latitude()),
                 plannedRoute.polyline());
+        try {
+            anomalyDetectionService.evaluate(task, vehicle.getSimCode(), samples,
+                    latest, progress, now);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Realtime anomaly detection failed taskId={}: {}",
+                    task.getId(), exception.getMessage());
+        }
         double effectiveSpeedKmh = effectiveSpeedKmh(samples, latest, plannedRoute);
         long remainingDistanceMeters = Math.max(0,
                 Math.round(progress.remainingDistanceMeters()));
