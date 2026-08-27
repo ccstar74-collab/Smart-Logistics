@@ -4,5 +4,10 @@ public enum DispatchCommandStatus {
     PENDING,
     EXECUTED,
     CANCELLED,
-    FAILED
+    FAILED,
+    SENT,
+    ACKNOWLEDGED,
+    EXECUTING,
+    COMPLETED,
+    REJECTED
 }

@@ -100,6 +100,9 @@ class TransportTaskServiceTest {
     private TransportTaskRouteService taskRouteService;
 
     @Mock
+    private UserDisplayNameService userDisplayNameService;
+
+    @Mock
     private TransactionOperations transactionOperations;
 
     private TransportTaskService service;
@@ -142,7 +145,8 @@ class TransportTaskServiceTest {
                 transportTaskMapper, ownerMapper, cargoService, vehicleService,
                 availabilityService,
                 dataScopeService, currentUserService, statusRecordService,
-                etaPlannedRouteService, taskRouteService, transactionOperations);
+                etaPlannedRouteService, taskRouteService, userDisplayNameService,
+                transactionOperations);
     }
 
     @Test
@@ -455,6 +459,41 @@ class TransportTaskServiceTest {
         assertTrue(sql.contains("start_location"));
         assertTrue(sql.contains("end_location"));
         assertTrue(sql.contains("status"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void dispatcherTaskQuerySupportsDriverAndMultipleStatusesWithActiveRoute() {
+        TransportTask task = task(1L, TransportTaskStatus.TRANSPORTING);
+        Vehicle vehicle = vehicle(VehicleStatus.TRANSPORTING);
+        vehicle.setPlateNumber("YuA8888");
+        when(dataScopeService.vehicleIdsForDriver(9L)).thenReturn(List.of(20L));
+        when(vehicleService.getVehicleForTransport(20L)).thenReturn(vehicle);
+        when(userDisplayNameService.getDriverNames(List.of(9L)))
+                .thenReturn(java.util.Map.of(9L, "Li Si"));
+        when(transportTaskMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> {
+                    Page<TransportTask> page = invocation.getArgument(0);
+                    page.setRecords(List.of(task));
+                    page.setTotal(1);
+                    return page;
+                });
+
+        PageResult<TransportTaskResponse> result = service.listTransportTasks(
+                1, 10, null,
+                List.of(TransportTaskStatus.WAITING, TransportTaskStatus.TRANSPORTING),
+                9L, null, null, null);
+
+        TransportTaskResponse response = result.getRecords().getFirst();
+        assertEquals(9L, response.getDriverId());
+        assertEquals("Li Si", response.getDriverName());
+        assertEquals("YuA8888", response.getPlateNumber());
+        assertEquals("route_fixed", response.getRouteId());
+        assertEquals(1, response.getRouteVersion());
+        assertEquals(TransportTaskRouteStatus.ACTIVE, response.getRouteStatus());
+        ArgumentCaptor<LambdaQueryWrapper<TransportTask>> captor = wrapperCaptor();
+        verify(transportTaskMapper).selectPage(any(Page.class), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("status IN"));
     }
 
     @Test

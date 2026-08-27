@@ -12,15 +12,20 @@ public class DispatchCommand {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long taskId;
+    private Long targetDriverId;
     private Long vehicleId;
-    private Long fromUserId;
-    private Long toUserId;
+    private String targetRouteId;
     private String commandType;
     private String content;
     private String status;
+    private String feedback;
+    private Long createdBy;
     private LocalDateTime sentAt;
-    private LocalDateTime executedAt;
     private LocalDateTime createdAt;
+    private LocalDateTime acknowledgedAt;
+    private LocalDateTime executingAt;
+    private LocalDateTime completedAt;
+    private LocalDateTime rejectedAt;
 
     public Long getId() {
         return id;
@@ -46,20 +51,20 @@ public class DispatchCommand {
         this.vehicleId = vehicleId;
     }
 
-    public Long getFromUserId() {
-        return fromUserId;
+    public Long getTargetDriverId() {
+        return targetDriverId;
     }
 
-    public void setFromUserId(Long fromUserId) {
-        this.fromUserId = fromUserId;
+    public void setTargetDriverId(Long targetDriverId) {
+        this.targetDriverId = targetDriverId;
     }
 
-    public Long getToUserId() {
-        return toUserId;
+    public String getTargetRouteId() {
+        return targetRouteId;
     }
 
-    public void setToUserId(Long toUserId) {
-        this.toUserId = toUserId;
+    public void setTargetRouteId(String targetRouteId) {
+        this.targetRouteId = targetRouteId;
     }
 
     public String getCommandType() {
@@ -86,6 +91,22 @@ public class DispatchCommand {
         this.status = status;
     }
 
+    public String getFeedback() {
+        return feedback;
+    }
+
+    public void setFeedback(String feedback) {
+        this.feedback = feedback;
+    }
+
+    public Long getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(Long createdBy) {
+        this.createdBy = createdBy;
+    }
+
     public LocalDateTime getSentAt() {
         return sentAt;
     }
@@ -94,12 +115,12 @@ public class DispatchCommand {
         this.sentAt = sentAt;
     }
 
-    public LocalDateTime getExecutedAt() {
-        return executedAt;
+    public LocalDateTime getAcknowledgedAt() {
+        return acknowledgedAt;
     }
 
-    public void setExecutedAt(LocalDateTime executedAt) {
-        this.executedAt = executedAt;
+    public void setAcknowledgedAt(LocalDateTime acknowledgedAt) {
+        this.acknowledgedAt = acknowledgedAt;
     }
 
     public LocalDateTime getCreatedAt() {
@@ -108,5 +129,29 @@ public class DispatchCommand {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getExecutingAt() {
+        return executingAt;
+    }
+
+    public void setExecutingAt(LocalDateTime executingAt) {
+        this.executingAt = executingAt;
+    }
+
+    public LocalDateTime getCompletedAt() {
+        return completedAt;
+    }
+
+    public void setCompletedAt(LocalDateTime completedAt) {
+        this.completedAt = completedAt;
+    }
+
+    public LocalDateTime getRejectedAt() {
+        return rejectedAt;
+    }
+
+    public void setRejectedAt(LocalDateTime rejectedAt) {
+        this.rejectedAt = rejectedAt;
     }
 }

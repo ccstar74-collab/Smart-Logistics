@@ -294,7 +294,8 @@ class TransportTaskControllerTest {
     @Test
     void listReturnsPageAndPassesStatusAndKeyword() throws Exception {
         when(transportTaskService.listTransportTasks(
-                2, 5, "Shanghai", TransportTaskStatus.WAITING,
+                2, 5, "Shanghai", List.of(TransportTaskStatus.WAITING,
+                        TransportTaskStatus.TRANSPORTING),
                 null, null, null, null))
                 .thenReturn(new PageResult<>(
                         List.of(response(TransportTaskStatus.WAITING)), 6, 2, 5));
@@ -303,7 +304,7 @@ class TransportTaskControllerTest {
                         .param("page", "2")
                         .param("pageSize", "5")
                         .param("keyword", "Shanghai")
-                        .param("status", "WAITING"))
+                        .param("status", "WAITING,TRANSPORTING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.records[0].taskNo").value("T202608230001"))
                 .andExpect(jsonPath("$.data.total").value(6))
@@ -311,7 +312,8 @@ class TransportTaskControllerTest {
                 .andExpect(jsonPath("$.data.pageSize").value(5));
 
         verify(transportTaskService).listTransportTasks(
-                2, 5, "Shanghai", TransportTaskStatus.WAITING,
+                2, 5, "Shanghai", List.of(TransportTaskStatus.WAITING,
+                        TransportTaskStatus.TRANSPORTING),
                 null, null, null, null);
     }
 

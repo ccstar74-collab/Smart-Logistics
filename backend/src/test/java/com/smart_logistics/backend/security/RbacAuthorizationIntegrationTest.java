@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -272,9 +273,32 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
-    void allExistingDispatchCommandWebEndpointsRemainDenied() throws Exception {
-        String token = token(UserRole.DISPATCHER);
-        mockMvc.perform(get("/api/v1/dispatch-commands").header("Authorization", token))
+    void dispatchCommandEndpointsEnforceLocalRoleContract() throws Exception {
+        String dispatcher = token(UserRole.DISPATCHER);
+        mockMvc.perform(get("/api/v1/dispatch-commands")
+                        .header("Authorization", dispatcher))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/dispatch-commands")
+                        .header("Authorization", dispatcher)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"taskId\":15,\"commandType\":\"TEXT\"," +
+                                "\"content\":\"Slow down\"}"))
+                .andExpect(status().isOk());
+
+        String driver = token(UserRole.DRIVER);
+        mockMvc.perform(get("/api/v1/drivers/me/dispatch-commands")
+                        .header("Authorization", driver))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/v1/dispatch-commands/101/status")
+                        .header("Authorization", driver)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"ACKNOWLEDGED\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/dispatch-commands")
+                        .header("Authorization", driver)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"taskId\":15,\"commandType\":\"TEXT\"," +
+                                "\"content\":\"Forged\"}"))
                 .andExpect(status().isForbidden());
     }
 

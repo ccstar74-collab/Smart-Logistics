@@ -3,6 +3,7 @@ package com.smart_logistics.backend.controller;
 import com.smart_logistics.backend.dto.response.DriverOptionResponse;
 import com.smart_logistics.backend.dto.response.OwnerOptionResponse;
 import com.smart_logistics.backend.service.DriverService;
+import com.smart_logistics.backend.service.DispatchCommandService;
 import com.smart_logistics.backend.service.OwnerService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OptionControllerTest {
 
     @Mock private DriverService driverService;
+    @Mock private DispatchCommandService dispatchCommandService;
     @Mock private OwnerService ownerService;
 
     @Test
@@ -29,7 +31,7 @@ class OptionControllerTest {
         when(driverService.listOptions()).thenReturn(
                 List.of(new DriverOptionResponse(3L, 8L, "Driver Name")));
         MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(new DriverController(driverService)).build();
+                .standaloneSetup(new DriverController(driverService, dispatchCommandService)).build();
         mockMvc.perform(get("/api/v1/drivers/options"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].driverId").value(3))

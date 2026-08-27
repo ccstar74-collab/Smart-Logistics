@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import com.smart_logistics.backend.enums.DispatchCommandType;
 
 public class DispatchCommandCreateRequest {
 
@@ -12,25 +13,16 @@ public class DispatchCommandCreateRequest {
     @Positive(message = "taskId must be greater than 0")
     private Long taskId;
 
-    @NotNull(message = "vehicleId must not be null")
-    @Positive(message = "vehicleId must be greater than 0")
-    private Long vehicleId;
-
-    @NotNull(message = "toUserId must not be null")
-    @Positive(message = "toUserId must be greater than 0")
-    private Long toUserId;
-
-    @NotBlank(message = "commandType must not be blank")
-    @Size(max = 50, message = "commandType must not exceed 50 characters")
-    @Pattern(
-            regexp = "^[A-Z][A-Z0-9_]*$",
-            message = "commandType must use uppercase letters, numbers, and underscores"
-    )
-    private String commandType;
+    @NotNull(message = "commandType must not be null")
+    private DispatchCommandType commandType;
 
     @NotBlank(message = "content must not be blank")
     @Size(max = 500, message = "content must not exceed 500 characters")
     private String content;
+
+    @Size(max = 64, message = "routeId must not exceed 64 characters")
+    @Pattern(regexp = "^route_[A-Za-z0-9-]+$", message = "routeId has invalid format")
+    private String routeId;
 
     public Long getTaskId() {
         return taskId;
@@ -40,27 +32,11 @@ public class DispatchCommandCreateRequest {
         this.taskId = taskId;
     }
 
-    public Long getVehicleId() {
-        return vehicleId;
-    }
-
-    public void setVehicleId(Long vehicleId) {
-        this.vehicleId = vehicleId;
-    }
-
-    public Long getToUserId() {
-        return toUserId;
-    }
-
-    public void setToUserId(Long toUserId) {
-        this.toUserId = toUserId;
-    }
-
-    public String getCommandType() {
+    public DispatchCommandType getCommandType() {
         return commandType;
     }
 
-    public void setCommandType(String commandType) {
+    public void setCommandType(DispatchCommandType commandType) {
         this.commandType = commandType;
     }
 
@@ -70,5 +46,13 @@ public class DispatchCommandCreateRequest {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public String getRouteId() {
+        return routeId;
+    }
+
+    public void setRouteId(String routeId) {
+        this.routeId = routeId;
     }
 }

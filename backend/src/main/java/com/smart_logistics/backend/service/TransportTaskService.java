@@ -40,6 +40,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -59,6 +60,7 @@ public class TransportTaskService {
     private final TransportTaskStatusRecordService statusRecordService;
     private final EtaPlannedRouteService etaPlannedRouteService;
     private final TransportTaskRouteService taskRouteService;
+    private final UserDisplayNameService userDisplayNameService;
     private final TransactionOperations transactionOperations;
 
     @Autowired
@@ -72,10 +74,12 @@ public class TransportTaskService {
                                 TransportTaskStatusRecordService statusRecordService,
                                 EtaPlannedRouteService etaPlannedRouteService,
                                 TransportTaskRouteService taskRouteService,
+                                UserDisplayNameService userDisplayNameService,
                                 PlatformTransactionManager transactionManager) {
         this(transportTaskMapper, ownerMapper, cargoService, vehicleService,
                 availabilityService, dataScopeService, currentUserService,
                 statusRecordService, etaPlannedRouteService, taskRouteService,
+                userDisplayNameService,
                 new TransactionTemplate(transactionManager));
     }
 
@@ -89,6 +93,7 @@ public class TransportTaskService {
                          TransportTaskStatusRecordService statusRecordService,
                          EtaPlannedRouteService etaPlannedRouteService,
                          TransportTaskRouteService taskRouteService,
+                         UserDisplayNameService userDisplayNameService,
                          TransactionOperations transactionOperations) {
         this.transportTaskMapper = transportTaskMapper;
         this.ownerMapper = ownerMapper;
@@ -100,6 +105,7 @@ public class TransportTaskService {
         this.statusRecordService = statusRecordService;
         this.etaPlannedRouteService = etaPlannedRouteService;
         this.taskRouteService = taskRouteService;
+        this.userDisplayNameService = userDisplayNameService;
         this.transactionOperations = transactionOperations;
     }
 
@@ -175,13 +181,24 @@ public class TransportTaskService {
     public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
                                                                  String keyword,
                                                                  TransportTaskStatus status) {
-        return listTransportTasks(page, pageSize, keyword, status,
+        return listTransportTasks(page, pageSize, keyword,
+                status == null ? List.of() : List.of(status),
                 null, null, null, null);
     }
 
     public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
                                                                  String keyword,
                                                                  TransportTaskStatus status,
+                                                                 Long driverId, Long ownerId,
+                                                                 Long vehicleId, Long cargoId) {
+        return listTransportTasks(page, pageSize, keyword,
+                status == null ? List.of() : List.of(status),
+                driverId, ownerId, vehicleId, cargoId);
+    }
+
+    public PageResult<TransportTaskResponse> listTransportTasks(long page, long pageSize,
+                                                                 String keyword,
+                                                                 List<TransportTaskStatus> statuses,
                                                                  Long driverId, Long ownerId,
                                                                  Long vehicleId, Long cargoId) {
         LambdaQueryWrapper<TransportTask> query = new LambdaQueryWrapper<>();
@@ -195,8 +212,9 @@ public class TransportTaskService {
                     .or()
                     .like(TransportTask::getEndLocation, normalizedKeyword));
         }
-        if (status != null) {
-            query.eq(TransportTask::getStatus, status.name());
+        if (statuses != null && !statuses.isEmpty()) {
+            query.in(TransportTask::getStatus,
+                    statuses.stream().map(Enum::name).toList());
         }
         if (driverId != null) {
             applyVehicleIds(query, dataScopeService.vehicleIdsForDriver(driverId));
@@ -600,6 +618,11 @@ public class TransportTaskService {
     }
 
     private TransportTaskResponse toResponse(TransportTask task) {
+        Vehicle vehicle = vehicleService.getVehicleForTransport(task.getVehicleId());
+        Map<Long, String> driverNames = vehicle.getDriverId() == null ? Map.of()
+                : userDisplayNameService.getDriverNames(List.of(vehicle.getDriverId()));
+        com.smart_logistics.backend.dto.TransportTaskRouteSnapshot activeRoute =
+                taskRouteService.getActiveRoute(task.getId()).orElse(null);
         return new TransportTaskResponse(
                 task.getId(), task.getTaskNo(), task.getCargoId(), task.getVehicleId(),
                 task.getStartLocation(), task.getStartLongitude(), task.getStartLatitude(),
@@ -612,7 +635,12 @@ public class TransportTaskService {
                 toOffsetDateTime(task.getEstimatedArrivalTime()),
                 toOffsetDateTime(task.getEtaCalculatedAt()),
                 toOffsetDateTime(task.getCreatedAt()),
-                toOffsetDateTime(task.getUpdatedAt())
+                toOffsetDateTime(task.getUpdatedAt()),
+                vehicle.getDriverId(), driverNames.get(vehicle.getDriverId()),
+                vehicle.getPlateNumber(),
+                activeRoute == null ? null : activeRoute.routeId(),
+                activeRoute == null ? null : activeRoute.routeVersion(),
+                activeRoute == null ? null : activeRoute.status()
         );
     }
 }

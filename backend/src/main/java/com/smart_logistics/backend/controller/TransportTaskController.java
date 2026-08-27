@@ -92,7 +92,7 @@ public class TransportTaskController {
             @RequestParam(defaultValue = "1") @Min(1) long page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) long pageSize,
             @RequestParam(required = false) @Size(max = 100) String keyword,
-            @RequestParam(required = false) TransportTaskStatus status,
+            @RequestParam(required = false) List<TransportTaskStatus> status,
             @RequestParam(required = false) @Positive Long driverId,
             @RequestParam(required = false) @Positive Long ownerId,
             @RequestParam(required = false) @Positive Long vehicleId,

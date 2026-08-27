@@ -62,6 +62,14 @@ public class TransportTaskRouteService {
         return Optional.ofNullable(getActiveRouteEntity(taskId)).map(this::toSnapshot);
     }
 
+    @Transactional(readOnly = true)
+    public Optional<TransportTaskRouteSnapshot> getRouteByRouteId(String routeId) {
+        return Optional.ofNullable(routeMapper.selectOne(
+                new LambdaQueryWrapper<TransportTaskRoute>()
+                        .eq(TransportTaskRoute::getRouteId, routeId)))
+                .map(this::toSnapshot);
+    }
+
     @Transactional
     public TransportTaskRouteSnapshot persistInitialActiveRoute(
             Long taskId, EtaPlannedRoute plannedRoute) {
