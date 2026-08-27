@@ -9,13 +9,22 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.AlarmStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.AlarmResponse;
 import com.smart_logistics.backend.entity.Alarm;
+import com.smart_logistics.backend.entity.TransportTask;
+import com.smart_logistics.backend.entity.Vehicle;
+import com.smart_logistics.backend.dto.response.UserIdentityResponse;
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
+import com.smart_logistics.backend.enums.UserRole;
+import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
+import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +53,9 @@ class AlarmServiceTest {
 
     @Mock
     private BusinessDataScopeService dataScopeService;
+    @Mock private TransportTaskMapper transportTaskMapper;
+    @Mock private VehicleMapper vehicleMapper;
+    @Mock private CurrentUserService currentUserService;
 
     private AlarmService alarmService;
 
@@ -53,7 +65,12 @@ class AlarmServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "alarm-test"),
                 Alarm.class
         );
-        alarmService = new AlarmService(alarmMapper, dataScopeService);
+        alarmService = new AlarmService(alarmMapper, dataScopeService,
+                transportTaskMapper, vehicleMapper, currentUserService);
+        org.mockito.Mockito.lenient().when(transportTaskMapper.selectById(15L))
+                .thenReturn(task());
+        org.mockito.Mockito.lenient().when(vehicleMapper.selectById(23L))
+                .thenReturn(vehicle());
     }
 
     @Test
@@ -65,6 +82,9 @@ class AlarmServiceTest {
 
         assertEquals(1L, response.getId());
         assertEquals(15L, response.getTaskId());
+        assertEquals("T20260826001", response.getTaskNo());
+        assertEquals(23L, response.getVehicleId());
+        assertEquals("渝A33333", response.getPlateNumber());
         assertEquals(AlarmType.ROUTE_DEVIATION, response.getAlarmType());
         assertEquals(AlarmLevel.HIGH, response.getLevel());
         assertEquals(AlarmStatus.UNHANDLED, response.getStatus());
@@ -87,7 +107,6 @@ class AlarmServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void alarmTaskVehicleAndOwnerFiltersComposeWithSecurityScope() {
-        when(dataScopeService.taskIdsForVehicle(20L)).thenReturn(List.of(30L));
         when(dataScopeService.taskIdsForOwner(3L)).thenReturn(List.of(30L));
         when(alarmMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -101,7 +120,9 @@ class AlarmServiceTest {
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(alarmMapper).selectPage(any(Page.class), captor.capture());
         assertTrue(captor.getValue().getSqlSegment().contains("task_id"));
+        assertTrue(captor.getValue().getSqlSegment().contains("vehicle_id"));
         assertTrue(captor.getValue().getParamNameValuePairs().containsValue(30L));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(20L));
     }
 
     @Test
@@ -122,6 +143,9 @@ class AlarmServiceTest {
         );
 
         assertEquals(1, result.getRecords().size());
+        assertEquals(23L, result.getRecords().getFirst().getVehicleId());
+        assertEquals("渝A33333", result.getRecords().getFirst().getPlateNumber());
+        assertEquals("T20260826001", result.getRecords().getFirst().getTaskNo());
         assertEquals(1, result.getTotal());
         assertEquals(2, result.getPage());
         assertEquals(5, result.getPageSize());
@@ -141,62 +165,52 @@ class AlarmServiceTest {
     }
 
     @Test
-    void updateStatusMovesUnhandledAlarmToProcessingAndSetsHandledTime() {
+    void dispatcherCanManuallyResolveWithRequiredAuditFields() {
         Alarm alarm = alarm(1L, AlarmStatus.UNHANDLED);
-        when(alarmMapper.selectById(1L)).thenReturn(alarm);
-        when(alarmMapper.updateById(any(Alarm.class))).thenReturn(1);
-
-        AlarmResponse response = alarmService.updateStatus(1L, request(AlarmStatus.PROCESSING));
-
-        ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
-        verify(alarmMapper).updateById(captor.capture());
-        assertEquals(AlarmStatus.PROCESSING.name(), captor.getValue().getStatus());
-        assertNotNull(captor.getValue().getHandledAt());
-        assertEquals(AlarmStatus.PROCESSING, response.getStatus());
-    }
-
-    @Test
-    void updateStatusCanResolveUnhandledAlarmDirectly() {
-        Alarm alarm = alarm(1L, AlarmStatus.UNHANDLED);
-        when(alarmMapper.selectById(1L)).thenReturn(alarm);
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DISPATCHER));
+        when(alarmMapper.selectOne(any(Wrapper.class))).thenReturn(alarm);
         when(alarmMapper.updateById(any(Alarm.class))).thenReturn(1);
 
         AlarmResponse response = alarmService.updateStatus(1L, request(AlarmStatus.RESOLVED));
 
+        ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
+        verify(alarmMapper).updateById(captor.capture());
+        assertEquals(AlarmStatus.RESOLVED.name(), captor.getValue().getStatus());
+        assertEquals(7L, captor.getValue().getHandledBy());
+        assertNotNull(captor.getValue().getHandledAt());
+        assertEquals("False positive confirmed", captor.getValue().getResolutionRemark());
         assertEquals(AlarmStatus.RESOLVED, response.getStatus());
-        assertNotNull(response.getHandledAt());
-        assertNotNull(response.getResolvedAt());
     }
 
     @Test
-    void updateStatusIsIdempotentWhenStatusDoesNotChange() {
-        Alarm alarm = alarm(1L, AlarmStatus.PROCESSING);
-        when(alarmMapper.selectById(1L)).thenReturn(alarm);
+    void manualEndpointRejectsProcessingTransition() {
+        Alarm alarm = alarm(1L, AlarmStatus.UNHANDLED);
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DISPATCHER));
 
-        AlarmResponse response = alarmService.updateStatus(1L, request(AlarmStatus.PROCESSING));
-
-        assertEquals(AlarmStatus.PROCESSING, response.getStatus());
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> alarmService.updateStatus(1L, request(AlarmStatus.PROCESSING)));
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
         verify(alarmMapper, never()).updateById(any(Alarm.class));
     }
 
     @Test
-    void updateStatusRejectsRollbackFromResolved() {
-        Alarm alarm = alarm(1L, AlarmStatus.RESOLVED);
-        when(alarmMapper.selectById(1L)).thenReturn(alarm);
+    void ownerCannotManuallyResolveAlarm() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.OWNER));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> alarmService.updateStatus(1L, request(AlarmStatus.PROCESSING))
+                () -> alarmService.updateStatus(1L, request(AlarmStatus.RESOLVED))
         );
 
-        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
         verify(alarmMapper, never()).updateById(any(Alarm.class));
     }
 
     @Test
     void updateStatusReportsDatabaseFailure() {
         Alarm alarm = alarm(1L, AlarmStatus.PROCESSING);
-        when(alarmMapper.selectById(1L)).thenReturn(alarm);
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.ADMIN));
+        when(alarmMapper.selectOne(any(Wrapper.class))).thenReturn(alarm);
         when(alarmMapper.updateById(any(Alarm.class))).thenReturn(0);
 
         BusinessException exception = assertThrows(
@@ -204,8 +218,8 @@ class AlarmServiceTest {
                 () -> alarmService.updateStatus(1L, request(AlarmStatus.RESOLVED))
         );
 
-        assertEquals(ErrorCode.INTERNAL_ERROR, exception.getErrorCode());
-        assertEquals("failed to update alarm status", exception.getMessage());
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        assertEquals("alarm status update conflict", exception.getMessage());
     }
 
     @Test
@@ -227,10 +241,12 @@ class AlarmServiceTest {
         Alarm alarm = new Alarm();
         alarm.setId(id);
         alarm.setTaskId(15L);
+        alarm.setVehicleId(23L);
         alarm.setAlarmType(AlarmType.ROUTE_DEVIATION.name());
         alarm.setLevel(AlarmLevel.HIGH.name());
         alarm.setMessage("Vehicle deviated from the planned route");
         alarm.setStatus(status.name());
+        alarm.setConditionStatus(AlarmConditionStatus.ACTIVE.name());
         alarm.setCreatedAt(LocalDateTime.of(2026, 8, 23, 10, 30));
         return alarm;
     }
@@ -238,6 +254,28 @@ class AlarmServiceTest {
     private AlarmStatusUpdateRequest request(AlarmStatus status) {
         AlarmStatusUpdateRequest request = new AlarmStatusUpdateRequest();
         request.setStatus(status);
+        request.setRemark("False positive confirmed");
         return request;
+    }
+
+    private TransportTask task() {
+        TransportTask task = new TransportTask();
+        task.setId(15L);
+        task.setTaskNo("T20260826001");
+        task.setVehicleId(23L);
+        return task;
+    }
+
+    private Vehicle vehicle() {
+        Vehicle vehicle = new Vehicle();
+        vehicle.setId(23L);
+        vehicle.setPlateNumber("渝A33333");
+        return vehicle;
+    }
+
+    private UserIdentityResponse identity(UserRole role) {
+        return new UserIdentityResponse(7L, "user", "User", null,
+                role, UserStatus.ACTIVE, null,
+                role == UserRole.OWNER ? 3L : null);
     }
 }

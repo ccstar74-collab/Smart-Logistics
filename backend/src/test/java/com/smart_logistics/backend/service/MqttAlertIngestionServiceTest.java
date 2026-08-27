@@ -31,12 +31,16 @@ class MqttAlertIngestionServiceTest {
 
     @Mock
     private AlarmMapper alarmMapper;
+    @Mock
+    private AlarmAssociationService associationService;
 
     private MqttAlertIngestionService service;
 
     @BeforeEach
     void setUp() {
-        service = new MqttAlertIngestionService(alarmMapper);
+        service = new MqttAlertIngestionService(alarmMapper, associationService);
+        org.mockito.Mockito.lenient().when(associationService.resolve("real_001"))
+                .thenReturn(new AlarmAssociationService.AlarmAssociation(23L, 15L));
     }
 
     @Test
@@ -51,6 +55,9 @@ class MqttAlertIngestionServiceTest {
         Alarm alarm = captor.getValue();
         assertEquals(MqttAlertIngestionService.IngestionResult.STORED, result);
         assertEquals("real_001", alarm.getDeviceCode());
+        assertEquals(23L, alarm.getVehicleId());
+        assertEquals(15L, alarm.getTaskId());
+        assertEquals("ACTIVE", alarm.getConditionStatus());
         assertEquals(AlarmType.ABNORMAL_OPEN.name(), alarm.getAlarmType());
         assertEquals(AlarmLevel.HIGH.name(), alarm.getLevel());
         assertEquals(AlarmStatus.UNHANDLED.name(), alarm.getStatus());

@@ -9,6 +9,9 @@ import com.smart_logistics.backend.enums.DispatchCommandType;
 
 public class DispatchCommandCreateRequest {
 
+    @Positive(message = "alarmId must be greater than 0")
+    private Long alarmId;
+
     @NotNull(message = "taskId must not be null")
     @Positive(message = "taskId must be greater than 0")
     private Long taskId;
@@ -34,6 +37,14 @@ public class DispatchCommandCreateRequest {
 
     public DispatchCommandType getCommandType() {
         return commandType;
+    }
+
+    public Long getAlarmId() {
+        return alarmId;
+    }
+
+    public void setAlarmId(Long alarmId) {
+        this.alarmId = alarmId;
     }
 
     public void setCommandType(DispatchCommandType commandType) {

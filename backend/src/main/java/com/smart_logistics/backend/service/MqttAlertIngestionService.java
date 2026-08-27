@@ -3,6 +3,7 @@ package com.smart_logistics.backend.service;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
 import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.enums.AlarmLevel;
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.mapper.AlarmMapper;
@@ -44,22 +45,29 @@ public class MqttAlertIngestionService {
     );
 
     private final AlarmMapper alarmMapper;
+    private final AlarmAssociationService associationService;
 
-    public MqttAlertIngestionService(AlarmMapper alarmMapper) {
+    public MqttAlertIngestionService(AlarmMapper alarmMapper,
+                                     AlarmAssociationService associationService) {
         this.alarmMapper = alarmMapper;
+        this.associationService = associationService;
     }
 
     @Transactional
     public IngestionResult ingest(MqttAlertPayload payload) {
         ValidatedAlert validated = validate(payload);
 
+        AlarmAssociationService.AlarmAssociation association =
+                associationService.resolve(payload.vehicleId());
         Alarm alarm = new Alarm();
-        alarm.setTaskId(null);
+        alarm.setVehicleId(association.vehicleId());
+        alarm.setTaskId(association.taskId());
         alarm.setDeviceCode(payload.vehicleId());
         alarm.setAlarmType(validated.alarmType().name());
         alarm.setLevel(levelFor(validated.alarmType()).name());
         alarm.setMessage(payload.description().trim());
         alarm.setStatus(AlarmStatus.UNHANDLED.name());
+        alarm.setConditionStatus(AlarmConditionStatus.ACTIVE.name());
         alarm.setSource(payload.source());
         alarm.setSchemaVersion(payload.schemaVersion());
         alarm.setEventKey(createEventKey(payload, validated));

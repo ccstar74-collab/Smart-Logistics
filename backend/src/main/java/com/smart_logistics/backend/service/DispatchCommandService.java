@@ -9,9 +9,11 @@ import com.smart_logistics.backend.dto.request.DispatchCommandStatusUpdateReques
 import com.smart_logistics.backend.dto.response.DispatchCommandResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.DispatchCommand;
+import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.DispatchCommandStatus;
+import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.DispatchCommandType;
 import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
@@ -19,9 +21,11 @@ import com.smart_logistics.backend.enums.UserRole;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.DispatchCommandMapper;
+import com.smart_logistics.backend.mapper.AlarmMapper;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.CurrentUserService;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -48,6 +52,9 @@ public class DispatchCommandService {
     private final UserDisplayNameService userDisplayNameService;
     private final CurrentUserService currentUserService;
     private final TransportTaskRouteService routeService;
+    private final AlarmMapper alarmMapper;
+    private final BusinessDataScopeService dataScopeService;
+    private final AlarmResolutionService alarmResolutionService;
 
     public DispatchCommandService(DispatchCommandMapper dispatchCommandMapper,
                                   TransportTaskMapper transportTaskMapper,
@@ -55,7 +62,10 @@ public class DispatchCommandService {
                                   DriverService driverService,
                                   UserDisplayNameService userDisplayNameService,
                                   CurrentUserService currentUserService,
-                                  TransportTaskRouteService routeService) {
+                                  TransportTaskRouteService routeService,
+                                  AlarmMapper alarmMapper,
+                                  BusinessDataScopeService dataScopeService,
+                                  AlarmResolutionService alarmResolutionService) {
         this.dispatchCommandMapper = dispatchCommandMapper;
         this.transportTaskMapper = transportTaskMapper;
         this.vehicleMapper = vehicleMapper;
@@ -63,12 +73,17 @@ public class DispatchCommandService {
         this.userDisplayNameService = userDisplayNameService;
         this.currentUserService = currentUserService;
         this.routeService = routeService;
+        this.alarmMapper = alarmMapper;
+        this.dataScopeService = dataScopeService;
+        this.alarmResolutionService = alarmResolutionService;
     }
 
     @Transactional
     public DispatchCommandResponse createCommand(DispatchCommandCreateRequest request) {
         UserIdentityResponse creator = requireDispatcherOrAdmin();
         TransportTask task = lockTask(request.getTaskId());
+        Alarm alarm = request.getAlarmId() == null ? null
+                : lockAndValidateAlarm(request.getAlarmId(), task.getId());
         TransportTaskStatus taskStatus = parseTaskStatus(task.getStatus());
         if (!DISPATCHABLE_TASK_STATUSES.contains(taskStatus)) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
@@ -91,6 +106,7 @@ public class DispatchCommandService {
                 request.getCommandType(), request.getRouteId(), task.getId());
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         DispatchCommand command = new DispatchCommand();
+        command.setAlarmId(alarm == null ? null : alarm.getId());
         command.setTaskId(task.getId());
         command.setTargetDriverId(vehicle.getDriverId());
         command.setVehicleId(vehicle.getId());
@@ -104,6 +120,16 @@ public class DispatchCommandService {
         if (dispatchCommandMapper.insert(command) != 1) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR,
                     "failed to create dispatch command");
+        }
+        if (alarm != null && AlarmStatus.UNHANDLED.name().equals(alarm.getStatus())) {
+            alarm.setStatus(AlarmStatus.PROCESSING.name());
+            if (alarm.getHandledAt() == null) {
+                alarm.setHandledAt(now);
+            }
+            if (alarmMapper.updateById(alarm) != 1) {
+                throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "alarm status update conflict");
+            }
         }
         return toResponse(command, task, vehicle, targetRoute);
     }
@@ -175,6 +201,9 @@ public class DispatchCommandService {
         if (dispatchCommandMapper.updateById(command) != 1) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "dispatch command status update conflict");
+        }
+        if (target == DispatchCommandStatus.COMPLETED && command.getAlarmId() != null) {
+            alarmResolutionService.tryResolveAlarm(command.getAlarmId());
         }
         return toResponse(command);
     }
@@ -284,6 +313,28 @@ public class DispatchCommandService {
         return task;
     }
 
+    private Alarm lockAndValidateAlarm(Long alarmId, Long taskId) {
+        Alarm alarm = alarmMapper.selectOne(new LambdaQueryWrapper<Alarm>()
+                .eq(Alarm::getId, alarmId).last("FOR UPDATE"));
+        if (alarm == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "alarm not found");
+        }
+        dataScopeService.requireAlarmAccess(alarm);
+        if (AlarmStatus.RESOLVED.name().equals(alarm.getStatus())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "resolved alarm cannot receive dispatch commands");
+        }
+        if (alarm.getTaskId() == null) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "alarm has no transport task");
+        }
+        if (!Objects.equals(alarm.getTaskId(), taskId)) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "alarm belongs to another transport task");
+        }
+        return alarm;
+    }
+
     private DispatchCommand lockCommand(Long id) {
         DispatchCommand command = dispatchCommandMapper.selectOne(
                 new LambdaQueryWrapper<DispatchCommand>()
@@ -323,7 +374,7 @@ public class DispatchCommandService {
         Map<Long, String> names = userDisplayNameService.getDriverNames(
                 List.of(command.getTargetDriverId()));
         return new DispatchCommandResponse(
-                command.getId(), command.getTaskId(), task.getTaskNo(),
+                command.getId(), command.getAlarmId(), command.getTaskId(), task.getTaskNo(),
                 command.getTargetDriverId(), names.get(command.getTargetDriverId()),
                 command.getVehicleId(), vehicle.getPlateNumber(),
                 route == null ? null : route.routeId(),

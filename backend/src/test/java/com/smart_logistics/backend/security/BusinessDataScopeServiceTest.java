@@ -192,6 +192,37 @@ class BusinessDataScopeServiceTest {
     }
 
     @Test
+    void dispatcherAndAdminCanReadDeviceAlarmWithoutTask() {
+        Alarm alarm = new Alarm();
+        alarm.setId(35L);
+        alarm.setVehicleId(23L);
+        alarm.setTaskId(null);
+
+        when(currentUserService.getCurrentUser()).thenReturn(
+                identity(UserRole.DISPATCHER, null, null));
+        service.requireAlarmAccess(alarm);
+
+        when(currentUserService.getCurrentUser()).thenReturn(
+                identity(UserRole.ADMIN, null, null));
+        service.requireAlarmAccess(alarm);
+    }
+
+    @Test
+    void ownerCannotReadUnrelatedDeviceAlarmWithoutTask() {
+        Alarm alarm = new Alarm();
+        alarm.setId(35L);
+        alarm.setVehicleId(23L);
+        alarm.setTaskId(null);
+        when(currentUserService.getCurrentUser()).thenReturn(
+                identity(UserRole.OWNER, null, 3L));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.requireAlarmAccess(alarm));
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+    }
+
+    @Test
     void driverCannotReadVehicleAssignedToAnotherDriver() {
         when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 9L, null));
         Vehicle unrelated = new Vehicle();

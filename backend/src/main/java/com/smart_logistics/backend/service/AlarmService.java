@@ -6,13 +6,21 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.AlarmStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.AlarmResponse;
 import com.smart_logistics.backend.entity.Alarm;
+import com.smart_logistics.backend.entity.TransportTask;
+import com.smart_logistics.backend.entity.Vehicle;
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
+import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
+import com.smart_logistics.backend.dto.response.UserIdentityResponse;
+import com.smart_logistics.backend.enums.UserRole;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -29,10 +37,20 @@ public class AlarmService {
 
     private final AlarmMapper alarmMapper;
     private final BusinessDataScopeService dataScopeService;
+    private final TransportTaskMapper transportTaskMapper;
+    private final VehicleMapper vehicleMapper;
+    private final CurrentUserService currentUserService;
 
-    public AlarmService(AlarmMapper alarmMapper, BusinessDataScopeService dataScopeService) {
+    public AlarmService(AlarmMapper alarmMapper,
+                        BusinessDataScopeService dataScopeService,
+                        TransportTaskMapper transportTaskMapper,
+                        VehicleMapper vehicleMapper,
+                        CurrentUserService currentUserService) {
         this.alarmMapper = alarmMapper;
         this.dataScopeService = dataScopeService;
+        this.transportTaskMapper = transportTaskMapper;
+        this.vehicleMapper = vehicleMapper;
+        this.currentUserService = currentUserService;
     }
 
     public PageResult<AlarmResponse> listAlarms(long page, long pageSize, String keyword,
@@ -64,7 +82,7 @@ public class AlarmService {
             query.eq(Alarm::getTaskId, taskId);
         }
         if (vehicleId != null) {
-            applyTaskIds(query, dataScopeService.taskIdsForVehicle(vehicleId));
+            query.eq(Alarm::getVehicleId, vehicleId);
         }
         if (ownerId != null) {
             applyTaskIds(query, dataScopeService.taskIdsForOwner(ownerId));
@@ -89,31 +107,39 @@ public class AlarmService {
 
     @Transactional
     public AlarmResponse updateStatus(Long id, AlarmStatusUpdateRequest request) {
-        Alarm alarm = getRequiredAlarm(id);
-        AlarmStatus currentStatus = parseStatus(alarm.getStatus());
-        AlarmStatus targetStatus = request.getStatus();
-
-        if (currentStatus == targetStatus) {
-            return toResponse(alarm);
+        UserIdentityResponse current = currentUserService.getCurrentUser();
+        if (current.getRole() != UserRole.DISPATCHER
+                && current.getRole() != UserRole.ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "current role cannot manually resolve alarms");
         }
-        if (!isAllowedTransition(currentStatus, targetStatus)) {
-            throw new BusinessException(
-                    ErrorCode.STATE_CONFLICT,
-                    "alarm status cannot transition from " + currentStatus + " to " + targetStatus
-            );
+        if (request.getStatus() != AlarmStatus.RESOLVED) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "manual alarm status endpoint only supports RESOLVED");
+        }
+        if (!StringUtils.hasText(request.getRemark())) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "remark must not be blank");
+        }
+        Alarm alarm = lockRequiredAlarm(id);
+        AlarmStatus currentStatus = parseStatus(alarm.getStatus());
+
+        if (currentStatus == AlarmStatus.RESOLVED) {
+            return toResponse(alarm);
         }
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
-        alarm.setStatus(targetStatus.name());
+        alarm.setStatus(AlarmStatus.RESOLVED.name());
+        alarm.setHandledBy(current.getId());
         if (alarm.getHandledAt() == null) {
             alarm.setHandledAt(now);
         }
-        if (targetStatus == AlarmStatus.RESOLVED) {
-            alarm.setResolvedAt(now);
-        }
+        alarm.setResolvedAt(now);
+        alarm.setResolutionRemark(request.getRemark().trim());
 
         if (alarmMapper.updateById(alarm) != 1) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to update alarm status");
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "alarm status update conflict");
         }
         return toResponse(alarm);
     }
@@ -127,29 +153,42 @@ public class AlarmService {
         return alarm;
     }
 
-    private boolean isAllowedTransition(AlarmStatus currentStatus, AlarmStatus targetStatus) {
-        return currentStatus == AlarmStatus.UNHANDLED
-                && (targetStatus == AlarmStatus.PROCESSING
-                || targetStatus == AlarmStatus.RESOLVED)
-                || currentStatus == AlarmStatus.PROCESSING
-                && targetStatus == AlarmStatus.RESOLVED;
+    private Alarm lockRequiredAlarm(Long id) {
+        Alarm alarm = alarmMapper.selectOne(new LambdaQueryWrapper<Alarm>()
+                .eq(Alarm::getId, id).last("FOR UPDATE"));
+        if (alarm == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "alarm not found");
+        }
+        dataScopeService.requireAlarmAccess(alarm);
+        return alarm;
     }
 
     private AlarmResponse toResponse(Alarm alarm) {
+        TransportTask task = alarm.getTaskId() == null ? null
+                : transportTaskMapper.selectById(alarm.getTaskId());
+        Long vehicleId = alarm.getVehicleId() != null ? alarm.getVehicleId()
+                : task == null ? null : task.getVehicleId();
+        Vehicle vehicle = vehicleId == null ? null : vehicleMapper.selectById(vehicleId);
         return new AlarmResponse(
                 alarm.getId(),
+                vehicleId,
+                vehicle == null ? null : vehicle.getPlateNumber(),
                 alarm.getTaskId(),
+                task == null ? null : task.getTaskNo(),
                 alarm.getDeviceCode(),
                 parseAlarmType(alarm.getAlarmType()),
                 parseLevel(alarm.getLevel()),
                 alarm.getMessage(),
                 parseStatus(alarm.getStatus()),
+                parseConditionStatus(alarm.getConditionStatus()),
                 alarm.getSource(),
                 toOffsetDateTime(alarm.getOccurredAt()),
+                toOffsetDateTime(alarm.getRecoveredAt()),
                 alarm.getHandledBy(),
                 toOffsetDateTime(alarm.getHandledAt()),
                 toOffsetDateTime(alarm.getCreatedAt()),
-                toOffsetDateTime(alarm.getResolvedAt())
+                toOffsetDateTime(alarm.getResolvedAt()),
+                alarm.getResolutionRemark()
         );
     }
 
@@ -174,6 +213,18 @@ public class AlarmService {
             return AlarmStatus.valueOf(status);
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "invalid alarm status in database");
+        }
+    }
+
+    private AlarmConditionStatus parseConditionStatus(String status) {
+        if (status == null) {
+            return AlarmConditionStatus.ACTIVE;
+        }
+        try {
+            return AlarmConditionStatus.valueOf(status);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "invalid alarm condition status in database");
         }
     }
 

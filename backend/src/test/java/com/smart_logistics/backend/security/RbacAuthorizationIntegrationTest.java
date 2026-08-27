@@ -134,13 +134,26 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(UserRole.class)
-    void alarmStatusMutationRemainsDeniedByFormalRoleContract(UserRole role) throws Exception {
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER"})
+    void nonOperationalRolesCannotManuallyResolveAlarm(UserRole role) throws Exception {
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .header("Authorization", token(role))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":\"PROCESSING\"}"))
+                        .content("{\"status\":\"RESOLVED\"," +
+                                "\"remark\":\"False positive\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"DISPATCHER", "ADMIN"})
+    void dispatcherAndAdminCanManuallyResolveAlarmWithRemark(UserRole role) throws Exception {
+        mockMvc.perform(put("/api/v1/alarms/1/status")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"RESOLVED\"," +
+                                "\"remark\":\"False positive\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -258,8 +271,9 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isOk());
         mockMvc.perform(put("/api/v1/alarms/1/status").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":\"PROCESSING\"}"))
-                .andExpect(status().isForbidden());
+                        .content("{\"status\":\"RESOLVED\"," +
+                                "\"remark\":\"False positive\"}"))
+                .andExpect(status().isOk());
     }
 
     @ParameterizedTest

@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 
 public class DispatchCommandResponse {
     private final Long id;
+    private final Long alarmId;
     private final Long taskId;
     private final String taskNo;
     private final Long targetDriverId;
@@ -29,7 +30,7 @@ public class DispatchCommandResponse {
     private final OffsetDateTime completedAt;
     private final OffsetDateTime rejectedAt;
 
-    public DispatchCommandResponse(Long id, Long taskId, String taskNo,
+    public DispatchCommandResponse(Long id, Long alarmId, Long taskId, String taskNo,
                                    Long targetDriverId, String targetDriverName,
                                    Long vehicleId, String plateNumber,
                                    String routeId, Integer routeVersion,
@@ -41,6 +42,7 @@ public class DispatchCommandResponse {
                                    OffsetDateTime executingAt, OffsetDateTime completedAt,
                                    OffsetDateTime rejectedAt) {
         this.id = id;
+        this.alarmId = alarmId;
         this.taskId = taskId;
         this.taskNo = taskNo;
         this.targetDriverId = targetDriverId;
@@ -64,6 +66,7 @@ public class DispatchCommandResponse {
     }
 
     public Long getId() { return id; }
+    public Long getAlarmId() { return alarmId; }
     public Long getTaskId() { return taskId; }
     public String getTaskNo() { return taskNo; }
     public Long getTargetDriverId() { return targetDriverId; }

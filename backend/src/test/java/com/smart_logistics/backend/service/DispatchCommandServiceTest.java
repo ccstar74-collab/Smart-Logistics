@@ -12,10 +12,13 @@ import com.smart_logistics.backend.dto.request.DispatchCommandStatusUpdateReques
 import com.smart_logistics.backend.dto.response.DispatchCommandResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.DispatchCommand;
+import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.entity.Driver;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.DispatchCommandStatus;
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
+import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.DispatchCommandType;
 import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
@@ -24,9 +27,11 @@ import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.DispatchCommandMapper;
+import com.smart_logistics.backend.mapper.AlarmMapper;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.CurrentUserService;
+import com.smart_logistics.backend.security.BusinessDataScopeService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,6 +66,9 @@ class DispatchCommandServiceTest {
     @Mock private UserDisplayNameService userDisplayNameService;
     @Mock private CurrentUserService currentUserService;
     @Mock private TransportTaskRouteService routeService;
+    @Mock private AlarmMapper alarmMapper;
+    @Mock private BusinessDataScopeService dataScopeService;
+    @Mock private AlarmResolutionService alarmResolutionService;
 
     private DispatchCommandService service;
 
@@ -73,8 +81,11 @@ class DispatchCommandServiceTest {
                 TransportTask.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "vehicle"),
                 Vehicle.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "alarm"),
+                Alarm.class);
         service = new DispatchCommandService(commandMapper, taskMapper, vehicleMapper,
-                driverService, userDisplayNameService, currentUserService, routeService);
+                driverService, userDisplayNameService, currentUserService, routeService,
+                alarmMapper, dataScopeService, alarmResolutionService);
         org.mockito.Mockito.lenient().when(currentUserService.getCurrentUser())
                 .thenReturn(identity(UserRole.DISPATCHER, null));
         org.mockito.Mockito.lenient().when(taskMapper.selectOne(any(Wrapper.class)))
@@ -124,6 +135,39 @@ class DispatchCommandServiceTest {
         assertEquals("route_v2", response.getRouteId());
         assertEquals(TransportTaskRouteStatus.READY, response.getRouteStatus());
         verify(routeService, never()).activateReadyRoute(any(), any());
+    }
+
+    @Test
+    void linkedCreationStoresAlarmIdAndMovesUnhandledAlarmToProcessing() {
+        Alarm alarm = alarm(35L, 15L);
+        when(alarmMapper.selectOne(any(Wrapper.class))).thenReturn(alarm);
+        when(alarmMapper.updateById(alarm)).thenReturn(1);
+        DispatchCommandCreateRequest request = request(DispatchCommandType.TEXT);
+        request.setAlarmId(35L);
+
+        DispatchCommandResponse response = service.createCommand(request);
+
+        ArgumentCaptor<DispatchCommand> captor = ArgumentCaptor.forClass(DispatchCommand.class);
+        verify(commandMapper).insert(captor.capture());
+        assertEquals(35L, captor.getValue().getAlarmId());
+        assertEquals(35L, response.getAlarmId());
+        assertEquals(AlarmStatus.PROCESSING.name(), alarm.getStatus());
+        verify(dataScopeService).requireAlarmAccess(alarm);
+        verify(alarmMapper).updateById(alarm);
+    }
+
+    @Test
+    void linkedCreationRejectsAlarmFromAnotherTask() {
+        Alarm alarm = alarm(35L, 99L);
+        when(alarmMapper.selectOne(any(Wrapper.class))).thenReturn(alarm);
+        DispatchCommandCreateRequest request = request(DispatchCommandType.TEXT);
+        request.setAlarmId(35L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.createCommand(request));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(commandMapper, never()).insert(any(DispatchCommand.class));
     }
 
     @Test
@@ -251,6 +295,22 @@ class DispatchCommandServiceTest {
         verify(routeService, never()).activateReadyRoute(any(), any());
     }
 
+    @Test
+    void completedLinkedCommandTriggersAlarmResolutionCheck() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 2L));
+        DispatchCommand command = command(DispatchCommandStatus.EXECUTING,
+                DispatchCommandType.TEXT);
+        command.setAlarmId(35L);
+        when(commandMapper.selectOne(any(Wrapper.class))).thenReturn(command);
+        when(commandMapper.updateById(command)).thenReturn(1);
+
+        DispatchCommandResponse response = service.updateStatus(101L,
+                update(DispatchCommandStatus.COMPLETED));
+
+        assertEquals(DispatchCommandStatus.COMPLETED, response.getStatus());
+        verify(alarmResolutionService).tryResolveAlarm(35L);
+    }
+
     private DispatchCommandCreateRequest request(DispatchCommandType type) {
         DispatchCommandCreateRequest request = new DispatchCommandCreateRequest();
         request.setTaskId(15L);
@@ -296,6 +356,16 @@ class DispatchCommandServiceTest {
         vehicle.setDriverId(2L);
         vehicle.setPlateNumber("YuA8888");
         return vehicle;
+    }
+
+    private Alarm alarm(Long id, Long taskId) {
+        Alarm alarm = new Alarm();
+        alarm.setId(id);
+        alarm.setTaskId(taskId);
+        alarm.setVehicleId(16L);
+        alarm.setStatus(AlarmStatus.UNHANDLED.name());
+        alarm.setConditionStatus(AlarmConditionStatus.ACTIVE.name());
+        return alarm;
     }
 
     private Driver driver() {

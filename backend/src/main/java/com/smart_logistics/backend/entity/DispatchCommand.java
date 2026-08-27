@@ -11,6 +11,7 @@ public class DispatchCommand {
 
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long alarmId;
     private Long taskId;
     private Long targetDriverId;
     private Long vehicleId;
@@ -53,6 +54,14 @@ public class DispatchCommand {
 
     public Long getTargetDriverId() {
         return targetDriverId;
+    }
+
+    public Long getAlarmId() {
+        return alarmId;
+    }
+
+    public void setAlarmId(Long alarmId) {
+        this.alarmId = alarmId;
     }
 
     public void setTargetDriverId(Long targetDriverId) {

@@ -48,14 +48,16 @@ class DispatchCommandControllerTest {
     void postAcceptsServerOwnedIdentityContract() throws Exception {
         when(dispatchCommandService.createCommand(argThat(request ->
                 request.getTaskId() == 15L
+                        && request.getAlarmId() == 35L
                         && request.getCommandType() == DispatchCommandType.TEXT)))
                 .thenReturn(response(DispatchCommandType.TEXT, DispatchCommandStatus.SENT));
 
         mockMvc.perform(post("/api/v1/dispatch-commands")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"taskId\":15,\"commandType\":\"TEXT\"," +
+                        .content("{\"alarmId\":35,\"taskId\":15,\"commandType\":\"TEXT\"," +
                                 "\"content\":\"Slow down\"}"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.alarmId").value(35))
                 .andExpect(jsonPath("$.data.targetDriverId").value(2))
                 .andExpect(jsonPath("$.data.vehicleId").value(16))
                 .andExpect(jsonPath("$.data.status").value("SENT"));
@@ -104,7 +106,7 @@ class DispatchCommandControllerTest {
                                              DispatchCommandStatus status) {
         OffsetDateTime now = OffsetDateTime.parse("2026-08-27T10:30:00+08:00");
         return new DispatchCommandResponse(
-                101L, 15L, "T20260826001", 2L, "Li Si", 16L, "YuA8888",
+                101L, 35L, 15L, "T20260826001", 2L, "Li Si", 16L, "YuA8888",
                 type == DispatchCommandType.ROUTE_CHANGE ? "route_v2" : null,
                 type == DispatchCommandType.ROUTE_CHANGE ? 2 : null,
                 type == DispatchCommandType.ROUTE_CHANGE

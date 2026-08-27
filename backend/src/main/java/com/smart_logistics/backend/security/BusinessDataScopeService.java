@@ -115,7 +115,21 @@ public class BusinessDataScopeService {
     public void applyAlarmScope(LambdaQueryWrapper<Alarm> query, Long requestedOwnerId) {
         UserIdentityResponse current = currentUserService.getCurrentUser();
         if (current.getRole() == UserRole.DRIVER) {
-            inAlarmTaskIds(query, taskIdsForDriver(requireIdentity(current.getDriverId(), "driver")));
+            Long driverId = requireIdentity(current.getDriverId(), "driver");
+            List<Long> taskIds = taskIdsForDriver(driverId);
+            List<Long> vehicleIds = vehicleIdsForDriver(driverId);
+            query.and(scope -> {
+                if (taskIds.isEmpty() && vehicleIds.isEmpty()) {
+                    scope.eq(Alarm::getId, IMPOSSIBLE_ID);
+                } else if (taskIds.isEmpty()) {
+                    scope.in(Alarm::getVehicleId, vehicleIds);
+                } else if (vehicleIds.isEmpty()) {
+                    scope.in(Alarm::getTaskId, taskIds);
+                } else {
+                    scope.in(Alarm::getTaskId, taskIds)
+                            .or().in(Alarm::getVehicleId, vehicleIds);
+                }
+            });
         } else if (current.getRole() == UserRole.OWNER) {
             Long ownerId = requireIdentity(current.getOwnerId(), "owner");
             requireMatchingIdentity(requestedOwnerId, ownerId, "ownerId");
@@ -124,6 +138,20 @@ public class BusinessDataScopeService {
     }
 
     public void requireAlarmAccess(Alarm alarm) {
+        UserIdentityResponse current = currentUserService.getCurrentUser();
+        if (alarm.getTaskId() == null) {
+            if (current.getRole() == UserRole.DISPATCHER
+                    || current.getRole() == UserRole.ADMIN) {
+                return;
+            }
+            if (current.getRole() == UserRole.DRIVER
+                    && alarm.getVehicleId() != null
+                    && vehicleIdsForDriver(requireIdentity(current.getDriverId(), "driver"))
+                    .contains(alarm.getVehicleId())) {
+                return;
+            }
+            forbidden();
+        }
         TransportTask task = transportTaskMapper.selectById(alarm.getTaskId());
         if (task == null) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR,
