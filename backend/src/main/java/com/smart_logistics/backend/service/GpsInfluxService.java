@@ -155,7 +155,7 @@ public class GpsInfluxService {
                 |> range(start: -%ds)
                 |> filter(fn: (r) => r._measurement == %s)
                 |> filter(fn: (r) => %s)
-                |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
+                |> filter(fn: (r) => r._field == "latitude" or r._field == "longitude" or r._field == "speed_kmh" or r._field == "heading" or r._field == "lat" or r._field == "lon" or r._field == "speed" or r._field == "direction")
                 |> last()
                 |> group(columns: ["vehicle_id", "_field"])
                 |> sort(columns: ["_time"])
