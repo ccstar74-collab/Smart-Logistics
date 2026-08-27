@@ -13,6 +13,7 @@
 
 # Logs
 *.log
+iot/simulator/runtime/
 
 # IDE settings
 .vscode/

@@ -656,3 +656,122 @@ while ($true) {
 ```
 
 按 `Ctrl+C` 停止模拟器或查询循环。不要同时运行多个 `sim_019` 发布器，否则相同 MQTT 主题会混入多条轨迹。
+
+## 十四、手动启动“真实 GPS 优先”的自动兜底脚本
+
+这个脚本不会随 Windows 或后端自动启动。只有你明确需要模拟数据时才运行它；关闭脚本后不会继续创建新的模拟发布器。
+
+运行期间每 2 秒执行一次只读检查：
+
+```text
+查询 TRANSPORTING 任务
+→ 起终点坐标不完整：直接跳过
+→ 查询任务绑定车辆的 simCode
+→ real_* 设备：跳过，不生成模拟数据
+→ sim_* 设备但最近 10 秒已有 GPS：跳过，避免重复发布
+→ sim_* 设备且没有新鲜 GPS：请求一次 /planned-route
+→ 自动启动该任务绑定的单车模拟器
+→ 任务离开 TRANSPORTING：自动停止对应模拟器
+→ 模拟器异常退出：等待 GPS 变旧后自动恢复
+```
+
+脚本不会执行以下操作：
+
+- 不创建或重建 `TransportTask`；
+- 不创建或修改 `Vehicle`；
+- 不切换任务状态；
+- 不直接调用高德；
+- 不在每次轮询时请求 `/planned-route`。
+
+当前后端路线并未持久化到 MySQL，而是缓存在 Spring Boot 进程内。脚本只有在确实需要启动某个任务的模拟器时才读取 `/planned-route`；业务后端在缓存未命中时负责调用高德。
+
+### 1. 先只检查，不启动模拟器
+
+打开 PowerShell，执行：
+
+```powershell
+Set-Location -LiteralPath 'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
+
+.\tools\start_task_gps_fallback.ps1 `
+    -BusinessPassword 'shenyuxueshenyuxue' `
+    -DryRun `
+    -Once
+```
+
+如果车辆已有实时定位，会显示：
+
+```text
+[LIVE] task=9 vehicle=sim_019 已有新鲜GPS ...，不启动模拟器
+```
+
+如果没有实时定位，会显示计划启动，但因为 `-DryRun` 不会真正发布：
+
+```text
+[DRY-RUN] task=9 vehicle=sim_019 points=343 将启动路线模拟器
+```
+
+### 2. 正式运行自动兜底
+
+```powershell
+Set-Location -LiteralPath 'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
+
+.\tools\start_task_gps_fallback.ps1 `
+    -BusinessPassword 'shenyuxueshenyuxue'
+```
+
+保持这个 PowerShell 窗口开启。发现需要模拟的任务时会显示：
+
+```text
+[START] task=9 vehicle=sim_019 pid=... points=343 log=...
+```
+
+任务还没有进入 `TRANSPORTING` 时，脚本只会等待，不会修改任务状态。队友之后把任务正常切换为 `TRANSPORTING`，脚本会在约 2 秒内自动发现。
+
+### 3. 停止自动兜底
+
+在运行窗口按：
+
+```text
+Ctrl+C
+```
+
+脚本会停止自己启动的所有模拟器，不会修改任务或车辆。不要直接关闭计算机电源，以便子进程得到正常停止。
+
+### 4. 日志位置
+
+每个任务都有独立日志和 GPS JSONL：
+
+```text
+Smart-Logistics-iot-data\iot\simulator\runtime\task-gps-fallback\
+├── task_9_sim_019.log
+├── task_9_sim_019.err.log
+└── task_9_sim_019.jsonl
+```
+
+实时查看任务 9 的发布日志：
+
+```powershell
+Get-Content -Wait -Tail 30 `
+    '.\Smart-Logistics-iot-data\iot\simulator\runtime\task-gps-fallback\task_9_sim_019.log'
+```
+
+### 5. 常用调整参数
+
+将任务扫描间隔改为 1 秒、把“新鲜 GPS”判断窗口改为 15 秒：
+
+```powershell
+.\tools\start_task_gps_fallback.ps1 `
+    -BusinessPassword 'shenyuxueshenyuxue' `
+    -PollSeconds 1 `
+    -FreshGpsSeconds 15
+```
+
+通常不建议把 `FreshGpsSeconds` 设得过小，否则网络短暂抖动时可能误启动模拟器。脚本有单实例锁，同一台电脑重复运行第二份时会拒绝启动；但它无法强制关闭其他电脑上的手工模拟器，因此团队仍应停止旧的 `--vehicles 20` 发布窗口。
+
+同一个任务的跳过或错误原因只输出一次。例如旧 Task5 虽然仍为 `TRANSPORTING`，但起终点坐标不完整，脚本只会显示一次：
+
+```text
+[SKIP] task=5 起终点坐标不完整，不能加载计划路线
+```
+
+后续扫描不会每 2 秒重复输出相同信息；任务条件变化后会重新判断。
