@@ -166,10 +166,15 @@ cd backend
 
 - 新数据库：执行 `docs/sql/001_core_schema.sql` 后执行 `docs/sql/002_alarm_schema.sql`。
 - 已执行旧版 Alarm V1 的数据库：再执行一次 `docs/sql/003_mqtt_alert_idempotency.sql`。
+- 需要告警关联车辆、告警位置和处理备注功能时：再执行 `docs/sql/008_alarm_vehicle_location_handling.sql`。
 
 告警幂等键由 `schema_version + vehicle_id + 标准化告警类型 + UTC事件时间`
 生成 SHA-256，并由 `uk_alarm_event_key` 唯一索引保证并发和 MQTT QoS 1
 重发时都不会重复入库。F2 后再次按 F1 会产生新的事件时间，因此可以正常新增下一条告警。
+
+入库时会尽可能关联业务数据：按 `device_code` 匹配 `vehicle.sim_code` 得到 `vehicle_id`，
+再取该车辆最新的 `WAITING` / `TRANSPORTING` 任务作为 `task_id`，并从时序库尽力捕获
+告警发生时的经纬度；未登记车辆或无活动任务时对应字段为 NULL，不阻塞告警入库。
 
 启用告警订阅所需环境变量：
 
@@ -236,7 +241,11 @@ GET /api/v1/alarms/{id}
 PUT /api/v1/alarms/{id}/status
 ```
 
-Alarm 状态为 `UNHANDLED`、`PROCESSING`、`RESOLVED`。当前仓库缺少 `alarm` 表 schema，因此尚未完成真实数据库 API 验收。
+Alarm 状态为 `UNHANDLED`、`PROCESSING`、`RESOLVED`。告警处理（`PUT /{id}/status`）
+权限明确为 `DISPATCHER` 和 `ADMIN`，请求体可携带可选 `note`（处理备注，≤500字），
+后端同时记录处理人、处理时间和备注。告警详情返回位置（`longitude` / `latitude`）、
+说明、等级和发生时间；`taskId` 为 NULL 的告警按关联车辆兜底校验权限，
+无任何关联的历史告警仅调度员/管理员可见。
 
 当前已完成 Phase 0 / Phase 1 认证与前端联调接口：
 

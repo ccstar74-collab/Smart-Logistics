@@ -215,6 +215,53 @@ class BusinessDataScopeServiceTest {
         }
     }
 
+    @Test
+    void alarmWithoutTaskFallsBackToVehicleAccess() {
+        when(currentUserService.getCurrentUser())
+                .thenReturn(identity(UserRole.DISPATCHER, null, null));
+        Alarm alarm = new Alarm();
+        alarm.setId(1L);
+        alarm.setTaskId(null);
+        alarm.setVehicleId(20L);
+        Vehicle vehicle = new Vehicle();
+        vehicle.setId(20L);
+        when(vehicleMapper.selectById(20L)).thenReturn(vehicle);
+
+        service.requireAlarmAccess(alarm);
+    }
+
+    @Test
+    void driverCanAccessAlarmOfOwnVehicleWithoutTask() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 9L, null));
+        Alarm alarm = new Alarm();
+        alarm.setId(1L);
+        alarm.setTaskId(null);
+        alarm.setVehicleId(20L);
+        Vehicle vehicle = new Vehicle();
+        vehicle.setId(20L);
+        vehicle.setDriverId(9L);
+        when(vehicleMapper.selectById(20L)).thenReturn(vehicle);
+
+        service.requireAlarmAccess(alarm);
+    }
+
+    @Test
+    void orphanAlarmWithoutTaskOrVehicleIsVisibleToDispatcherButNotOwner() {
+        Alarm alarm = new Alarm();
+        alarm.setId(1L);
+        alarm.setTaskId(null);
+        alarm.setVehicleId(null);
+
+        when(currentUserService.getCurrentUser())
+                .thenReturn(identity(UserRole.DISPATCHER, null, null));
+        service.requireAlarmAccess(alarm);
+
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.OWNER, null, 3L));
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.requireAlarmAccess(alarm));
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+    }
+
     private UserIdentityResponse identity(UserRole role, Long driverId, Long ownerId) {
         return new UserIdentityResponse(1L, "user", "User", null,
                 role, UserStatus.ACTIVE, driverId, ownerId);

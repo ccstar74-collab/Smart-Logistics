@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -92,6 +93,9 @@ class AlarmControllerTest {
                 .andExpect(jsonPath("$.message").value("success"))
                 .andExpect(jsonPath("$.data.id").value(1))
                 .andExpect(jsonPath("$.data.taskId").value(15))
+                .andExpect(jsonPath("$.data.vehicleId").value(20))
+                .andExpect(jsonPath("$.data.longitude").value(121.5))
+                .andExpect(jsonPath("$.data.latitude").value(31.2))
                 .andExpect(jsonPath("$.data.createdAt")
                         .value("2026-08-23T10:30:00+08:00"));
     }
@@ -156,20 +160,24 @@ class AlarmControllerTest {
 
     private AlarmResponse response(AlarmStatus status) {
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-08-23T10:30:00+08:00");
-        return new AlarmResponse(
-                1L,
-                15L,
-                "real_001",
-                AlarmType.ROUTE_DEVIATION,
-                AlarmLevel.HIGH,
-                "Vehicle deviated from the planned route",
-                status,
-                "device",
-                createdAt,
-                null,
-                status == AlarmStatus.UNHANDLED ? null : createdAt.plusMinutes(1),
-                createdAt,
-                status == AlarmStatus.RESOLVED ? createdAt.plusMinutes(2) : null
-        );
+        AlarmResponse response = new AlarmResponse();
+        response.setId(1L);
+        response.setTaskId(15L);
+        response.setVehicleId(20L);
+        response.setDeviceCode("real_001");
+        response.setAlarmType(AlarmType.ROUTE_DEVIATION);
+        response.setLevel(AlarmLevel.HIGH);
+        response.setMessage("Vehicle deviated from the planned route");
+        response.setLongitude(new BigDecimal("121.5"));
+        response.setLatitude(new BigDecimal("31.2"));
+        response.setStatus(status);
+        response.setSource("device");
+        response.setOccurredAt(createdAt);
+        response.setHandledAt(status == AlarmStatus.UNHANDLED
+                ? null : createdAt.plusMinutes(1));
+        response.setCreatedAt(createdAt);
+        response.setResolvedAt(status == AlarmStatus.RESOLVED
+                ? createdAt.plusMinutes(2) : null);
+        return response;
     }
 }

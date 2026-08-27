@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @TableName("alarm")
@@ -12,10 +13,13 @@ public class Alarm {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long taskId;
+    private Long vehicleId;
     private String deviceCode;
     private String alarmType;
     private String level;
     private String message;
+    private BigDecimal longitude;
+    private BigDecimal latitude;
     private String status;
     private String source;
     private String schemaVersion;
@@ -23,6 +27,7 @@ public class Alarm {
     private LocalDateTime occurredAt;
     private Long handledBy;
     private LocalDateTime handledAt;
+    private String handleNote;
     private LocalDateTime createdAt;
     private LocalDateTime resolvedAt;
 
@@ -40,6 +45,14 @@ public class Alarm {
 
     public void setTaskId(Long taskId) {
         this.taskId = taskId;
+    }
+
+    public Long getVehicleId() {
+        return vehicleId;
+    }
+
+    public void setVehicleId(Long vehicleId) {
+        this.vehicleId = vehicleId;
     }
 
     public String getDeviceCode() {
@@ -72,6 +85,22 @@ public class Alarm {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public BigDecimal getLongitude() {
+        return longitude;
+    }
+
+    public void setLongitude(BigDecimal longitude) {
+        this.longitude = longitude;
+    }
+
+    public BigDecimal getLatitude() {
+        return latitude;
+    }
+
+    public void setLatitude(BigDecimal latitude) {
+        this.latitude = latitude;
     }
 
     public String getStatus() {
@@ -128,6 +157,14 @@ public class Alarm {
 
     public void setHandledAt(LocalDateTime handledAt) {
         this.handledAt = handledAt;
+    }
+
+    public String getHandleNote() {
+        return handleNote;
+    }
+
+    public void setHandleNote(String handleNote) {
+        this.handleNote = handleNote;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -23,5 +23,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
         registry.addHandler(gpsWebSocketHandler, "/ws/logistics")
                 .addInterceptors(jwtWebSocketHandshakeInterceptor)
                 .setAllowedOrigins("*");
+
+        registry.addHandler(gpsWebSocketHandler, "/ws/vehicle-locations")
+                .addInterceptors(jwtWebSocketHandshakeInterceptor)
+                .setAllowedOrigins("*");
     }
 }

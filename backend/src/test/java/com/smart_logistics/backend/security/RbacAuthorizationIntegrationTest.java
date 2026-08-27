@@ -102,13 +102,26 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(UserRole.class)
-    void alarmStatusMutationRemainsDeniedByFormalRoleContract(UserRole role) throws Exception {
+    @EnumSource(value = UserRole.class, names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER"})
+    void alarmStatusMutationRejectsNonHandlingRoles(UserRole role) throws Exception {
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .header("Authorization", token(role))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"PROCESSING\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"DISPATCHER", "ADMIN"})
+    void alarmStatusMutationAllowsDispatcherAndAdmin(UserRole role) throws Exception {
+        when(alarmService.updateStatus(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.smart_logistics.backend.dto.response.AlarmResponse());
+        mockMvc.perform(put("/api/v1/alarms/1/status")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"PROCESSING\",\"note\":\"已联系司机\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -196,7 +209,7 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
-    void adminHasExplicitBaseDataPermissionsButNotTaskOrAlarmMutation() throws Exception {
+    void adminHasExplicitBaseDataPermissionsButNotTaskMutation() throws Exception {
         String token = token(UserRole.ADMIN);
         mockMvc.perform(post("/api/v1/cargos").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON).content(cargoJson()))
@@ -224,10 +237,14 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/alarms").header("Authorization", token))
                 .andExpect(status().isOk());
+        // 告警处理权限已明确为DISPATCHER/ADMIN
+        when(alarmService.updateStatus(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.smart_logistics.backend.dto.response.AlarmResponse());
         mockMvc.perform(put("/api/v1/alarms/1/status").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"PROCESSING\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
     }
 
     @ParameterizedTest

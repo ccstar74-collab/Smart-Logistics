@@ -1,11 +1,20 @@
 package com.smart_logistics.backend.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
+import com.smart_logistics.backend.dto.realtime.GpsSample;
 import com.smart_logistics.backend.entity.Alarm;
+import com.smart_logistics.backend.entity.TransportTask;
+import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.mapper.AlarmMapper;
+import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.VehicleMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,13 +24,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.DataAccessResourceFailureException;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,11 +46,29 @@ class MqttAlertIngestionServiceTest {
     @Mock
     private AlarmMapper alarmMapper;
 
+    @Mock
+    private VehicleMapper vehicleMapper;
+
+    @Mock
+    private TransportTaskMapper transportTaskMapper;
+
+    @Mock
+    private GpsInfluxService gpsInfluxService;
+
     private MqttAlertIngestionService service;
 
     @BeforeEach
     void setUp() {
-        service = new MqttAlertIngestionService(alarmMapper);
+        MybatisConfiguration configuration = new MybatisConfiguration();
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(configuration, "alarm-test"), Alarm.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(configuration, "vehicle-test"), Vehicle.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(configuration, "transport-task-test"),
+                TransportTask.class);
+        service = new MqttAlertIngestionService(
+                alarmMapper, vehicleMapper, transportTaskMapper, gpsInfluxService);
     }
 
     @Test
@@ -59,6 +91,70 @@ class MqttAlertIngestionServiceTest {
         assertEquals(64, alarm.getEventKey().length());
         assertEquals(LocalDateTime.of(2026, 8, 24, 18, 23, 47), alarm.getOccurredAt());
         assertNotNull(alarm.getCreatedAt());
+    }
+
+    @Test
+    void associatesRegisteredVehicleActiveTaskAndLocation() {
+        Vehicle vehicle = new Vehicle();
+        vehicle.setId(20L);
+        vehicle.setSimCode("real_001");
+        when(vehicleMapper.selectOne(any(Wrapper.class))).thenReturn(vehicle);
+        TransportTask task = new TransportTask();
+        task.setId(30L);
+        when(transportTaskMapper.selectList(any(Wrapper.class)))
+                .thenReturn(List.of(task));
+        when(gpsInfluxService.querySamples(anyCollection(), any(), any()))
+                .thenReturn(List.of(new GpsSample("real_001", 121.5, 31.2,
+                        40.0, 90.0, Instant.parse("2026-08-24T10:23:45Z"))));
+        when(alarmMapper.insert(any(Alarm.class))).thenReturn(1);
+
+        service.ingest(payload("异常开箱", "2026-08-24T10:23:47.000Z"));
+
+        ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
+        verify(alarmMapper).insert(captor.capture());
+        Alarm alarm = captor.getValue();
+        assertEquals(20L, alarm.getVehicleId());
+        assertEquals(30L, alarm.getTaskId());
+        assertEquals(BigDecimal.valueOf(121.5), alarm.getLongitude());
+        assertEquals(BigDecimal.valueOf(31.2), alarm.getLatitude());
+    }
+
+    @Test
+    void keepsNullAssociationsForUnregisteredDevice() {
+        when(alarmMapper.insert(any(Alarm.class))).thenReturn(1);
+
+        service.ingest(payload("异常停留", "2026-08-24T10:23:47.000Z"));
+
+        ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
+        verify(alarmMapper).insert(captor.capture());
+        Alarm alarm = captor.getValue();
+        assertNull(alarm.getVehicleId());
+        assertNull(alarm.getTaskId());
+        assertNull(alarm.getLongitude());
+        assertNull(alarm.getLatitude());
+        verify(transportTaskMapper, never()).selectList(any(Wrapper.class));
+    }
+
+    @Test
+    void ingestionSucceedsWhenLocationProviderIsUnavailable() {
+        Vehicle vehicle = new Vehicle();
+        vehicle.setId(20L);
+        vehicle.setSimCode("real_001");
+        when(vehicleMapper.selectOne(any(Wrapper.class))).thenReturn(vehicle);
+        when(transportTaskMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        when(gpsInfluxService.querySamples(anyCollection(), any(), any()))
+                .thenThrow(new RuntimeException("realtime location provider unavailable"));
+        when(alarmMapper.insert(any(Alarm.class))).thenReturn(1);
+
+        MqttAlertIngestionService.IngestionResult result = service.ingest(payload(
+                "异常开箱", "2026-08-24T10:23:47.000Z"));
+
+        ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
+        verify(alarmMapper).insert(captor.capture());
+        assertEquals(MqttAlertIngestionService.IngestionResult.STORED, result);
+        assertEquals(20L, captor.getValue().getVehicleId());
+        assertNull(captor.getValue().getTaskId());
+        assertNull(captor.getValue().getLongitude());
     }
 
     @Test

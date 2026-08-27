@@ -8,14 +8,18 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.AlarmStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.AlarmResponse;
+import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
+import com.smart_logistics.backend.enums.UserRole;
+import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,9 @@ class AlarmServiceTest {
     @Mock
     private BusinessDataScopeService dataScopeService;
 
+    @Mock
+    private CurrentUserService currentUserService;
+
     private AlarmService alarmService;
 
     @BeforeEach
@@ -53,7 +60,7 @@ class AlarmServiceTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), "alarm-test"),
                 Alarm.class
         );
-        alarmService = new AlarmService(alarmMapper, dataScopeService);
+        alarmService = new AlarmService(alarmMapper, dataScopeService, currentUserService);
     }
 
     @Test
@@ -144,21 +151,28 @@ class AlarmServiceTest {
     void updateStatusMovesUnhandledAlarmToProcessingAndSetsHandledTime() {
         Alarm alarm = alarm(1L, AlarmStatus.UNHANDLED);
         when(alarmMapper.selectById(1L)).thenReturn(alarm);
+        when(currentUserService.getCurrentUser()).thenReturn(dispatcher());
         when(alarmMapper.updateById(any(Alarm.class))).thenReturn(1);
 
-        AlarmResponse response = alarmService.updateStatus(1L, request(AlarmStatus.PROCESSING));
+        AlarmStatusUpdateRequest request = request(AlarmStatus.PROCESSING);
+        request.setNote("已电话联系司机确认");
+        AlarmResponse response = alarmService.updateStatus(1L, request);
 
         ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
         verify(alarmMapper).updateById(captor.capture());
         assertEquals(AlarmStatus.PROCESSING.name(), captor.getValue().getStatus());
         assertNotNull(captor.getValue().getHandledAt());
+        assertEquals(101L, captor.getValue().getHandledBy());
+        assertEquals("已电话联系司机确认", captor.getValue().getHandleNote());
         assertEquals(AlarmStatus.PROCESSING, response.getStatus());
+        assertEquals("已电话联系司机确认", response.getHandleNote());
     }
 
     @Test
     void updateStatusCanResolveUnhandledAlarmDirectly() {
         Alarm alarm = alarm(1L, AlarmStatus.UNHANDLED);
         when(alarmMapper.selectById(1L)).thenReturn(alarm);
+        when(currentUserService.getCurrentUser()).thenReturn(dispatcher());
         when(alarmMapper.updateById(any(Alarm.class))).thenReturn(1);
 
         AlarmResponse response = alarmService.updateStatus(1L, request(AlarmStatus.RESOLVED));
@@ -197,6 +211,7 @@ class AlarmServiceTest {
     void updateStatusReportsDatabaseFailure() {
         Alarm alarm = alarm(1L, AlarmStatus.PROCESSING);
         when(alarmMapper.selectById(1L)).thenReturn(alarm);
+        when(currentUserService.getCurrentUser()).thenReturn(dispatcher());
         when(alarmMapper.updateById(any(Alarm.class))).thenReturn(0);
 
         BusinessException exception = assertThrows(
@@ -239,5 +254,10 @@ class AlarmServiceTest {
         AlarmStatusUpdateRequest request = new AlarmStatusUpdateRequest();
         request.setStatus(status);
         return request;
+    }
+
+    private UserIdentityResponse dispatcher() {
+        return new UserIdentityResponse(101L, "dispatcher", "调度员", null,
+                UserRole.DISPATCHER, UserStatus.ACTIVE, null, null);
     }
 }

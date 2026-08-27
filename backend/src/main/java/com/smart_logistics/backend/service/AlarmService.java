@@ -13,6 +13,7 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
+import com.smart_logistics.backend.security.CurrentUserService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -29,10 +30,14 @@ public class AlarmService {
 
     private final AlarmMapper alarmMapper;
     private final BusinessDataScopeService dataScopeService;
+    private final CurrentUserService currentUserService;
 
-    public AlarmService(AlarmMapper alarmMapper, BusinessDataScopeService dataScopeService) {
+    public AlarmService(AlarmMapper alarmMapper,
+                        BusinessDataScopeService dataScopeService,
+                        CurrentUserService currentUserService) {
         this.alarmMapper = alarmMapper;
         this.dataScopeService = dataScopeService;
+        this.currentUserService = currentUserService;
     }
 
     public PageResult<AlarmResponse> listAlarms(long page, long pageSize, String keyword,
@@ -64,7 +69,17 @@ public class AlarmService {
             query.eq(Alarm::getTaskId, taskId);
         }
         if (vehicleId != null) {
-            applyTaskIds(query, dataScopeService.taskIdsForVehicle(vehicleId));
+            // 兼容历史数据：旧告警只有task_id，新告警还有vehicle_id，两者任一匹配即可
+            List<Long> taskIds = dataScopeService.taskIdsForVehicle(vehicleId);
+            query.and(wrapper -> {
+                if (taskIds.isEmpty()) {
+                    wrapper.eq(Alarm::getVehicleId, vehicleId);
+                } else {
+                    wrapper.in(Alarm::getTaskId, taskIds)
+                            .or()
+                            .eq(Alarm::getVehicleId, vehicleId);
+                }
+            });
         }
         if (ownerId != null) {
             applyTaskIds(query, dataScopeService.taskIdsForOwner(ownerId));
@@ -105,8 +120,13 @@ public class AlarmService {
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         alarm.setStatus(targetStatus.name());
+        // 处理权限由Controller限定为DISPATCHER/ADMIN，此处记录实际处理人、处理时间和备注
+        alarm.setHandledBy(currentUserService.getCurrentUser().getId());
         if (alarm.getHandledAt() == null) {
             alarm.setHandledAt(now);
+        }
+        if (request.getNote() != null) {
+            alarm.setHandleNote(request.getNote().trim());
         }
         if (targetStatus == AlarmStatus.RESOLVED) {
             alarm.setResolvedAt(now);
@@ -136,21 +156,25 @@ public class AlarmService {
     }
 
     private AlarmResponse toResponse(Alarm alarm) {
-        return new AlarmResponse(
-                alarm.getId(),
-                alarm.getTaskId(),
-                alarm.getDeviceCode(),
-                parseAlarmType(alarm.getAlarmType()),
-                parseLevel(alarm.getLevel()),
-                alarm.getMessage(),
-                parseStatus(alarm.getStatus()),
-                alarm.getSource(),
-                toOffsetDateTime(alarm.getOccurredAt()),
-                alarm.getHandledBy(),
-                toOffsetDateTime(alarm.getHandledAt()),
-                toOffsetDateTime(alarm.getCreatedAt()),
-                toOffsetDateTime(alarm.getResolvedAt())
-        );
+        AlarmResponse response = new AlarmResponse();
+        response.setId(alarm.getId());
+        response.setTaskId(alarm.getTaskId());
+        response.setVehicleId(alarm.getVehicleId());
+        response.setDeviceCode(alarm.getDeviceCode());
+        response.setAlarmType(parseAlarmType(alarm.getAlarmType()));
+        response.setLevel(parseLevel(alarm.getLevel()));
+        response.setMessage(alarm.getMessage());
+        response.setLongitude(alarm.getLongitude());
+        response.setLatitude(alarm.getLatitude());
+        response.setStatus(parseStatus(alarm.getStatus()));
+        response.setSource(alarm.getSource());
+        response.setOccurredAt(toOffsetDateTime(alarm.getOccurredAt()));
+        response.setHandledBy(alarm.getHandledBy());
+        response.setHandleNote(alarm.getHandleNote());
+        response.setHandledAt(toOffsetDateTime(alarm.getHandledAt()));
+        response.setCreatedAt(toOffsetDateTime(alarm.getCreatedAt()));
+        response.setResolvedAt(toOffsetDateTime(alarm.getResolvedAt()));
+        return response;
     }
 
     private AlarmType parseAlarmType(String alarmType) {

@@ -1,25 +1,38 @@
 package com.smart_logistics.backend.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
+import com.smart_logistics.backend.dto.realtime.GpsSample;
 import com.smart_logistics.backend.entity.Alarm;
+import com.smart_logistics.backend.entity.TransportTask;
+import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
+import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.mapper.AlarmMapper;
+import com.smart_logistics.backend.mapper.TransportTaskMapper;
+import com.smart_logistics.backend.mapper.VehicleMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -32,6 +45,8 @@ public class MqttAlertIngestionService {
         DUPLICATE
     }
 
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(MqttAlertIngestionService.class);
     private static final ZoneId DATABASE_TIME_ZONE = ZoneId.of("Asia/Shanghai");
     private static final Pattern DEVICE_CODE_PATTERN =
             Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
@@ -42,23 +57,46 @@ public class MqttAlertIngestionService {
             "异常停留", AlarmType.ABNORMAL_STOP,
             "异常开箱", AlarmType.ABNORMAL_OPEN
     );
+    // 告警位置查找窗口：事件时间前5分钟到后1分钟，取最接近事件时间的GPS点
+    private static final Duration LOCATION_LOOKBACK = Duration.ofMinutes(5);
+    private static final Duration LOCATION_FORWARD_TOLERANCE = Duration.ofMinutes(1);
 
     private final AlarmMapper alarmMapper;
+    private final VehicleMapper vehicleMapper;
+    private final TransportTaskMapper transportTaskMapper;
+    private final GpsInfluxService gpsInfluxService;
 
-    public MqttAlertIngestionService(AlarmMapper alarmMapper) {
+    public MqttAlertIngestionService(AlarmMapper alarmMapper,
+                                     VehicleMapper vehicleMapper,
+                                     TransportTaskMapper transportTaskMapper,
+                                     GpsInfluxService gpsInfluxService) {
         this.alarmMapper = alarmMapper;
+        this.vehicleMapper = vehicleMapper;
+        this.transportTaskMapper = transportTaskMapper;
+        this.gpsInfluxService = gpsInfluxService;
     }
 
     @Transactional
     public IngestionResult ingest(MqttAlertPayload payload) {
         ValidatedAlert validated = validate(payload);
 
+        // 尽可能关联有效车辆和有效任务：未登记车辆或无活动任务时保留NULL，
+        // 不阻塞告警入库，详情权限校验会按车辆兜底放行调度/管理角色。
+        Vehicle vehicle = findVehicleByDeviceCode(payload.vehicleId());
+        Long taskId = activeTaskIdFor(vehicle);
+        GpsSample location = locateNear(payload.vehicleId(), validated.occurredAt());
+
         Alarm alarm = new Alarm();
-        alarm.setTaskId(null);
+        alarm.setTaskId(taskId);
+        alarm.setVehicleId(vehicle == null ? null : vehicle.getId());
         alarm.setDeviceCode(payload.vehicleId());
         alarm.setAlarmType(validated.alarmType().name());
         alarm.setLevel(levelFor(validated.alarmType()).name());
         alarm.setMessage(payload.description().trim());
+        if (location != null) {
+            alarm.setLongitude(BigDecimal.valueOf(location.longitude()));
+            alarm.setLatitude(BigDecimal.valueOf(location.latitude()));
+        }
         alarm.setStatus(AlarmStatus.UNHANDLED.name());
         alarm.setSource(payload.source());
         alarm.setSchemaVersion(payload.schemaVersion());
@@ -75,6 +113,47 @@ public class MqttAlertIngestionService {
             return IngestionResult.STORED;
         } catch (DuplicateKeyException exception) {
             return IngestionResult.DUPLICATE;
+        }
+    }
+
+    private Vehicle findVehicleByDeviceCode(String deviceCode) {
+        return vehicleMapper.selectOne(new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getSimCode, deviceCode));
+    }
+
+    private Long activeTaskIdFor(Vehicle vehicle) {
+        if (vehicle == null) {
+            return null;
+        }
+        List<TransportTask> tasks = transportTaskMapper.selectList(
+                new LambdaQueryWrapper<TransportTask>()
+                        .eq(TransportTask::getVehicleId, vehicle.getId())
+                        .in(TransportTask::getStatus,
+                                TransportTaskStatus.WAITING.name(),
+                                TransportTaskStatus.TRANSPORTING.name())
+                        .orderByDesc(TransportTask::getUpdatedAt)
+                        .orderByDesc(TransportTask::getId));
+        return tasks.isEmpty() ? null : tasks.get(0).getId();
+    }
+
+    /**
+     * 尽力捕获告警发生时的车辆位置。位置缺失或时序数据源不可用时返回NULL，
+     * 不能因此阻塞告警入库。
+     */
+    private GpsSample locateNear(String deviceCode, Instant occurredAt) {
+        try {
+            return gpsInfluxService.querySamples(
+                            List.of(deviceCode),
+                            occurredAt.minus(LOCATION_LOOKBACK),
+                            occurredAt.plus(LOCATION_FORWARD_TOLERANCE))
+                    .stream()
+                    .min(Comparator.comparing(sample -> Duration.between(
+                            sample.collectedAt(), occurredAt).abs()))
+                    .orElse(null);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("告警位置查找失败，跳过位置记录 deviceCode={}, reason={}",
+                    deviceCode, exception.getMessage());
+            return null;
         }
     }
 

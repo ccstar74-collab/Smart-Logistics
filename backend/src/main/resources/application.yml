@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 18080
   address: 0.0.0.0
 
 spring:
@@ -27,7 +27,7 @@ app:
     latest-lookback: ${GPS_LATEST_LOOKBACK:PT24H}
     online-threshold: ${GPS_ONLINE_THRESHOLD:PT2M}
   eta:
-    enabled: ${ETA_ENABLED:true}
+    enabled: ${ETA_ENABLED:false}
     gps-max-age: ${ETA_GPS_MAX_AGE:PT2M}
     speed-history-window: ${ETA_SPEED_HISTORY_WINDOW:PT10M}
     min-change: ${ETA_MIN_CHANGE:PT0S}
@@ -41,8 +41,8 @@ app:
 
 # ============MQTT、InfluxDB配置============
 mqtt:
-  enabled: ${MQTT_ENABLED:false}
-  realtime-enabled: ${MQTT_REALTIME_ENABLED:false}
+  enabled: true
+  realtime-enabled: true
   broker: ${MQTT_BROKER_URL:tcp://127.0.0.1:1883}
   client-id: ${MQTT_CLIENT_ID:smart_logistics_sub}
   clientId.pub: ${MQTT_PUB_CLIENT_ID:smart_logistics_pub}
