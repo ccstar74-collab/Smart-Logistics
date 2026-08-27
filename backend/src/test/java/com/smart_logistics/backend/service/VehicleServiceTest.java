@@ -488,6 +488,31 @@ class VehicleServiceTest {
         assertTrue(captor.getValue().getParamNameValuePairs().containsValue(9L));
     }
 
+    @Test
+    void transportSimCodeRequiresExactFormalFormat() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        vehicle.setSimCode("sim_008");
+
+        assertEquals("sim_008", vehicleService.requireTransportSimCode(vehicle));
+
+        vehicle.setSimCode(" sim_008 ");
+        BusinessException invalid = assertThrows(BusinessException.class,
+                () -> vehicleService.requireTransportSimCode(vehicle));
+        assertEquals(ErrorCode.STATE_CONFLICT, invalid.getErrorCode());
+        assertEquals("vehicle simCode must match ^sim_\\d{3}$", invalid.getMessage());
+    }
+
+    @Test
+    void transportSimCodeRejectsMissingBinding() {
+        Vehicle vehicle = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> vehicleService.requireTransportSimCode(vehicle));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        assertEquals("vehicle has no simCode", exception.getMessage());
+    }
+
     private Vehicle vehicle(Long id, String plateNumber, VehicleStatus status) {
         Vehicle vehicle = new Vehicle();
         vehicle.setId(id);

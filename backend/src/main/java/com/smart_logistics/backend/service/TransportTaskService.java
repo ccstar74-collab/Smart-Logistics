@@ -8,6 +8,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
 import com.smart_logistics.backend.entity.Owner;
@@ -15,6 +16,7 @@ import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.CargoStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
+import com.smart_logistics.backend.enums.UserRole;
 import com.smart_logistics.backend.enums.VehicleStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
@@ -22,8 +24,14 @@ import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.OwnerMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
 import com.smart_logistics.backend.security.CurrentUserService;
+import com.smart_logistics.backend.service.eta.EtaPlannedRoute;
+import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -49,7 +57,11 @@ public class TransportTaskService {
     private final BusinessDataScopeService dataScopeService;
     private final CurrentUserService currentUserService;
     private final TransportTaskStatusRecordService statusRecordService;
+    private final EtaPlannedRouteService etaPlannedRouteService;
+    private final TransportTaskRouteService taskRouteService;
+    private final TransactionOperations transactionOperations;
 
+    @Autowired
     public TransportTaskService(TransportTaskMapper transportTaskMapper,
                                 OwnerMapper ownerMapper,
                                 CargoService cargoService,
@@ -57,7 +69,27 @@ public class TransportTaskService {
                                 TransportTaskAvailabilityService availabilityService,
                                 BusinessDataScopeService dataScopeService,
                                 CurrentUserService currentUserService,
-                                TransportTaskStatusRecordService statusRecordService) {
+                                TransportTaskStatusRecordService statusRecordService,
+                                EtaPlannedRouteService etaPlannedRouteService,
+                                TransportTaskRouteService taskRouteService,
+                                PlatformTransactionManager transactionManager) {
+        this(transportTaskMapper, ownerMapper, cargoService, vehicleService,
+                availabilityService, dataScopeService, currentUserService,
+                statusRecordService, etaPlannedRouteService, taskRouteService,
+                new TransactionTemplate(transactionManager));
+    }
+
+    TransportTaskService(TransportTaskMapper transportTaskMapper,
+                         OwnerMapper ownerMapper,
+                         CargoService cargoService,
+                         VehicleService vehicleService,
+                         TransportTaskAvailabilityService availabilityService,
+                         BusinessDataScopeService dataScopeService,
+                         CurrentUserService currentUserService,
+                         TransportTaskStatusRecordService statusRecordService,
+                         EtaPlannedRouteService etaPlannedRouteService,
+                         TransportTaskRouteService taskRouteService,
+                         TransactionOperations transactionOperations) {
         this.transportTaskMapper = transportTaskMapper;
         this.ownerMapper = ownerMapper;
         this.cargoService = cargoService;
@@ -66,18 +98,44 @@ public class TransportTaskService {
         this.dataScopeService = dataScopeService;
         this.currentUserService = currentUserService;
         this.statusRecordService = statusRecordService;
+        this.etaPlannedRouteService = etaPlannedRouteService;
+        this.taskRouteService = taskRouteService;
+        this.transactionOperations = transactionOperations;
     }
 
-    @Transactional
     public TransportTaskResponse createTransportTask(TransportTaskCreateRequest request) {
         validatePlanTimes(request);
         validateCreateCoordinates(request);
         requireOwner(request.getOwnerId());
-        Cargo cargo = cargoService.getCargoForTransportForUpdate(request.getCargoId());
+        Cargo cargo = cargoService.getCargoForTransport(request.getCargoId());
         Vehicle vehicle = vehicleService.getVehicleForTransport(request.getVehicleId());
         requireCargoStatus(cargo, CargoStatus.WAITING);
         requireCompatibleOwner(cargo, request.getOwnerId());
         requireVehicleStatus(vehicle, VehicleStatus.IDLE);
+        vehicleService.requireTransportSimCode(vehicle);
+        availabilityService.ensureCargoAvailable(request.getCargoId());
+        availabilityService.ensureVehicleAvailable(request.getVehicleId());
+
+        EtaPlannedRoute plannedRoute = etaPlannedRouteService.planRoute(
+                request.getStartLongitude(), request.getStartLatitude(),
+                request.getEndLongitude(), request.getEndLatitude());
+        TransportTaskResponse response = transactionOperations.execute(status ->
+                persistTransportTaskWithInitialRoute(request, plannedRoute));
+        if (response == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "transport task transaction returned no result");
+        }
+        return response;
+    }
+
+    private TransportTaskResponse persistTransportTaskWithInitialRoute(
+            TransportTaskCreateRequest request, EtaPlannedRoute plannedRoute) {
+        Cargo cargo = cargoService.getCargoForTransportForUpdate(request.getCargoId());
+        Vehicle vehicle = vehicleService.getVehicleForTransportForUpdate(request.getVehicleId());
+        requireCargoStatus(cargo, CargoStatus.WAITING);
+        requireCompatibleOwner(cargo, request.getOwnerId());
+        requireVehicleStatus(vehicle, VehicleStatus.IDLE);
+        vehicleService.requireTransportSimCode(vehicle);
         availabilityService.ensureCargoAvailable(request.getCargoId());
         availabilityService.ensureVehicleAvailable(request.getVehicleId());
 
@@ -110,6 +168,7 @@ public class TransportTaskService {
         } catch (DuplicateKeyException exception) {
             throw duplicateTaskNo(exception);
         }
+        taskRouteService.persistInitialActiveRoute(task.getId(), plannedRoute);
         return toResponse(getRequiredTransportTask(task.getId()));
     }
 
@@ -165,6 +224,31 @@ public class TransportTaskService {
         return toResponse(getRequiredTransportTask(id));
     }
 
+    public List<TransportTaskRouteResponse> listTransportTaskRoutes(Long id) {
+        getRequiredTransportTask(id);
+        return taskRouteService.findRoutesByTaskId(id).stream()
+                .map(TransportTaskRouteResponse::from)
+                .toList();
+    }
+
+    public TransportTaskRouteResponse createReadyRoute(Long id) {
+        TransportTask task = getRequiredTransportTask(id);
+        requireRouteMutationAllowed(parseStatus(task.getStatus()));
+        validateTaskCoordinates(task);
+        EtaPlannedRoute plannedRoute = etaPlannedRouteService.planRoute(
+                task.getStartLongitude(), task.getStartLatitude(),
+                task.getEndLongitude(), task.getEndLatitude());
+        return TransportTaskRouteResponse.from(
+                taskRouteService.persistReadyRoute(id, plannedRoute));
+    }
+
+    public TransportTaskRouteResponse activateReadyRoute(Long id, String routeId) {
+        TransportTask task = getRequiredTransportTask(id);
+        requireRouteMutationAllowed(parseStatus(task.getStatus()));
+        return TransportTaskRouteResponse.from(
+                taskRouteService.activateReadyRoute(id, routeId));
+    }
+
     public TransportTaskResponse getCurrentTransportTask() {
         UserIdentityResponse current = currentUserService.getCurrentUser();
         Long driverId = current.getDriverId();
@@ -213,7 +297,18 @@ public class TransportTaskService {
     @Transactional
     public TransportTaskResponse updateTransportTaskStatusForDriver(
             Long id, TransportTaskStatusUpdateRequest request) {
-        TransportTask task = getRequiredTransportTask(id);
+        TransportTask task = getRequiredTransportTaskRaw(id);
+        UserIdentityResponse currentUser = currentUserService.getCurrentUser();
+        if (currentUser.getRole() != UserRole.DRIVER
+                || currentUser.getDriverId() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "driver identity is missing");
+        }
+        Vehicle assignedVehicle = vehicleService.getVehicleForTransport(task.getVehicleId());
+        if (!Objects.equals(assignedVehicle.getDriverId(), currentUser.getDriverId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "task is not assigned to current driver");
+        }
         TransportTaskStatus currentStatus = parseStatus(task.getStatus());
         TransportTaskStatus targetStatus = request.getStatus();
         boolean allowed = currentStatus == TransportTaskStatus.WAITING
@@ -238,6 +333,14 @@ public class TransportTaskService {
         Cargo cargo = cargoService.getCargoForTransport(task.getCargoId());
         Vehicle vehicle = vehicleService.getVehicleForTransport(task.getVehicleId());
         validateAssociatedStatuses(currentStatus, cargo, vehicle);
+        if (currentStatus == TransportTaskStatus.WAITING
+                && targetStatus == TransportTaskStatus.TRANSPORTING) {
+            vehicleService.requireTransportSimCode(vehicle);
+            if (taskRouteService.getActiveRoute(id).isEmpty()) {
+                throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "task has no active planned route");
+            }
+        }
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         updateTaskStatus(task, currentStatus, targetStatus, now);
@@ -290,6 +393,26 @@ public class TransportTaskService {
         validateCoordinateRange("startLatitude", request.getStartLatitude(), -90, 90);
         validateCoordinateRange("endLongitude", request.getEndLongitude(), -180, 180);
         validateCoordinateRange("endLatitude", request.getEndLatitude(), -90, 90);
+    }
+
+    private void validateTaskCoordinates(TransportTask task) {
+        if (task.getStartLongitude() == null || task.getStartLatitude() == null
+                || task.getEndLongitude() == null || task.getEndLatitude() == null) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "transport task route coordinates are incomplete");
+        }
+        validateCoordinateRange("startLongitude", task.getStartLongitude(), -180, 180);
+        validateCoordinateRange("startLatitude", task.getStartLatitude(), -90, 90);
+        validateCoordinateRange("endLongitude", task.getEndLongitude(), -180, 180);
+        validateCoordinateRange("endLatitude", task.getEndLatitude(), -90, 90);
+    }
+
+    private void requireRouteMutationAllowed(TransportTaskStatus status) {
+        if (status != TransportTaskStatus.WAITING
+                && status != TransportTaskStatus.TRANSPORTING) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "route can only be changed for waiting or transporting task");
+        }
     }
 
     private void validateCoordinateRange(String name, double value,

@@ -86,6 +86,35 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(get("/api/v1/cargos/1/status-records")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void dispatcherCanCreateAndActivateRouteVersions() throws Exception {
+        String token = token(UserRole.DISPATCHER);
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER", "ADMIN"})
+    void nonDispatcherCannotMutateRouteVersions(UserRole role) throws Exception {
+        String token = token(role);
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
+                        .header("Authorization", token))
+                .andExpect(status().isForbidden());
     }
 
     @ParameterizedTest

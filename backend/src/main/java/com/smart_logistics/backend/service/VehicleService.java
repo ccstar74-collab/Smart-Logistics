@@ -116,6 +116,29 @@ public class VehicleService {
         return getRequiredVehicleRaw(id);
     }
 
+    public Vehicle getVehicleForTransportForUpdate(Long id) {
+        Vehicle vehicle = vehicleMapper.selectOne(new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getId, id)
+                .last("FOR UPDATE"));
+        if (vehicle == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "vehicle not found");
+        }
+        return vehicle;
+    }
+
+    public String requireTransportSimCode(Vehicle vehicle) {
+        if (!StringUtils.hasText(vehicle.getSimCode())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "vehicle has no simCode");
+        }
+        String simCode = vehicle.getSimCode();
+        if (!SIM_CODE_PATTERN.matcher(simCode).matches()) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "vehicle simCode must match ^sim_\\d{3}$");
+        }
+        return simCode;
+    }
+
     @Transactional
     public void updateStatusForTransport(Long id, VehicleStatus expectedStatus,
                                          VehicleStatus targetStatus) {

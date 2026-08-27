@@ -95,6 +95,41 @@ class EtaPlannedRouteServiceTest {
     }
 
     @Test
+    void newlyCreatedWaitingTaskReadsPersistedRouteWithoutProviderCall() {
+        stubVehicle("sim_008");
+        when(taskRouteService.getActiveRoute(1L)).thenReturn(Optional.of(snapshot()));
+
+        PlannedRouteResponse response = service.getResponse(
+                taskResponse(TransportTaskStatus.WAITING));
+
+        assertEquals("route_fixed", response.routeId());
+        assertEquals(1, response.routeVersion());
+        assertEquals("sim_008", response.vehicleDeviceCode());
+        verify(routeProvider, never()).plan(anyDouble(), anyDouble(), anyDouble(), anyDouble());
+        verify(taskRouteService, never()).persistInitialActiveRoute(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(EtaPlannedRoute.class));
+    }
+
+    @Test
+    void plannedRouteImmediatelyReflectsActivatedVersion() {
+        stubVehicle("sim_019");
+        TransportTaskRouteSnapshot activeV2 = new TransportTaskRouteSnapshot(
+                8L, "route_v2", 1L, "AMAP", "GCJ02",
+                List.of(List.of(106.5701, 29.4901), List.of(106.6201, 29.5301)),
+                5_700, 750, 2, TransportTaskRouteStatus.ACTIVE,
+                snapshot().createdAt(), snapshot().updatedAt());
+        when(taskRouteService.getActiveRoute(1L)).thenReturn(Optional.of(activeV2));
+
+        PlannedRouteResponse response = service.getResponse(
+                taskResponse(TransportTaskStatus.TRANSPORTING));
+
+        assertEquals("route_v2", response.routeId());
+        assertEquals(2, response.routeVersion());
+        assertEquals(5_700, response.distanceMeters());
+    }
+
+    @Test
     void etaReadsTheSamePersistedActiveRoute() {
         when(taskRouteService.getActiveRoute(1L)).thenReturn(Optional.of(snapshot()));
         TransportTask task = new TransportTask();

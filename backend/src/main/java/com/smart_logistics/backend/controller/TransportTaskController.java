@@ -7,12 +7,14 @@ import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
@@ -60,6 +62,28 @@ public class TransportTaskController {
             @PathVariable @Positive Long id) {
         TransportTaskResponse task = transportTaskService.getTransportTask(id);
         return ApiResponse.success(etaPlannedRouteService.getResponse(task));
+    }
+
+    @GetMapping("/{id}/routes")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<List<TransportTaskRouteResponse>> listRoutes(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(transportTaskService.listTransportTaskRoutes(id));
+    }
+
+    @PostMapping("/{id}/routes")
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<TransportTaskRouteResponse> createReadyRoute(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(transportTaskService.createReadyRoute(id));
+    }
+
+    @PutMapping("/{id}/routes/{routeId}/activate")
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<TransportTaskRouteResponse> activateReadyRoute(
+            @PathVariable @Positive Long id,
+            @PathVariable @NotBlank @Size(max = 64) String routeId) {
+        return ApiResponse.success(transportTaskService.activateReadyRoute(id, routeId));
     }
 
     @GetMapping

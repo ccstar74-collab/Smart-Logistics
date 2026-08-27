@@ -5,6 +5,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
@@ -147,6 +148,54 @@ class TransportTaskControllerTest {
         mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value(50301));
+    }
+
+    @Test
+    void routeListReturnsAllVersionsInServiceOrder() throws Exception {
+        when(transportTaskService.listTransportTaskRoutes(1L)).thenReturn(List.of(
+                routeResponse("route_v1", 1, TransportTaskRouteStatus.ACTIVE),
+                routeResponse("route_v2", 2, TransportTaskRouteStatus.READY)));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/routes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].routeId").value("route_v1"))
+                .andExpect(jsonPath("$.data[0].routeStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[1].routeVersion").value(2))
+                .andExpect(jsonPath("$.data[1].routeStatus").value("READY"));
+    }
+
+    @Test
+    void createReadyRouteReturnsVersionedSnapshot() throws Exception {
+        when(transportTaskService.createReadyRoute(1L)).thenReturn(
+                routeResponse("route_v2", 2, TransportTaskRouteStatus.READY));
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
+                .andExpect(jsonPath("$.data.routeVersion").value(2))
+                .andExpect(jsonPath("$.data.routeStatus").value("READY"));
+    }
+
+    @Test
+    void activateRouteReturnsNewActiveSnapshot() throws Exception {
+        when(transportTaskService.activateReadyRoute(1L, "route_v2")).thenReturn(
+                routeResponse("route_v2", 2, TransportTaskRouteStatus.ACTIVE));
+
+        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
+                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
+    }
+
+    @Test
+    void routeListPreservesTaskDataScopeFailure() throws Exception {
+        when(transportTaskService.listTransportTaskRoutes(1L)).thenThrow(
+                new BusinessException(ErrorCode.FORBIDDEN,
+                        "resource is outside current user data scope"));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/routes"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
     }
 
     @Test
@@ -426,5 +475,15 @@ class TransportTaskControllerTest {
                 OffsetDateTime.parse("2026-08-23T10:00:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:00:00+08:00")
         );
+    }
+
+    private TransportTaskRouteResponse routeResponse(
+            String routeId, int routeVersion, TransportTaskRouteStatus status) {
+        return new TransportTaskRouteResponse(
+                routeId, 1L, routeVersion, status, "AMAP", "GCJ02",
+                5_500, 720,
+                OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
+                List.of(List.of(106.5701, 29.4901),
+                        List.of(106.6101, 29.5201)));
     }
 }

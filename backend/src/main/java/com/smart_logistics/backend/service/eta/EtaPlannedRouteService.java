@@ -39,6 +39,17 @@ public class EtaPlannedRouteService {
                 task.getEndLongitude(), task.getEndLatitude()));
     }
 
+    public EtaPlannedRoute planRoute(double startLongitude, double startLatitude,
+                                     double endLongitude, double endLatitude) {
+        try {
+            return routeProvider.plan(startLongitude, startLatitude,
+                    endLongitude, endLatitude);
+        } catch (EtaProviderException exception) {
+            throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
+                    "planned route is unavailable: " + exception.getMessage());
+        }
+    }
+
     public PlannedRouteResponse getResponse(TransportTaskResponse task) {
         requireRouteStatus(task.getStatus());
         String vehicleDeviceCode = getVehicleDeviceCode(task.getVehicleId());
@@ -85,14 +96,8 @@ public class EtaPlannedRouteService {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "transport task route coordinates are incomplete");
         }
-        EtaPlannedRoute route;
-        try {
-            route = routeProvider.plan(startLongitude, startLatitude,
-                    endLongitude, endLatitude);
-        } catch (EtaProviderException exception) {
-            throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
-                    "planned route is unavailable: " + exception.getMessage());
-        }
+        EtaPlannedRoute route = planRoute(startLongitude, startLatitude,
+                endLongitude, endLatitude);
         return taskRouteService.persistInitialActiveRoute(taskId, route);
     }
 
