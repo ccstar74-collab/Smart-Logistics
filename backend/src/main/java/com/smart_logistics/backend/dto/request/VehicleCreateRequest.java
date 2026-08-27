@@ -1,14 +1,20 @@
 package com.smart_logistics.backend.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import jakarta.validation.GroupSequence;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 
+@GroupSequence({VehicleCreateRequest.class, VehicleCreateRequest.SimCodeFormat.class})
 public class VehicleCreateRequest {
+
+    interface SimCodeFormat {
+    }
 
     @NotBlank(message = "plateNumber must not be blank")
     @Size(max = 20, message = "plateNumber must not exceed 20 characters")
@@ -25,7 +31,8 @@ public class VehicleCreateRequest {
 
     @JsonAlias("sim_code")
     @NotBlank(message = "simCode must not be blank")
-    @Size(max = 64, message = "simCode must not exceed 64 characters")
+    @Pattern(regexp = "^sim_\\d{3}$", groups = SimCodeFormat.class,
+            message = "simCode must match ^sim_\\d{3}$")
     private String simCode;
 
     public String getPlateNumber() {

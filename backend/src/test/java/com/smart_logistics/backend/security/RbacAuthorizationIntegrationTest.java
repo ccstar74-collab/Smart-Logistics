@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -86,6 +87,35 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(get("/api/v1/cargos/1/status-records")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void dispatcherCanCreateAndActivateRouteVersions() throws Exception {
+        String token = token(UserRole.DISPATCHER);
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER", "ADMIN"})
+    void nonDispatcherCannotMutateRouteVersions(UserRole role) throws Exception {
+        String token = token(role);
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
+                        .header("Authorization", token))
+                .andExpect(status().isForbidden());
     }
 
     @ParameterizedTest
@@ -104,13 +134,26 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(UserRole.class)
-    void alarmStatusMutationRemainsDeniedByFormalRoleContract(UserRole role) throws Exception {
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER"})
+    void nonOperationalRolesCannotManuallyResolveAlarm(UserRole role) throws Exception {
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .header("Authorization", token(role))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":\"PROCESSING\"}"))
+                        .content("{\"status\":\"RESOLVED\"," +
+                                "\"remark\":\"False positive\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"DISPATCHER", "ADMIN"})
+    void dispatcherAndAdminCanManuallyResolveAlarmWithRemark(UserRole role) throws Exception {
+        mockMvc.perform(put("/api/v1/alarms/1/status")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"RESOLVED\"," +
+                                "\"remark\":\"False positive\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -228,8 +271,9 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isOk());
         mockMvc.perform(put("/api/v1/alarms/1/status").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":\"PROCESSING\"}"))
-                .andExpect(status().isForbidden());
+                        .content("{\"status\":\"RESOLVED\"," +
+                                "\"remark\":\"False positive\"}"))
+                .andExpect(status().isOk());
     }
 
     @ParameterizedTest
@@ -243,9 +287,32 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
-    void allExistingDispatchCommandWebEndpointsRemainDenied() throws Exception {
-        String token = token(UserRole.DISPATCHER);
-        mockMvc.perform(get("/api/v1/dispatch-commands").header("Authorization", token))
+    void dispatchCommandEndpointsEnforceLocalRoleContract() throws Exception {
+        String dispatcher = token(UserRole.DISPATCHER);
+        mockMvc.perform(get("/api/v1/dispatch-commands")
+                        .header("Authorization", dispatcher))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/dispatch-commands")
+                        .header("Authorization", dispatcher)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"taskId\":15,\"commandType\":\"TEXT\"," +
+                                "\"content\":\"Slow down\"}"))
+                .andExpect(status().isOk());
+
+        String driver = token(UserRole.DRIVER);
+        mockMvc.perform(get("/api/v1/drivers/me/dispatch-commands")
+                        .header("Authorization", driver))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/v1/dispatch-commands/101/status")
+                        .header("Authorization", driver)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"ACKNOWLEDGED\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/dispatch-commands")
+                        .header("Authorization", driver)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"taskId\":15,\"commandType\":\"TEXT\"," +
+                                "\"content\":\"Forged\"}"))
                 .andExpect(status().isForbidden());
     }
 

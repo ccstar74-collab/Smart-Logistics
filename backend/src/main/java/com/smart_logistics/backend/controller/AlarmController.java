@@ -59,7 +59,7 @@ public class AlarmController {
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize("denyAll()")
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     public ApiResponse<AlarmResponse> updateStatus(
             @PathVariable @Positive Long id,
             @Valid @RequestBody AlarmStatusUpdateRequest request) {

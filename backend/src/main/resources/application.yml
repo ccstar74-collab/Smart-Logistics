@@ -26,6 +26,15 @@ app:
     gps-merge-tolerance: ${GPS_MERGE_TOLERANCE:PT1S}
     latest-lookback: ${GPS_LATEST_LOOKBACK:PT24H}
     online-threshold: ${GPS_ONLINE_THRESHOLD:PT2M}
+  realtime-anomaly:
+    enabled: ${REALTIME_ANOMALY_ENABLED:true}
+    deviation-threshold-meters: ${ANOMALY_DEVIATION_THRESHOLD_METERS:100}
+    deviation-recovery-meters: ${ANOMALY_DEVIATION_RECOVERY_METERS:60}
+    deviation-duration: ${ANOMALY_DEVIATION_DURATION:PT30S}
+    stop-speed-threshold-kmh: ${ANOMALY_STOP_SPEED_THRESHOLD_KMH:1}
+    stop-radius-meters: ${ANOMALY_STOP_RADIUS_METERS:20}
+    stop-duration: ${ANOMALY_STOP_DURATION:PT2M}
+    destination-guard-meters: ${ANOMALY_DESTINATION_GUARD_METERS:100}
   eta:
     enabled: ${ETA_ENABLED:true}
     gps-max-age: ${ETA_GPS_MAX_AGE:PT2M}

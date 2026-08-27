@@ -11,12 +11,14 @@ public class Alarm {
 
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long vehicleId;
     private Long taskId;
     private String deviceCode;
     private String alarmType;
     private String level;
     private String message;
     private String status;
+    private String conditionStatus;
     private String source;
     private String schemaVersion;
     private String eventKey;
@@ -24,7 +26,9 @@ public class Alarm {
     private Long handledBy;
     private LocalDateTime handledAt;
     private LocalDateTime createdAt;
+    private LocalDateTime recoveredAt;
     private LocalDateTime resolvedAt;
+    private String resolutionRemark;
 
     public Long getId() {
         return id;
@@ -36,6 +40,14 @@ public class Alarm {
 
     public Long getTaskId() {
         return taskId;
+    }
+
+    public Long getVehicleId() {
+        return vehicleId;
+    }
+
+    public void setVehicleId(Long vehicleId) {
+        this.vehicleId = vehicleId;
     }
 
     public void setTaskId(Long taskId) {
@@ -80,6 +92,14 @@ public class Alarm {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getConditionStatus() {
+        return conditionStatus;
+    }
+
+    public void setConditionStatus(String conditionStatus) {
+        this.conditionStatus = conditionStatus;
     }
 
     public String getSource() {
@@ -144,5 +164,21 @@ public class Alarm {
 
     public void setResolvedAt(LocalDateTime resolvedAt) {
         this.resolvedAt = resolvedAt;
+    }
+
+    public LocalDateTime getRecoveredAt() {
+        return recoveredAt;
+    }
+
+    public void setRecoveredAt(LocalDateTime recoveredAt) {
+        this.recoveredAt = recoveredAt;
+    }
+
+    public String getResolutionRemark() {
+        return resolutionRemark;
+    }
+
+    public void setResolutionRemark(String resolutionRemark) {
+        this.resolutionRemark = resolutionRemark;
     }
 }

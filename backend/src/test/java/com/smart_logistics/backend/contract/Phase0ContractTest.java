@@ -43,10 +43,13 @@ class Phase0ContractTest {
     }
 
     @Test
-    void dispatchStatusIsNotExpanded() {
+    void dispatchStatusKeepsLegacyValuesAndAddsRestWorkflow() {
         assertArrayEquals(new DispatchCommandStatus[]{DispatchCommandStatus.PENDING,
                 DispatchCommandStatus.EXECUTED, DispatchCommandStatus.CANCELLED,
-                DispatchCommandStatus.FAILED}, DispatchCommandStatus.values());
+                DispatchCommandStatus.FAILED, DispatchCommandStatus.SENT,
+                DispatchCommandStatus.ACKNOWLEDGED, DispatchCommandStatus.EXECUTING,
+                DispatchCommandStatus.COMPLETED, DispatchCommandStatus.REJECTED},
+                DispatchCommandStatus.values());
     }
 
     @Test

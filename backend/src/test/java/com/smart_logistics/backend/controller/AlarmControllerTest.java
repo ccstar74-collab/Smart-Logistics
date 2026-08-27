@@ -4,6 +4,7 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.AlarmStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.AlarmResponse;
 import com.smart_logistics.backend.enums.AlarmLevel;
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.exception.BusinessException;
@@ -69,6 +70,14 @@ class AlarmControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.records[0].alarmType")
                         .value("ROUTE_DEVIATION"))
+                .andExpect(jsonPath("$.data.records[0].type")
+                        .value("ROUTE_DEVIATION"))
+                .andExpect(jsonPath("$.data.records[0].description")
+                        .value("Vehicle deviated from the planned route"))
+                .andExpect(jsonPath("$.data.records[0].vehicleId").value(23))
+                .andExpect(jsonPath("$.data.records[0].plateNumber").value("渝A33333"))
+                .andExpect(jsonPath("$.data.records[0].taskNo").value("T20260826001"))
+                .andExpect(jsonPath("$.data.records[0].conditionStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.records[0].level").value("HIGH"))
                 .andExpect(jsonPath("$.data.records[0].status").value("UNHANDLED"))
                 .andExpect(jsonPath("$.data.total").value(6))
@@ -91,7 +100,10 @@ class AlarmControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.message").value("success"))
                 .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.vehicleId").value(23))
+                .andExpect(jsonPath("$.data.plateNumber").value("渝A33333"))
                 .andExpect(jsonPath("$.data.taskId").value(15))
+                .andExpect(jsonPath("$.data.taskNo").value("T20260826001"))
                 .andExpect(jsonPath("$.data.createdAt")
                         .value("2026-08-23T10:30:00+08:00"));
     }
@@ -111,16 +123,16 @@ class AlarmControllerTest {
     @Test
     void updateStatusReturnsUpdatedAlarm() throws Exception {
         when(alarmService.updateStatus(any(Long.class), any(AlarmStatusUpdateRequest.class)))
-                .thenReturn(response(AlarmStatus.PROCESSING));
+                .thenReturn(response(AlarmStatus.RESOLVED));
 
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"status":"PROCESSING"}
+                                {"status":"RESOLVED","remark":"False positive confirmed"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+                .andExpect(jsonPath("$.data.status").value("RESOLVED"));
 
         verify(alarmService).updateStatus(any(Long.class), any(AlarmStatusUpdateRequest.class));
     }
@@ -129,7 +141,7 @@ class AlarmControllerTest {
     void updateStatusRejectsMissingStatus() throws Exception {
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content("{\"remark\":\"False positive\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
                 .andExpect(jsonPath("$.message").value("status must not be null"));
@@ -140,7 +152,7 @@ class AlarmControllerTest {
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"status":"CLOSED"}
+                                {"status":"CLOSED","remark":"False positive"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
@@ -158,18 +170,24 @@ class AlarmControllerTest {
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-08-23T10:30:00+08:00");
         return new AlarmResponse(
                 1L,
+                23L,
+                "渝A33333",
                 15L,
+                "T20260826001",
                 "real_001",
                 AlarmType.ROUTE_DEVIATION,
                 AlarmLevel.HIGH,
                 "Vehicle deviated from the planned route",
                 status,
+                AlarmConditionStatus.ACTIVE,
                 "device",
                 createdAt,
                 null,
+                null,
                 status == AlarmStatus.UNHANDLED ? null : createdAt.plusMinutes(1),
                 createdAt,
-                status == AlarmStatus.RESOLVED ? createdAt.plusMinutes(2) : null
+                status == AlarmStatus.RESOLVED ? createdAt.plusMinutes(2) : null,
+                status == AlarmStatus.RESOLVED ? "False positive confirmed" : null
         );
     }
 }

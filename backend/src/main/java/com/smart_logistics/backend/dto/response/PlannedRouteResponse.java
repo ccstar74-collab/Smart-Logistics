@@ -1,9 +1,14 @@
 package com.smart_logistics.backend.dto.response;
 
+import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
+
 import java.time.OffsetDateTime;
 import java.util.List;
 
 public record PlannedRouteResponse(Long taskId,
+                                   String routeId,
+                                   int routeVersion,
+                                   TransportTaskRouteStatus routeStatus,
                                    String vehicleDeviceCode,
                                    String provider,
                                    String coordinateSystem,

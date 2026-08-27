@@ -6,6 +6,7 @@ import com.influxdb.client.InfluxDBClient;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
 import com.smart_logistics.backend.service.GpsInfluxService;
 import com.smart_logistics.backend.service.MqttAlertMessageHandler;
+import com.smart_logistics.backend.service.MqttAlertRecoveryMessageHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -39,7 +40,11 @@ public class MqttMessageCallback implements MqttCallback {
     @Autowired
     private MqttAlertMessageHandler mqttAlertMessageHandler;
 
+    @Autowired
+    private MqttAlertRecoveryMessageHandler mqttAlertRecoveryMessageHandler;
+
     private static final String ALERT_TOPIC = "iot/carla/alert";
+    private static final String ALERT_RECOVERY_TOPIC = "iot/carla/alert/recovery";
     private static final String COMMAND_ACK_SUFFIX = "/command/ack";
 
     public static class VehicleState {
@@ -96,6 +101,8 @@ public class MqttMessageCallback implements MqttCallback {
             handleGpsMessage(topic, payload);
         } else if (topic.startsWith("iot/carla/vehicle/") && topic.endsWith("/status")) {
             handleStatusMessage(topic, payload);
+        } else if (ALERT_RECOVERY_TOPIC.equals(topic)) {
+            handleAlertRecoveryMessage(payload);
         } else if (ALERT_TOPIC.equals(topic)) {
             handleAlertMessage(payload);
         } else if (topic.endsWith(COMMAND_ACK_SUFFIX)) {
@@ -141,6 +148,10 @@ public class MqttMessageCallback implements MqttCallback {
 
     private void handleAlertMessage(String payload) {
         mqttAlertMessageHandler.handle(payload);
+    }
+
+    private void handleAlertRecoveryMessage(String payload) {
+        mqttAlertRecoveryMessageHandler.handle(payload);
     }
 
     private void handleCommandAck(String topic, String payload) {

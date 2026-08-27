@@ -13,6 +13,8 @@ import com.smart_logistics.backend.service.VehicleLocationQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,6 +32,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -156,6 +159,69 @@ class VehicleControllerTest {
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("simCode must not be blank"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sim_8", "sim_08", "sim_1000", "abc"})
+    void createRejectsInvalidSimCodeFormat(String simCode) throws Exception {
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","type":"厢式货车","capacity":10.5,
+                                 "simCode":"%s"}
+                                """.formatted(simCode)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.message")
+                        .value("simCode must match ^sim_\\d{3}$"));
+    }
+
+    @Test
+    void updateAcceptsValidSimCode() throws Exception {
+        when(vehicleService.updateVehicle(
+                org.mockito.ArgumentMatchers.eq(1L), any()))
+                .thenReturn(response("sim_009"));
+
+        mockMvc.perform(put("/api/v1/vehicles/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23009","type":"厢式货车","capacity":10.5,
+                                 "driverId":null,"simCode":"sim_009"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.simCode").value("sim_009"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"8", "008", "sim_008"})
+    void availableSimCodeSearchPassesSupportedKeywordForms(String keyword) throws Exception {
+        when(vehicleService.listAvailableSimCodes(keyword))
+                .thenReturn(List.of("sim_008"));
+
+        mockMvc.perform(get("/api/v1/vehicles/sim-codes/available")
+                        .param("keyword", keyword))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0]").value("sim_008"));
+
+        verify(vehicleService).listAvailableSimCodes(keyword);
+    }
+
+    @Test
+    void duplicateSimCodeReturnsConflictResponse() throws Exception {
+        when(vehicleService.createVehicle(any(VehicleCreateRequest.class)))
+                .thenThrow(new BusinessException(ErrorCode.DATA_CONFLICT,
+                        "simCode is already assigned to another vehicle"));
+
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","capacity":10.5,
+                                 "simCode":"sim_008"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(40901))
+                .andExpect(jsonPath("$.message")
+                        .value("simCode is already assigned to another vehicle"));
     }
 
     @Test

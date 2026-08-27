@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,12 +32,16 @@ class MqttAlertIngestionServiceTest {
 
     @Mock
     private AlarmMapper alarmMapper;
+    @Mock
+    private AlarmAssociationService associationService;
 
     private MqttAlertIngestionService service;
 
     @BeforeEach
     void setUp() {
-        service = new MqttAlertIngestionService(alarmMapper);
+        service = new MqttAlertIngestionService(alarmMapper, associationService);
+        org.mockito.Mockito.lenient().when(associationService.resolve("real_001"))
+                .thenReturn(new AlarmAssociationService.AlarmAssociation(23L, 15L));
     }
 
     @Test
@@ -51,6 +56,9 @@ class MqttAlertIngestionServiceTest {
         Alarm alarm = captor.getValue();
         assertEquals(MqttAlertIngestionService.IngestionResult.STORED, result);
         assertEquals("real_001", alarm.getDeviceCode());
+        assertEquals(23L, alarm.getVehicleId());
+        assertEquals(15L, alarm.getTaskId());
+        assertEquals("ACTIVE", alarm.getConditionStatus());
         assertEquals(AlarmType.ABNORMAL_OPEN.name(), alarm.getAlarmType());
         assertEquals(AlarmLevel.HIGH.name(), alarm.getLevel());
         assertEquals(AlarmStatus.UNHANDLED.name(), alarm.getStatus());
@@ -65,11 +73,49 @@ class MqttAlertIngestionServiceTest {
     void reportsDuplicateWhenDatabaseUniqueIndexRejectsEventKey() {
         when(alarmMapper.insert(any(Alarm.class)))
                 .thenThrow(new DuplicateKeyException("uk_alarm_event_key"));
+        Alarm existing = new Alarm();
+        existing.setId(88L);
+        when(alarmMapper.selectOne(any())).thenReturn(existing);
 
         MqttAlertIngestionService.IngestionResult result = service.ingest(payload(
                 "异常开箱", "2026-08-24T10:23:47.000Z"));
 
         assertEquals(MqttAlertIngestionService.IngestionResult.DUPLICATE, result);
+    }
+
+    @Test
+    void returnsGeneratedAlarmIdentityForStateMachine() {
+        doAnswer(invocation -> {
+            Alarm alarm = invocation.getArgument(0);
+            alarm.setId(77L);
+            return 1;
+        }).when(alarmMapper).insert(any(Alarm.class));
+
+        MqttAlertIngestionService.AlarmIngestionResult result =
+                service.ingestWithIdentity(
+                        new MqttAlertPayload(
+                                "1.0", "real_001", "异常停留", "车辆异常停留",
+                                "2026-08-27T03:00:00Z", "backend"),
+                        12L);
+
+        assertEquals(77L, result.alarmId());
+        assertEquals(true, result.created());
+    }
+
+    @Test
+    void storesBackendDetectedAlertWithTaskAssociation() {
+        when(alarmMapper.insert(any(Alarm.class))).thenReturn(1);
+        MqttAlertPayload payload = new MqttAlertPayload(
+                "1.0", "real_001", "偏航", "车辆连续偏离规划路线",
+                "2026-08-27T03:00:00Z", "backend");
+
+        service.ingest(payload, 12L);
+
+        ArgumentCaptor<Alarm> captor = ArgumentCaptor.forClass(Alarm.class);
+        verify(alarmMapper).insert(captor.capture());
+        assertEquals(12L, captor.getValue().getTaskId());
+        assertEquals(AlarmType.ROUTE_DEVIATION.name(), captor.getValue().getAlarmType());
+        assertEquals("backend", captor.getValue().getSource());
     }
 
     @Test
