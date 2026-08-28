@@ -48,7 +48,6 @@ public class MqttAlertIngestionService {
 
     private static final Logger LOGGER =
             LoggerFactory.getLogger(MqttAlertIngestionService.class);
-
     private static final ZoneId DATABASE_TIME_ZONE = ZoneId.of("Asia/Shanghai");
     private static final Pattern DEVICE_CODE_PATTERN =
             Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
@@ -164,7 +163,6 @@ public class MqttAlertIngestionService {
             return null;
         }
     }
-
     private IngestionResult toLegacyResult(AlarmIngestionResult result) {
         return result.created() ? IngestionResult.STORED : IngestionResult.DUPLICATE;
     }
@@ -181,10 +179,7 @@ public class MqttAlertIngestionService {
             throw new IllegalArgumentException("invalid alert vehicle_id");
         }
 
-        AlarmType alarmType = TYPE_MAPPING.get(payload.alertType());
-        if (alarmType == null) {
-            throw new IllegalArgumentException("unsupported alert_type");
-        }
+        AlarmType alarmType = parseAlarmType(payload.alertType());
         if (payload.description() == null
                 || payload.description().isBlank()
                 || payload.description().length() > 256) {
@@ -209,6 +204,17 @@ public class MqttAlertIngestionService {
             case ABNORMAL_STOP -> AlarmLevel.MEDIUM;
             case ROUTE_DEVIATION, ABNORMAL_OPEN, OTHER -> AlarmLevel.HIGH;
         };
+    }
+
+    static AlarmType parseAlarmType(String alertType) {
+        if (alertType == null) {
+            throw new IllegalArgumentException("unsupported alert_type");
+        }
+        AlarmType alarmType = TYPE_MAPPING.get(alertType);
+        if (alarmType == null) {
+            throw new IllegalArgumentException("unsupported alert_type");
+        }
+        return alarmType;
     }
 
     private String createEventKey(MqttAlertPayload payload, ValidatedAlert validated) {

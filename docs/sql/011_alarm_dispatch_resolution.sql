@@ -3,8 +3,8 @@
 
 ALTER TABLE alarm
     ADD COLUMN vehicle_id BIGINT NULL AFTER id,
-    ADD COLUMN condition_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' AFTER status
-        COMMENT 'ACTIVE / RECOVERED',
+    ADD COLUMN condition_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+        COMMENT 'ACTIVE / RECOVERED' AFTER status,
     ADD COLUMN recovered_at DATETIME NULL AFTER created_at,
     ADD COLUMN resolution_remark VARCHAR(500) NULL AFTER resolved_at;
 

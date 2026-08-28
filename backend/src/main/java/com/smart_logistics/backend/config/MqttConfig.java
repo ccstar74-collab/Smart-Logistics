@@ -39,6 +39,7 @@ public class MqttConfig {
     private String basePubClientId;
 
     private static final String ALERT_TOPIC = "iot/carla/alert";
+    private static final String ALERT_RECOVERY_TOPIC = "iot/carla/alert/recovery";
 
     @Value("${mqtt.realtime-enabled:false}")
     private boolean realtimeEnabled;
@@ -128,6 +129,7 @@ public class MqttConfig {
     private String[] subscriptionTopics() {
         List<String> topics = new ArrayList<>();
         topics.add(ALERT_TOPIC);
+        topics.add(ALERT_RECOVERY_TOPIC);
         if (realtimeEnabled) {
             topics.add("iot/carla/vehicle/+/gps");
             topics.add("iot/carla/vehicle/+/status");

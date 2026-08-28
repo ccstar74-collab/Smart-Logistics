@@ -133,8 +133,9 @@ class GpsInfluxServiceTest {
         int secondLast = flux.indexOf("|> last()", firstLast + 1);
         assertTrue(firstLast >= 0 && firstLast < group);
         assertTrue(group < sort && sort < secondLast);
-        assertTrue(flux.contains("\"latitude\",\"longitude\",\"speed_kmh\",\"heading\""));
-        assertTrue(flux.contains("\"lat\",\"lon\",\"speed\",\"direction\""));
+        assertTrue(flux.contains("r._field == \"latitude\" or r._field == \"longitude\""));
+        assertTrue(flux.contains("r._field == \"lat\" or r._field == \"lon\""));
+        assertFalse(flux.contains("contains(value: r._field"));
     }
 
     @Test

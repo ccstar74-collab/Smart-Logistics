@@ -47,10 +47,22 @@ public class AlarmResolutionService {
             alarm.setConditionStatus(AlarmConditionStatus.RECOVERED.name());
             alarm.setRecoveredAt(LocalDateTime.ofInstant(recoveredAt, DATABASE_TIME_ZONE));
             updateAlarm(alarm, "failed to mark alarm condition recovered");
-            // ACTIVE→RECOVERED，通知/ws/alarms（事务提交后推送）
+        }
+        // 条件已标记为RECOVERED，检查是否同事务直达RESOLVED
+        if (!AlarmStatus.RESOLVED.name().equals(alarm.getStatus())
+                && hasCompletedCommand(alarmId)) {
+            // 同一次事务直达RESOLVED，只发ALARM_RESOLVED，不发中间态ALARM_UPDATED
+            alarm.setStatus(AlarmStatus.RESOLVED.name());
+            alarm.setResolvedAt(LocalDateTime.now(DATABASE_TIME_ZONE));
+            updateAlarm(alarm, "alarm resolution update conflict");
+            eventPublisher.publishEvent(AlarmWsEvent.resolved(alarm.getId()));
+        } else if (!AlarmStatus.RESOLVED.name().equals(alarm.getStatus())
+                && !AlarmStatus.PROCESSING.name().equals(alarm.getStatus())) {
+            // 尚未满足消警条件，标记业务状态为PROCESSING等待指令完成
+            alarm.setStatus(AlarmStatus.PROCESSING.name());
+            updateAlarm(alarm, "failed to update alarm status");
             eventPublisher.publishEvent(AlarmWsEvent.updated(alarmId));
         }
-        resolveLocked(alarm);
     }
 
     @Transactional
