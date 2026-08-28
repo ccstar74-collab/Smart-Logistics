@@ -42,7 +42,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/ws/logistics").permitAll()
+                        // WS握手是普通HTTP GET，必须放行给Security过滤器链，
+                        // 真正的鉴权由JwtWebSocketHandshakeInterceptor完成（无有效token返回401）
+                        .requestMatchers(HttpMethod.GET,
+                                "/ws/logistics", "/ws/vehicle-locations").permitAll()
                         .requestMatchers("/api/v1/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(jwtAuthenticationFilter,

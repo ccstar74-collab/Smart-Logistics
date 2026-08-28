@@ -20,11 +20,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(gpsWebSocketHandler, "/ws/logistics")
-                .addInterceptors(jwtWebSocketHandshakeInterceptor)
-                .setAllowedOrigins("*");
-
-        registry.addHandler(gpsWebSocketHandler, "/ws/vehicle-locations")
+        // 将两个路径合并到同一个 addHandler，避免同一个Handler实例重复注册
+        registry.addHandler(gpsWebSocketHandler, "/ws/logistics", "/ws/vehicle-locations")
                 .addInterceptors(jwtWebSocketHandshakeInterceptor)
                 .setAllowedOrigins("*");
     }

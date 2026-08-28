@@ -28,20 +28,25 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        if (session.getUri() == null) {
-            session.close(CloseStatus.POLICY_VIOLATION);
-            return;
-        }
-        String path = session.getUri().getPath();
-        if ("/ws/logistics".equals(path)) {
-            logisticsSessions.add(session);
-            log.info("ETA会话建立 sessionId={}", session.getId());
-        } else if ("/ws/vehicle-locations".equals(path)) {
-            vehicleLocationSessions.add(session);
-            log.info("GPS点位会话建立 sessionId={}", session.getId());
-        } else {
-            log.warn("未知websocket路径 path={}", path);
-            session.close(CloseStatus.POLICY_VIOLATION);
+        try {
+            if (session.getUri() == null) {
+                session.close(CloseStatus.POLICY_VIOLATION);
+                return;
+            }
+            String path = session.getUri().getPath();
+            if ("/ws/logistics".equals(path)) {
+                logisticsSessions.add(session);
+                log.info("ETA会话建立 sessionId={}", session.getId());
+            } else if ("/ws/vehicle-locations".equals(path)) {
+                vehicleLocationSessions.add(session);
+                log.info("GPS点位会话建立 sessionId={}", session.getId());
+            } else {
+                log.warn("未知websocket路径 path={}", path);
+                session.close(CloseStatus.POLICY_VIOLATION);
+            }
+        } catch (Throwable t) {
+            log.error("afterConnectionEstablished异常 sessionId={}, uri={}", session.getId(), session.getUri(), t);
+            throw t;
         }
     }
 
@@ -74,19 +79,6 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * ETA广播：留给其他同学维护，app.eta.enabled=false会关闭生成逻辑
-     *      * ETA广播：留给其他同学维护，app.eta.enabled=false会关闭生成逻辑,删除这个分支
-     *      * private String vehicleIdOf(Object payload) {
-     *      *     if (payload instanceof RealTimeGpsDTO dto) {
-     *      *         return dto.getVehicleId();
-     *      *     }
-     *      *     if (payload instanceof VehicleTraceWsDTO dto) {
-     *      *         // 权限校验使用simCode，不要用数据库主键id
-     *      *         return dto.getSimCode();
-     *      *     }
-     *      *     // EtaRealtimeMessage交给其他同学维护，此处移除依赖，避免编译报错
-     *      *     return null;
-     *      * }
-     *
      */
     public void broadcastEta(Object message) {
         for (WebSocketSession session : logisticsSessions) {
@@ -125,8 +117,22 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
         return allowedSimCodes.contains(targetSimCode);
     }
 
+
     /**
-     * 获取权限比对key，GPS使用VehicleTraceWsDTO#simCode作为权限key；ETA部分交给其他同学维护
+     * ETA广播：留给其他同学维护，app.eta.enabled=false会关闭生成逻辑
+     *      * ETA广播：留给其他同学维护，app.eta.enabled=false会关闭生成逻辑,删除这个分支
+     *      * private String vehicleIdOf(Object payload) {
+     *      *     if (payload instanceof RealTimeGpsDTO dto) {
+     *      *         return dto.getVehicleId();
+     *      *     }
+     *      *     if (payload instanceof VehicleTraceWsDTO dto) {
+     *      *         // 权限校验使用simCode，不要用数据库主键id
+     *      *         return dto.getSimCode();
+     *      *     }
+     *      *     // EtaRealtimeMessage交给其他同学维护，此处移除依赖，避免编译报错
+     *      *     return null;
+     *      * }
+     *
      */
     private String vehicleIdOf(Object payload) {
         if (payload instanceof RealTimeGpsDTO dto) {

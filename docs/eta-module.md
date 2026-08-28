@@ -76,20 +76,29 @@ GET /api/v1/transport-tasks/{id}/planned-route
 ```bash
 ETA_ENABLED=true
 AMAP_WEB_SERVICE_KEY=替换为服务器密钥
-ETA_REFRESH_DELAY_MS=30000
+```
+
+以下节流参数均有 `application.yml` 默认值（唯一默认配置源），仅在需要调整时才通过环境变量覆盖：
+
+```bash
+# 默认 1000（毫秒），扫描周期；调大可降低写库与推送频率，如 30000
+ETA_REFRESH_DELAY_MS=1000
+# 默认 PT0S，ETA 变化达到该阈值才写库并推送；如希望变化超过30秒才更新，设 PT30S
+ETA_MIN_CHANGE=PT0S
+# 默认 PT1S，ETA 变化不足阈值时，至少每隔该间隔强制刷新一次 etaCalculatedAt
+ETA_FORCE_PERSIST_INTERVAL=PT1S
 ETA_GPS_MAX_AGE=PT2M
 ETA_SPEED_HISTORY_WINDOW=PT10M
-ETA_MIN_CHANGE=PT30S
-ETA_FORCE_PERSIST_INTERVAL=PT2M
 ```
 
 不要把真实 Key 写入 `application.yml` 或提交到 Git。
 
-## 更新节流
+## 更新节流与推送时机
 
-- 默认每 30 秒扫描一次，不按 1 Hz GPS 消息直接写 MySQL。
-- ETA 变化达到 30 秒时更新。
-- ETA 变化较小时每两分钟至少刷新一次 `etaCalculatedAt`。
+- 默认每 1 秒扫描一次（`app.eta.refresh-delay-ms`），不按 1 Hz GPS 消息直接写 MySQL。
+- `min-change` 默认 `PT0S`：每次计算出的 ETA 都会写库并推送。
+- `force-persist-interval` 默认 `PT1S`：ETA 变化不足 `min-change` 时，至少每隔该间隔强制刷新一次 `etaCalculatedAt`。
+- **`ETA_UPDATED` 只在 ETA 成功写库后推送**：受上面两个节流参数控制，因此不保证每个扫描周期都有一条消息；长时间收不到消息只表示 ETA 没有变化，前端不要假定固定频率心跳。
 - 高德不可用时保留最近一次有效 ETA，并在日志中记录失败原因。
 - 任务不再处于 `TRANSPORTING` 后停止刷新。
 
