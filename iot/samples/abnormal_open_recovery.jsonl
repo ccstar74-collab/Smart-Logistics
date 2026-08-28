@@ -1,0 +1,2 @@
+{"delay_ms":0,"topic":"iot/carla/alert","qos":1,"retain":false,"payload":{"schema_version":"1.0","vehicle_id":"real_001","alert_type":"异常开箱","description":"运输途中检测到箱门开启","timestamp":"2026-08-27T09:30:00.000Z","source":"device"}}
+{"delay_ms":3000,"topic":"iot/carla/alert/recovery","qos":1,"retain":false,"payload":{"schema_version":"1.0","vehicle_id":"real_001","alert_type":"异常开箱","condition_status":"RECOVERED","triggered_at":"2026-08-27T09:30:00.000Z","recovered_at":"2026-08-27T09:30:03.000Z","source":"device"}}

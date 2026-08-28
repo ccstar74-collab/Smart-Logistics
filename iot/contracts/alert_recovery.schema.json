@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-logistics.local/schemas/alert_recovery.schema.json",
+  "title": "智慧物流告警物理条件恢复消息",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "vehicle_id",
+    "alert_type",
+    "condition_status",
+    "triggered_at",
+    "recovered_at",
+    "source"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "vehicle_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "alert_type": {
+      "type": "string",
+      "enum": ["异常开箱"]
+    },
+    "condition_status": { "const": "RECOVERED" },
+    "triggered_at": { "type": "string", "format": "date-time" },
+    "recovered_at": { "type": "string", "format": "date-time" },
+    "source": { "const": "device" }
+  }
+}

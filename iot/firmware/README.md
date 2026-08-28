@@ -3,7 +3,7 @@
 ## 目录
 
 - `D13_gps_uart_test`：只读取并打印L80-R GPS串口数据，用于确认接线、波特率和定位状态。
-- `D14_smart_logistics_gps_mqtt`：读取有效RMC定位数据，通过Wi-Fi和MQTT发布到云端。
+- `D14_smart_logistics_gps_mqtt`：读取有效RMC定位数据，通过Wi-Fi和MQTT发布到云端；F1模拟异常开箱，F2模拟关箱并复位告警锁定。
 
 ## 配置
 
@@ -37,7 +37,17 @@ Copy-Item .\iot\firmware\D14_smart_logistics_gps_mqtt\smart_logistics_config.exa
 ```text
 iot/carla/vehicle/real_001/gps
 iot/carla/vehicle/real_001/status
+iot/carla/alert
+iot/carla/alert/recovery
 ```
+
+D14按键约定：
+
+- F1（GPIO 11）：箱门由关闭变为打开，向 `iot/carla/alert` 发布一条 `source=device` 的“异常开箱”告警；
+- 箱门保持打开时重复按F1不会重复上报；
+- F2（GPIO 12）：模拟箱门关闭，向 `iot/carla/alert/recovery` 发布恢复事件；发布成功后清除本地锁定，之后再次按F1可产生下一条告警；
+- F2恢复事件携带原F1的 `triggered_at` 和本次关箱的 `recovered_at`，供后端准确更新原告警；重复按F2不会重复上报；
+- Wi-Fi连接成功后通过NTP获取UTC时间，因此开箱告警不依赖GPS已经定位；若NTP失败且尚无GPS时间，告警会保留为待发送。
 
 ## 为什么仓库不提供云端 `.bin`
 

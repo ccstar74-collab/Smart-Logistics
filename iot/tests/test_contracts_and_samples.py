@@ -12,6 +12,8 @@ SCHEMA_VALIDATOR = getattr(jsonschema, "Draft202012Validator", jsonschema.Draft7
 
 
 def schema_kind(topic):
+    if topic.endswith("/alert/recovery"):
+        return "alert_recovery"
     if topic.endswith("/gps"):
         return "gps"
     if topic.endswith("/status"):
@@ -30,7 +32,10 @@ class ContractAndSampleTest(unittest.TestCase):
     def setUpClass(cls):
         cls.schemas = {
             name: json.loads((CONTRACTS / f"{name}.schema.json").read_text(encoding="utf-8"))
-            for name in ("gps", "status", "alert", "command", "command_ack", "route_api")
+            for name in (
+                "gps", "status", "alert", "alert_recovery",
+                "command", "command_ack", "route_api"
+            )
         }
 
     def test_all_jsonl_events_match_contracts(self):
