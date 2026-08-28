@@ -72,6 +72,15 @@ public class JwtWebSocketHandshakeInterceptor implements HandshakeInterceptor {
             }
             attributes.put(WsSessionAttributes.ALLOWED_VEHICLE_SIM_CODES,
                     scope.allowedSimCodes());
+            // 告警推送（/ws/alarms）需要的角色与身份属性，同一握手链路预计算，
+            // 不另造认证方式
+            attributes.put(WsSessionAttributes.USER_ROLE, identity.getRole());
+            if (identity.getOwnerId() != null) {
+                attributes.put(WsSessionAttributes.OWNER_ID, identity.getOwnerId());
+            }
+            if (identity.getDriverId() != null) {
+                attributes.put(WsSessionAttributes.DRIVER_ID, identity.getDriverId());
+            }
 
             log.info("[WS握手] 允许建立连接 path={}", path);
             return true;

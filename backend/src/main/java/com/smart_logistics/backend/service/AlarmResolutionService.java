@@ -1,6 +1,7 @@
 package com.smart_logistics.backend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.smart_logistics.backend.dto.realtime.AlarmWsEvent;
 import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.entity.DispatchCommand;
 import com.smart_logistics.backend.enums.AlarmConditionStatus;
@@ -10,6 +11,7 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.AlarmMapper;
 import com.smart_logistics.backend.mapper.DispatchCommandMapper;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,11 +26,14 @@ public class AlarmResolutionService {
 
     private final AlarmMapper alarmMapper;
     private final DispatchCommandMapper dispatchCommandMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AlarmResolutionService(AlarmMapper alarmMapper,
-                                  DispatchCommandMapper dispatchCommandMapper) {
+                                  DispatchCommandMapper dispatchCommandMapper,
+                                  ApplicationEventPublisher eventPublisher) {
         this.alarmMapper = alarmMapper;
         this.dispatchCommandMapper = dispatchCommandMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -42,12 +47,15 @@ public class AlarmResolutionService {
             alarm.setConditionStatus(AlarmConditionStatus.RECOVERED.name());
             alarm.setRecoveredAt(LocalDateTime.ofInstant(recoveredAt, DATABASE_TIME_ZONE));
             updateAlarm(alarm, "failed to mark alarm condition recovered");
+            // ACTIVE→RECOVERED，通知/ws/alarms（事务提交后推送）
+            eventPublisher.publishEvent(AlarmWsEvent.updated(alarmId));
         }
         resolveLocked(alarm);
     }
 
     @Transactional
     public boolean tryResolveAlarm(Long alarmId) {
+        // RESOLVED事件统一由resolveLocked在实际发生消警时发布，避免重复
         return resolveLocked(lockAlarm(alarmId));
     }
 
@@ -62,6 +70,8 @@ public class AlarmResolutionService {
         alarm.setStatus(AlarmStatus.RESOLVED.name());
         alarm.setResolvedAt(LocalDateTime.now(DATABASE_TIME_ZONE));
         updateAlarm(alarm, "alarm resolution update conflict");
+        // 自动消警闭环完成（RECOVERED + 至少一条COMPLETED指令）
+        eventPublisher.publishEvent(AlarmWsEvent.resolved(alarm.getId()));
         return true;
     }
 

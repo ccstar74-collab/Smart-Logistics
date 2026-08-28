@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Instant;
 
@@ -32,6 +33,7 @@ class AlarmResolutionServiceTest {
 
     @Mock private AlarmMapper alarmMapper;
     @Mock private DispatchCommandMapper commandMapper;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     private AlarmResolutionService service;
 
@@ -43,7 +45,7 @@ class AlarmResolutionServiceTest {
         com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(configuration, "resolution-command"),
                 DispatchCommand.class);
-        service = new AlarmResolutionService(alarmMapper, commandMapper);
+        service = new AlarmResolutionService(alarmMapper, commandMapper, eventPublisher);
     }
 
     @Test

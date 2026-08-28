@@ -2,6 +2,7 @@ package com.smart_logistics.backend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
+import com.smart_logistics.backend.dto.realtime.AlarmWsEvent;
 import com.smart_logistics.backend.dto.realtime.GpsSample;
 import com.smart_logistics.backend.entity.Alarm;
 import com.smart_logistics.backend.enums.AlarmLevel;
@@ -11,6 +12,7 @@ import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.mapper.AlarmMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.stereotype.Service;
@@ -64,13 +66,16 @@ public class MqttAlertIngestionService {
     private final AlarmMapper alarmMapper;
     private final AlarmAssociationService associationService;
     private final GpsInfluxService gpsInfluxService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MqttAlertIngestionService(AlarmMapper alarmMapper,
                                      AlarmAssociationService associationService,
-                                     GpsInfluxService gpsInfluxService) {
+                                     GpsInfluxService gpsInfluxService,
+                                     ApplicationEventPublisher eventPublisher) {
         this.alarmMapper = alarmMapper;
         this.associationService = associationService;
         this.gpsInfluxService = gpsInfluxService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -123,6 +128,9 @@ public class MqttAlertIngestionService {
                 throw new DataAccessResourceFailureException(
                         "failed to insert MQTT alert");
             }
+            // 新告警入库成功，通知/ws/alarms（事务提交后推送）；
+            // 幂等去重的重复消息不重复推送
+            eventPublisher.publishEvent(AlarmWsEvent.created(alarm.getId()));
             return new AlarmIngestionResult(alarm.getId(), true);
         } catch (DuplicateKeyException exception) {
             Alarm existing = alarmMapper.selectOne(new LambdaQueryWrapper<Alarm>()

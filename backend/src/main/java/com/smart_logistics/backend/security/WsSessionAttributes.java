@@ -13,6 +13,15 @@ public final class WsSessionAttributes {
     /** Set&lt;String&gt;，该会话可见的车辆simCode集合 */
     public static final String ALLOWED_VEHICLE_SIM_CODES = "ws.allowedVehicleSimCodes";
 
+    /** UserRole，该会话当前活跃身份的角色（/ws/alarms数据范围过滤用） */
+    public static final String USER_ROLE = "ws.userRole";
+
+    /** Long，货主身份id（OWNER推送过滤用，可能不存在） */
+    public static final String OWNER_ID = "ws.ownerId";
+
+    /** Long，司机身份id（DRIVER推送过滤用，可能不存在） */
+    public static final String DRIVER_ID = "ws.driverId";
+
     private WsSessionAttributes() {
     }
 }

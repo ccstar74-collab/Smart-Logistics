@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.TransportTaskRouteSnapshot;
+import com.smart_logistics.backend.dto.realtime.AlarmWsEvent;
 import com.smart_logistics.backend.dto.request.DispatchCommandCreateRequest;
 import com.smart_logistics.backend.dto.request.DispatchCommandStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.DispatchCommandResponse;
@@ -26,6 +27,7 @@ import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.CurrentUserService;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -55,6 +57,7 @@ public class DispatchCommandService {
     private final AlarmMapper alarmMapper;
     private final BusinessDataScopeService dataScopeService;
     private final AlarmResolutionService alarmResolutionService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public DispatchCommandService(DispatchCommandMapper dispatchCommandMapper,
                                   TransportTaskMapper transportTaskMapper,
@@ -65,7 +68,8 @@ public class DispatchCommandService {
                                   TransportTaskRouteService routeService,
                                   AlarmMapper alarmMapper,
                                   BusinessDataScopeService dataScopeService,
-                                  AlarmResolutionService alarmResolutionService) {
+                                  AlarmResolutionService alarmResolutionService,
+                                  ApplicationEventPublisher eventPublisher) {
         this.dispatchCommandMapper = dispatchCommandMapper;
         this.transportTaskMapper = transportTaskMapper;
         this.vehicleMapper = vehicleMapper;
@@ -76,6 +80,7 @@ public class DispatchCommandService {
         this.alarmMapper = alarmMapper;
         this.dataScopeService = dataScopeService;
         this.alarmResolutionService = alarmResolutionService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -130,6 +135,8 @@ public class DispatchCommandService {
                 throw new BusinessException(ErrorCode.STATE_CONFLICT,
                         "alarm status update conflict");
             }
+            // UNHANDLED→PROCESSING，通知/ws/alarms（事务提交后推送）
+            eventPublisher.publishEvent(AlarmWsEvent.updated(alarm.getId()));
         }
         return toResponse(command, task, vehicle, targetRoute);
     }

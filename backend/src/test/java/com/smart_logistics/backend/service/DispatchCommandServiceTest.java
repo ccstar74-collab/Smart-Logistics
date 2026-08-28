@@ -69,6 +69,7 @@ class DispatchCommandServiceTest {
     @Mock private AlarmMapper alarmMapper;
     @Mock private BusinessDataScopeService dataScopeService;
     @Mock private AlarmResolutionService alarmResolutionService;
+    @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private DispatchCommandService service;
 
@@ -85,7 +86,7 @@ class DispatchCommandServiceTest {
                 Alarm.class);
         service = new DispatchCommandService(commandMapper, taskMapper, vehicleMapper,
                 driverService, userDisplayNameService, currentUserService, routeService,
-                alarmMapper, dataScopeService, alarmResolutionService);
+                alarmMapper, dataScopeService, alarmResolutionService, eventPublisher);
         org.mockito.Mockito.lenient().when(currentUserService.getCurrentUser())
                 .thenReturn(identity(UserRole.DISPATCHER, null));
         org.mockito.Mockito.lenient().when(taskMapper.selectOne(any(Wrapper.class)))

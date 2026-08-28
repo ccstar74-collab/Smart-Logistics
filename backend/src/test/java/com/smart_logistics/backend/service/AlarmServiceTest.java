@@ -56,6 +56,7 @@ class AlarmServiceTest {
     @Mock private TransportTaskMapper transportTaskMapper;
     @Mock private VehicleMapper vehicleMapper;
     @Mock private CurrentUserService currentUserService;
+    @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private AlarmService alarmService;
 
@@ -66,7 +67,7 @@ class AlarmServiceTest {
                 Alarm.class
         );
         alarmService = new AlarmService(alarmMapper, dataScopeService,
-                transportTaskMapper, vehicleMapper, currentUserService);
+                transportTaskMapper, vehicleMapper, currentUserService, eventPublisher);
         org.mockito.Mockito.lenient().when(transportTaskMapper.selectById(15L))
                 .thenReturn(task());
         org.mockito.Mockito.lenient().when(vehicleMapper.selectById(23L))

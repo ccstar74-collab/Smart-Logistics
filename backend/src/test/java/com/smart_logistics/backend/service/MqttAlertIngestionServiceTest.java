@@ -45,12 +45,15 @@ class MqttAlertIngestionServiceTest {
     @Mock
     private GpsInfluxService gpsInfluxService;
 
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
     private MqttAlertIngestionService service;
 
     @BeforeEach
     void setUp() {
         service = new MqttAlertIngestionService(
-                alarmMapper, associationService, gpsInfluxService);
+                alarmMapper, associationService, gpsInfluxService, eventPublisher);
         lenient().when(associationService.resolve("real_001"))
                 .thenReturn(new AlarmAssociationService.AlarmAssociation(23L, 15L));
     }

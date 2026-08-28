@@ -3,6 +3,7 @@ package com.smart_logistics.backend.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
+import com.smart_logistics.backend.dto.realtime.AlarmWsEvent;
 import com.smart_logistics.backend.dto.request.AlarmStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.AlarmResponse;
 import com.smart_logistics.backend.entity.Alarm;
@@ -21,6 +22,7 @@ import com.smart_logistics.backend.security.BusinessDataScopeService;
 import com.smart_logistics.backend.security.CurrentUserService;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.enums.UserRole;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -40,17 +42,20 @@ public class AlarmService {
     private final TransportTaskMapper transportTaskMapper;
     private final VehicleMapper vehicleMapper;
     private final CurrentUserService currentUserService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AlarmService(AlarmMapper alarmMapper,
                         BusinessDataScopeService dataScopeService,
                         TransportTaskMapper transportTaskMapper,
                         VehicleMapper vehicleMapper,
-                        CurrentUserService currentUserService) {
+                        CurrentUserService currentUserService,
+                        ApplicationEventPublisher eventPublisher) {
         this.alarmMapper = alarmMapper;
         this.dataScopeService = dataScopeService;
         this.transportTaskMapper = transportTaskMapper;
         this.vehicleMapper = vehicleMapper;
         this.currentUserService = currentUserService;
+        this.eventPublisher = eventPublisher;
     }
 
     public PageResult<AlarmResponse> listAlarms(long page, long pageSize, String keyword,
@@ -105,6 +110,15 @@ public class AlarmService {
         return toResponse(getRequiredAlarm(id));
     }
 
+    /**
+     * 供WebSocket推送使用的只读查询：不做当前用户数据范围检查，
+     * 权限过滤由推送端按会话属性完成；告警不存在时返回null。
+     */
+    public AlarmResponse findResponse(Long id) {
+        Alarm alarm = alarmMapper.selectById(id);
+        return alarm == null ? null : toResponse(alarm);
+    }
+
     @Transactional
     public AlarmResponse updateStatus(Long id, AlarmStatusUpdateRequest request) {
         UserIdentityResponse current = currentUserService.getCurrentUser();
@@ -141,6 +155,8 @@ public class AlarmService {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "alarm status update conflict");
         }
+        // 人工兜底关闭也通知前端移除未处理告警，事务提交后推送
+        eventPublisher.publishEvent(AlarmWsEvent.resolved(alarm.getId()));
         return toResponse(alarm);
     }
 
