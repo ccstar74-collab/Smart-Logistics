@@ -126,10 +126,7 @@ public class MqttAlertIngestionService {
             throw new IllegalArgumentException("invalid alert vehicle_id");
         }
 
-        AlarmType alarmType = TYPE_MAPPING.get(payload.alertType());
-        if (alarmType == null) {
-            throw new IllegalArgumentException("unsupported alert_type");
-        }
+        AlarmType alarmType = parseAlarmType(payload.alertType());
         if (payload.description() == null
                 || payload.description().isBlank()
                 || payload.description().length() > 256) {
@@ -154,6 +151,17 @@ public class MqttAlertIngestionService {
             case ABNORMAL_STOP -> AlarmLevel.MEDIUM;
             case ROUTE_DEVIATION, ABNORMAL_OPEN, OTHER -> AlarmLevel.HIGH;
         };
+    }
+
+    static AlarmType parseAlarmType(String alertType) {
+        if (alertType == null) {
+            throw new IllegalArgumentException("unsupported alert_type");
+        }
+        AlarmType alarmType = TYPE_MAPPING.get(alertType);
+        if (alarmType == null) {
+            throw new IllegalArgumentException("unsupported alert_type");
+        }
+        return alarmType;
     }
 
     private String createEventKey(MqttAlertPayload payload, ValidatedAlert validated) {
