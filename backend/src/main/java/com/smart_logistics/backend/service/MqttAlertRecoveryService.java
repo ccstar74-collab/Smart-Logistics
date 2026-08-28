@@ -41,7 +41,7 @@ public class MqttAlertRecoveryService {
         ValidatedRecovery recovery = validate(payload);
         Alarm alarm = alarmMapper.selectOne(new LambdaQueryWrapper<Alarm>()
                 .eq(Alarm::getDeviceCode, payload.vehicleId())
-                .eq(Alarm::getAlarmType, AlarmType.ABNORMAL_OPEN.name())
+                .eq(Alarm::getAlarmType, recovery.alarmType().name())
                 .eq(Alarm::getOccurredAt, LocalDateTime.ofInstant(
                         recovery.triggeredAt(), DATABASE_TIME_ZONE))
                 .orderByDesc(Alarm::getId)
@@ -64,9 +64,7 @@ public class MqttAlertRecoveryService {
                 || !DEVICE_CODE_PATTERN.matcher(payload.vehicleId()).matches()) {
             throw new IllegalArgumentException("invalid alert recovery vehicle_id");
         }
-        if (!"异常开箱".equals(payload.alertType())) {
-            throw new IllegalArgumentException("unsupported alert recovery type");
-        }
+        AlarmType alarmType = MqttAlertIngestionService.parseAlarmType(payload.alertType());
         if (!"RECOVERED".equals(payload.conditionStatus())) {
             throw new IllegalArgumentException("invalid alert recovery condition_status");
         }
@@ -80,12 +78,13 @@ public class MqttAlertRecoveryService {
                 throw new IllegalArgumentException(
                         "alert recovery time precedes trigger time");
             }
-            return new ValidatedRecovery(triggeredAt, recoveredAt);
+            return new ValidatedRecovery(alarmType, triggeredAt, recoveredAt);
         } catch (DateTimeException | NullPointerException exception) {
             throw new IllegalArgumentException("invalid alert recovery timestamp", exception);
         }
     }
 
-    private record ValidatedRecovery(Instant triggeredAt, Instant recoveredAt) {
+    private record ValidatedRecovery(AlarmType alarmType, Instant triggeredAt,
+                                     Instant recoveredAt) {
     }
 }
