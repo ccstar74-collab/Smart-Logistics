@@ -8,7 +8,6 @@ defineProps({ title: String, subtitle: String })
       <p>{{ subtitle }}</p>
     </div>
     <div class="top-actions">
-      <span class="online-dot"></span><span>模拟数据在线</span>
       <button class="ghost" @click="location.reload()">刷新</button>
     </div>
   </header>

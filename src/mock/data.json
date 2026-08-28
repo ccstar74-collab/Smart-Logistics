@@ -267,7 +267,7 @@
       "id": 3,
       "username": "warehouse01",
       "name": "小张",
-      "role": "WAREHOUSE",
+      "role": "WAREHOUSE_MANAGER",
       "label": "仓库管理员"
     },
     {

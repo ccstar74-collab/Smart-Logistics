@@ -1,23 +1,77 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import PageHeader from '../components/PageHeader.vue'
 import AMapView from '../components/AMapView.vue'
-import SimulationControls from '../components/SimulationControls.vue'
-import { snapshots } from '../stores/realtime'
-import { useAuth } from '../stores/auth'
+import { api, extractList } from '../api/http'
+import { useAuth } from '../stores/auth-session'
+import { useVehicleWebSocket } from '../composables/useVehicleWebSocket'
+
 const { state } = useAuth()
-const selectedId=ref(snapshots[0]?.vehicle_id)
-const selected=computed(()=>snapshots.find(v=>v.vehicle_id===selectedId.value)||snapshots[0])
-const title=computed(()=>({OWNER:'货物追踪',DRIVER:'车辆位置',DISPATCHER:'车辆监控',ADMIN:'地图监控'}[state.currentUser.role]||'实时追踪'))
-const subtitle=computed(()=>({OWNER:'查看货物绑定车辆的实时位置与运输状态',DRIVER:'查看当前任务路线和车辆实时位置',DISPATCHER:'统一查看所有车辆位置、速度、状态和异常',ADMIN:'系统级车辆与告警位置监控'}[state.currentUser.role]||'实时车辆追踪'))
-function selectVehicle(v){selectedId.value=v.vehicle_id}
-function shortTime(iso){if(!iso)return'--';const d=new Date(iso);return Number.isNaN(d.getTime())?'--':d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}
+const { status: wsStatus, vehicles: wsVehicles, setVehicleDictionary, connect: connectWebSocket } = useVehicleWebSocket()
+const loading = ref(false), cargos = ref([]), tasks = ref([]), vehicles = ref([]), selectedTaskId = ref(null)
+const cargoMap = computed(() => Object.fromEntries(cargos.value.map(c => [Number(c.id), c])))
+const vehicleMap = computed(() => Object.fromEntries(vehicles.value.map(v => [Number(v.id), v])))
+const selectedTask = computed(() => tasks.value.find(t => Number(t.id) === Number(selectedTaskId.value)) || tasks.value[0] || null)
+const selectedCargo = computed(() => selectedTask.value ? cargoMap.value[Number(selectedTask.value.cargoId)] : null)
+const selectedVehicle = computed(() => selectedTask.value ? vehicleMap.value[Number(selectedTask.value.vehicleId)] : null)
+const validCoordinate = (lon, lat) => Number.isFinite(Number(lon)) && Number.isFinite(Number(lat)) && Math.abs(Number(lon)) <= 180 && Math.abs(Number(lat)) <= 90 && !(Number(lon) === 0 && Number(lat) === 0)
+const apiMapVehicle = computed(() => !selectedVehicle.value || !validCoordinate(selectedVehicle.value?.lastLongitude, selectedVehicle.value?.lastLatitude) ? null : ({
+  vehicle_id: String(selectedVehicle.value.id), task_id: selectedTask.value?.id, online: true,
+  gps: { lon: Number(selectedVehicle.value.lastLongitude), lat: Number(selectedVehicle.value.lastLatitude), speed_kmh: selectedVehicle.value.speed ?? 0, timestamp: selectedVehicle.value.locationUpdatedAt || selectedVehicle.value.updatedAt },
+  display: { plate_number: selectedVehicle.value.plateNumber, driver_name: selectedVehicle.value.driverName || '--', task_no: selectedTask.value?.taskNo }
+}))
+const selectedRealtimeVehicle = computed(() => wsVehicles.value.find(item => String(item.vehicle_id) === String(selectedTask.value?.vehicleId) || String(item.sim_code) === String(selectedVehicle.value?.simCode ?? selectedVehicle.value?.sim_code)))
+const selectedMapVehicle = computed(() => selectedRealtimeVehicle.value || apiMapVehicle.value)
+const showAllRealtimeVehicles = computed(() => ['DISPATCHER', 'ADMIN'].includes(state.currentUser.role))
+const mapVehicles = computed(() => showAllRealtimeVehicles.value && wsVehicles.value.length ? wsVehicles.value : selectedMapVehicle.value ? [selectedMapVehicle.value] : [])
+const hasLocation = computed(() => Boolean(selectedMapVehicle.value?.gps))
+const currentPosition = computed(() => selectedMapVehicle.value?.gps ? `${selectedMapVehicle.value.gps.lat}, ${selectedMapVehicle.value.gps.lon}` : '暂无 GPS')
+const statusText = { WAITING: '待运输', TRANSPORTING: '运输中', COMPLETED: '已完成', ABNORMAL: '异常', CANCELLED: '已取消' }
+
+function mergeLatestLocations(vehicleRows, payload) {
+  const locations = extractList(payload)
+  const byId = new Map(locations.map(location => [Number(location.vehicleId ?? location.vehicle_id ?? location.id), location]))
+  return vehicleRows.map(vehicle => {
+    const location = byId.get(Number(vehicle.id ?? vehicle.vehicleId))
+    return !location ? vehicle : { ...vehicle, lastLongitude: location.longitude ?? location.lon ?? location.lng, lastLatitude: location.latitude ?? location.lat, speed: location.speed ?? location.speed_kmh, direction: location.direction ?? location.heading, locationUpdatedAt: location.collectedAt ?? location.timestamp ?? location.collectTime, online: location.online ?? location.isOnline }
+  })
+}
+
+function dateText(value) { return value ? String(value).replace('T', ' ').slice(0, 16) : '--' }
+async function load() {
+  loading.value = true
+  try {
+    const [cargoResult, taskResult, vehicleResult, locationResult] = await Promise.all([
+      api.cargos.list({ page: 1, pageSize: 100 }), api.transportTasks.list({ page: 1, pageSize: 100 }), api.vehicles.list({ page: 1, pageSize: 100 }), api.vehicles.latestLocations().catch(() => [])
+    ])
+    cargos.value = extractList(cargoResult); tasks.value = extractList(taskResult); vehicles.value = mergeLatestLocations(extractList(vehicleResult), locationResult)
+    const dictionaryResult = await api.realtimeVehicles.list().catch(() => vehicleResult)
+    setVehicleDictionary(extractList(dictionaryResult).length ? extractList(dictionaryResult) : vehicles.value)
+    if (!tasks.value.some(t => Number(t.id) === Number(selectedTaskId.value))) selectedTaskId.value = tasks.value[0]?.id ?? null
+  } catch (error) { ElMessage.error(`货物追踪数据加载失败：${error.message}`) }
+  finally { loading.value = false }
+}
+onMounted(async () => { await load(); connectWebSocket() })
 </script>
+
 <template>
-  <PageHeader :title="title" :subtitle="subtitle"/>
-  <SimulationControls />
-  <section class="tracking-grid">
-    <article class="panel"><div class="panel-title"><div><h2>实时位置地图</h2><span>点击车辆切换追踪对象</span></div><span class="badge">高德真实地图 · Mock 实时数据</span></div><AMapView :selectedVehicleId="selected.vehicle_id" @select="selectVehicle"/></article>
-    <article class="panel detail-card"><h2>{{selected.display.plate_number}}</h2><p class="vehicle-id-line">{{selected.vehicle_id}}</p><dl><div><dt>在线状态</dt><dd>{{selected.online?'在线':'离线'}}</dd></div><div><dt>运输状态</dt><dd>{{selected.transport_status}}</dd></div><div><dt>速度</dt><dd>{{selected.gps.speed_kmh}} km/h</dd></div><div><dt>航向</dt><dd>{{selected.gps.heading}}°</dd></div><div><dt>纬度</dt><dd>{{selected.gps.lat}}</dd></div><div><dt>经度</dt><dd>{{selected.gps.lon}}</dd></div><div><dt>GPS 时间</dt><dd>{{shortTime(selected.gps.timestamp)}}</dd></div><div><dt>当前任务</dt><dd>{{selected.display.task_no||'暂无'}}</dd></div><div><dt>ETA</dt><dd>{{selected.display.eta}}</dd></div></dl><div v-if="selected.has_active_alert" class="tracking-alert"><strong>{{selected.latest_alert.alert_type}}</strong><p>{{selected.latest_alert.description}}</p></div></article>
+  <PageHeader :title="showAllRealtimeVehicles ? '实时车辆监控' : '货物追踪'" subtitle="历史快照来自云端 API，实时位置来自车辆 GPS WebSocket" />
+  <section class="panel owner-order-switcher" v-loading="loading">
+    <div class="panel-title"><div><h2>选择运输订单</h2></div><button class="mini" @click="load">刷新</button></div>
+    <div class="owner-order-tabs">
+      <button v-for="task in tasks" :key="task.id" class="owner-order-card" :class="{ active: Number(selectedTaskId) === Number(task.id) }" @click="selectedTaskId = task.id">
+        <span class="owner-order-main"><strong>{{ cargoMap[Number(task.cargoId)]?.name || `货物 #${task.cargoId}` }}</strong><span>{{ task.taskNo }}</span></span>
+        <span class="owner-order-meta"><b>{{ statusText[task.status] || task.status }}</b><span>ETA {{ dateText(task.estimatedArrivalTime || task.planEndTime) }}</span></span>
+      </button>
+      <div v-if="!tasks.length && !loading" class="muted-note">当前账号暂无关联运输任务</div>
+    </div>
+  </section>
+  <section v-if="selectedTask" class="tracking-grid owner-tracking-grid" v-loading="loading">
+    <article class="panel"><div class="panel-title"><div><h2>{{showAllRealtimeVehicles?'车辆实时分布':'当前货物运输位置'}}</h2><span>{{ hasLocation ? '正在使用最新 GPS 经纬度' : '暂无有效 GPS，地图保持默认重庆视角' }}</span></div><span class="realtime-connection" :class="wsStatus">WebSocket {{wsStatus==='open'?'已连接':wsStatus==='reconnecting'?'服务不可达，自动重连中':wsStatus==='connecting'?'连接中':'未连接'}}</span></div><AMapView :selectedVehicleId="selectedMapVehicle?.vehicle_id || mapVehicles[0]?.vehicle_id || ''" :externalVehicles="mapVehicles" :showTrack="false" :showFacilities="false" /></article>
+    <article class="panel detail-card owner-shipment-detail">
+      <div class="shipment-detail-head"><div><h2>{{ selectedCargo?.name || `货物 #${selectedTask.cargoId}` }}</h2><p class="vehicle-id-line">{{ selectedTask.taskNo }}</p></div><span class="task-status">{{ statusText[selectedTask.status] || selectedTask.status }}</span></div>
+      <dl><div><dt>货物编号</dt><dd>{{ selectedCargo?.cargoNo || '--' }}</dd></div><div><dt>运输车辆</dt><dd>{{ selectedVehicle?.plateNumber || selectedMapVehicle?.display?.plate_number || `#${selectedTask.vehicleId}` }}</dd></div><div><dt>司机</dt><dd>{{ selectedVehicle?.driverName || '--' }}</dd></div><div><dt>起点</dt><dd>{{ selectedTask.startLocation || '--' }}</dd></div><div><dt>终点</dt><dd>{{ selectedTask.endLocation || '--' }}</dd></div><div><dt>当前位置</dt><dd>{{ currentPosition }}</dd></div><div><dt>预计到达</dt><dd>{{ dateText(selectedTask.estimatedArrivalTime || selectedTask.planEndTime) }}</dd></div></dl>
+    </article>
   </section>
 </template>

@@ -54,6 +54,15 @@ defineProps({
     <template v-else-if="name==='chart'">
       <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
     </template>
+    <template v-else-if="name==='command'">
+      <path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/><path d="M8 13h7M8 17h5"/><path d="m15.5 14.5 3 2-3 2"/>
+    </template>
+    <template v-else-if="name==='broadcast'">
+      <path d="m4 13 11-5v8L4 11z"/><path d="M7 13v5h4l-1.5-5"/><path d="M18 9.5c1.5 1.3 1.5 3.7 0 5M20.5 7c3 2.8 3 7.2 0 10"/>
+    </template>
+    <template v-else-if="name==='analytics'">
+      <path d="M4 20V5M4 20h16"/><path d="m7 15 4-4 3 2 5-6"/><circle cx="7" cy="15" r="1"/><circle cx="11" cy="11" r="1"/><circle cx="14" cy="13" r="1"/><circle cx="19" cy="7" r="1"/>
+    </template>
     <template v-else-if="name==='user'">
       <circle cx="12" cy="8" r="4"/><path d="M4.5 21c.7-5 3.2-7.5 7.5-7.5s6.8 2.5 7.5 7.5"/>
     </template>
