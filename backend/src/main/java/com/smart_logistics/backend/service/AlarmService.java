@@ -204,7 +204,10 @@ public class AlarmService {
                 toOffsetDateTime(alarm.getHandledAt()),
                 toOffsetDateTime(alarm.getCreatedAt()),
                 toOffsetDateTime(alarm.getResolvedAt()),
-                alarm.getResolutionRemark()
+                alarm.getResolutionRemark(),
+                alarm.getLongitude(),
+                alarm.getLatitude(),
+                alarm.getCoordSystem()
         );
     }
 

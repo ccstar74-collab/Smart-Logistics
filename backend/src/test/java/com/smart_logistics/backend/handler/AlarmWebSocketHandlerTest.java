@@ -141,6 +141,7 @@ class AlarmWebSocketHandlerTest {
                 AlarmType.ROUTE_DEVIATION, AlarmLevel.HIGH, "车辆连续偏离规划路线",
                 AlarmStatus.UNHANDLED, AlarmConditionStatus.ACTIVE, "backend",
                 OffsetDateTime.parse("2026-08-28T10:00:00+08:00"), null, null, null,
-                OffsetDateTime.parse("2026-08-28T10:00:01+08:00"), null, null);
+                OffsetDateTime.parse("2026-08-28T10:00:01+08:00"), null, null,
+                null, null, null);
     }
 }

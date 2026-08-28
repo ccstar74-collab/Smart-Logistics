@@ -61,6 +61,8 @@ public class MqttAlertIngestionService {
     // 告警位置查找窗口：事件时间前5分钟到后1分钟，取最接近事件时间的GPS点
     private static final Duration LOCATION_LOOKBACK = Duration.ofMinutes(5);
     private static final Duration LOCATION_FORWARD_TOLERANCE = Duration.ofMinutes(1);
+    // MQTT GPS 数据源自 CARLA 仿真器或真实 GNSS 设备，原始坐标系均为 WGS84
+    private static final String GPS_COORD_SYSTEM = "WGS84";
 
     private final AlarmMapper alarmMapper;
     private final AlarmAssociationService associationService;
@@ -112,6 +114,7 @@ public class MqttAlertIngestionService {
         if (location != null) {
             alarm.setLongitude(BigDecimal.valueOf(location.longitude()));
             alarm.setLatitude(BigDecimal.valueOf(location.latitude()));
+            alarm.setCoordSystem(GPS_COORD_SYSTEM);
         }
         alarm.setStatus(AlarmStatus.UNHANDLED.name());
         alarm.setConditionStatus(AlarmConditionStatus.ACTIVE.name());

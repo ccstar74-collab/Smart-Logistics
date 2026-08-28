@@ -20,6 +20,7 @@ public class Alarm {
     private String message;
     private BigDecimal longitude;
     private BigDecimal latitude;
+    private String coordSystem;
     private String status;
     private String conditionStatus;
     private String source;
@@ -104,6 +105,14 @@ public class Alarm {
 
     public void setLatitude(BigDecimal latitude) {
         this.latitude = latitude;
+    }
+
+    public String getCoordSystem() {
+        return coordSystem;
+    }
+
+    public void setCoordSystem(String coordSystem) {
+        this.coordSystem = coordSystem;
     }
 
     public String getStatus() {

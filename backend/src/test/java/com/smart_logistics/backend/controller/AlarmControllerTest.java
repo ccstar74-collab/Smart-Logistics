@@ -187,7 +187,10 @@ class AlarmControllerTest {
                 status == AlarmStatus.UNHANDLED ? null : createdAt.plusMinutes(1),
                 createdAt,
                 status == AlarmStatus.RESOLVED ? createdAt.plusMinutes(2) : null,
-                status == AlarmStatus.RESOLVED ? "False positive confirmed" : null
+                status == AlarmStatus.RESOLVED ? "False positive confirmed" : null,
+                null,
+                null,
+                null
         );
     }
 }

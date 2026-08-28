@@ -5,6 +5,7 @@ import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 public class AlarmResponse {
@@ -28,6 +29,9 @@ public class AlarmResponse {
     private final OffsetDateTime createdAt;
     private final OffsetDateTime resolvedAt;
     private final String resolutionRemark;
+    private final BigDecimal longitude;
+    private final BigDecimal latitude;
+    private final String coordSystem;
 
     public AlarmResponse(Long id, Long vehicleId, String plateNumber,
                          Long taskId, String taskNo, String deviceCode,
@@ -36,7 +40,9 @@ public class AlarmResponse {
                          String source, OffsetDateTime occurredAt,
                          OffsetDateTime recoveredAt, Long handledBy,
                          OffsetDateTime handledAt, OffsetDateTime createdAt,
-                         OffsetDateTime resolvedAt, String resolutionRemark) {
+                         OffsetDateTime resolvedAt, String resolutionRemark,
+                         BigDecimal longitude, BigDecimal latitude,
+                         String coordSystem) {
         this.id = id;
         this.vehicleId = vehicleId;
         this.plateNumber = plateNumber;
@@ -56,6 +62,9 @@ public class AlarmResponse {
         this.createdAt = createdAt;
         this.resolvedAt = resolvedAt;
         this.resolutionRemark = resolutionRemark;
+        this.longitude = longitude;
+        this.latitude = latitude;
+        this.coordSystem = coordSystem;
     }
 
     public Long getId() { return id; }
@@ -79,4 +88,7 @@ public class AlarmResponse {
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getResolvedAt() { return resolvedAt; }
     public String getResolutionRemark() { return resolutionRemark; }
+    public BigDecimal getLongitude() { return longitude; }
+    public BigDecimal getLatitude() { return latitude; }
+    public String getCoordSystem() { return coordSystem; }
 }
