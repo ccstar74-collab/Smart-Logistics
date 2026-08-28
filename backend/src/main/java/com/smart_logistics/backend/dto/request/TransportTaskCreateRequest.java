@@ -1,5 +1,6 @@
 package com.smart_logistics.backend.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -29,10 +30,12 @@ public class TransportTaskCreateRequest {
 
     @DecimalMin(value = "-180.0", message = "startLongitude must be at least -180")
     @DecimalMax(value = "180.0", message = "startLongitude must not exceed 180")
+    @NotNull(message = "startLongitude must not be null")
     private Double startLongitude;
 
     @DecimalMin(value = "-90.0", message = "startLatitude must be at least -90")
     @DecimalMax(value = "90.0", message = "startLatitude must not exceed 90")
+    @NotNull(message = "startLatitude must not be null")
     private Double startLatitude;
 
     @NotBlank(message = "endLocation must not be blank")
@@ -41,12 +44,15 @@ public class TransportTaskCreateRequest {
 
     @DecimalMin(value = "-180.0", message = "endLongitude must be at least -180")
     @DecimalMax(value = "180.0", message = "endLongitude must not exceed 180")
+    @NotNull(message = "endLongitude must not be null")
     private Double endLongitude;
 
     @DecimalMin(value = "-90.0", message = "endLatitude must be at least -90")
     @DecimalMax(value = "90.0", message = "endLatitude must not exceed 90")
+    @NotNull(message = "endLatitude must not be null")
     private Double endLatitude;
 
+    @JsonAlias("plannedStartTime")
     private OffsetDateTime planStartTime;
     private OffsetDateTime planEndTime;
 

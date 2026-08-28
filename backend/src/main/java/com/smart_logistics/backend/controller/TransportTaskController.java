@@ -7,18 +7,20 @@ import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -62,17 +64,35 @@ public class TransportTaskController {
         return ApiResponse.success(etaPlannedRouteService.getResponse(task));
     }
 
-    /**
-     * P0 GET /api/v1/transport-tasks
-     * 按角色查询任务；司机和货主只能看到相关任务
-     */
+    @GetMapping("/{id}/routes")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<List<TransportTaskRouteResponse>> listRoutes(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(transportTaskService.listTransportTaskRoutes(id));
+    }
+
+    @PostMapping("/{id}/routes")
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<TransportTaskRouteResponse> createReadyRoute(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(transportTaskService.createReadyRoute(id));
+    }
+
+    @PutMapping("/{id}/routes/{routeId}/activate")
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<TransportTaskRouteResponse> activateReadyRoute(
+            @PathVariable @Positive Long id,
+            @PathVariable @NotBlank @Size(max = 64) String routeId) {
+        return ApiResponse.success(transportTaskService.activateReadyRoute(id, routeId));
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<PageResult<TransportTaskResponse>> listTransportTasks(
             @RequestParam(defaultValue = "1") @Min(1) long page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) long pageSize,
             @RequestParam(required = false) @Size(max = 100) String keyword,
-            @RequestParam(required = false) TransportTaskStatus status,
+            @RequestParam(required = false) List<TransportTaskStatus> status,
             @RequestParam(required = false) @Positive Long driverId,
             @RequestParam(required = false) @Positive Long ownerId,
             @RequestParam(required = false) @Positive Long vehicleId,
@@ -82,10 +102,6 @@ public class TransportTaskController {
                         driverId, ownerId, vehicleId, cargoId));
     }
 
-    /**
-     * P0 POST /api/v1/transport-tasks
-     * 绑定待运输货物和空闲车辆，生成运输任务
-     */
     @PostMapping
     @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public ApiResponse<TransportTaskResponse> createTransportTask(
@@ -93,10 +109,6 @@ public class TransportTaskController {
         return ApiResponse.success(transportTaskService.createTransportTask(request));
     }
 
-    /**
-     * P0 GET /api/v1/transport-tasks/{id}
-     * 查看任务、货物、车辆、司机、ETA、进度和实际时间
-     */
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<TransportTaskResponse> getTransportTask(

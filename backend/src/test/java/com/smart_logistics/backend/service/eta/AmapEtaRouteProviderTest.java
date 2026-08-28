@@ -47,12 +47,12 @@ class AmapEtaRouteProviderTest {
     }
 
     @Test
-    void convertsWgs84CoordinateForDomesticRouteRequest() {
-        Wgs84ToGcj02Converter.Coordinate converted =
-                Wgs84ToGcj02Converter.convert(106.5712345, 29.4934567);
+    void sendsStoredGcj02CoordinatesWithoutSecondConversion() {
+        String uri = provider.buildUri(
+                106.571234, 29.493456, 106.612345, 29.523456).toString();
 
-        assertTrue(Math.abs(converted.longitude() - 106.5712345) > 0.001);
-        assertTrue(Math.abs(converted.latitude() - 29.4934567) > 0.001);
+        assertTrue(uri.contains("origin=106.571234,29.493456"));
+        assertTrue(uri.contains("destination=106.612345,29.523456"));
     }
 
     @Test

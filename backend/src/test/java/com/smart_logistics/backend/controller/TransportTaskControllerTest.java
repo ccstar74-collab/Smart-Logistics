@@ -5,7 +5,9 @@ import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
+import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
@@ -29,6 +31,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -99,18 +102,100 @@ class TransportTaskControllerTest {
         TransportTaskResponse task = response(TransportTaskStatus.WAITING);
         when(transportTaskService.getTransportTask(1L)).thenReturn(task);
         when(etaPlannedRouteService.getResponse(task)).thenReturn(
-                new PlannedRouteResponse(1L, "sim_000", "AMAP", "GCJ02", 5500, 720,
+                new PlannedRouteResponse(1L, "route_fixed", 1,
+                        TransportTaskRouteStatus.ACTIVE,
+                        "sim_000", "AMAP", "GCJ02", 5500, 720,
                         OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
                         List.of(
-                                new PlannedRouteResponse.RoutePoint(106.57, 29.49),
-                                new PlannedRouteResponse.RoutePoint(106.61, 29.52))));
+                                List.of(106.57, 29.49),
+                                List.of(106.61, 29.52))));
 
         mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_fixed"))
+                .andExpect(jsonPath("$.data.routeVersion").value(1))
+                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.vehicleDeviceCode").value("sim_000"))
+                .andExpect(jsonPath("$.data.provider").value("AMAP"))
                 .andExpect(jsonPath("$.data.coordinateSystem").value("GCJ02"))
                 .andExpect(jsonPath("$.data.distanceMeters").value(5500))
+                .andExpect(jsonPath("$.data.points[0][0]").value(106.57))
+                .andExpect(jsonPath("$.data.points[0][1]").value(29.49))
                 .andExpect(jsonPath("$.data.points.length()").value(2));
+    }
+
+    @Test
+    void plannedRoutePreservesTaskDataScopeFailure() throws Exception {
+        when(transportTaskService.getTransportTask(1L)).thenThrow(
+                new BusinessException(ErrorCode.FORBIDDEN,
+                        "resource is outside current user data scope"));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+
+        verifyNoInteractions(etaPlannedRouteService);
+    }
+
+    @Test
+    void plannedRouteUnavailableDoesNotReturnSuccessfulEmptyPoints() throws Exception {
+        TransportTaskResponse task = response(TransportTaskStatus.WAITING);
+        when(transportTaskService.getTransportTask(1L)).thenReturn(task);
+        when(etaPlannedRouteService.getResponse(task)).thenThrow(
+                new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
+                        "planned route is unavailable"));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value(50301));
+    }
+
+    @Test
+    void routeListReturnsAllVersionsInServiceOrder() throws Exception {
+        when(transportTaskService.listTransportTaskRoutes(1L)).thenReturn(List.of(
+                routeResponse("route_v1", 1, TransportTaskRouteStatus.ACTIVE),
+                routeResponse("route_v2", 2, TransportTaskRouteStatus.READY)));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/routes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].routeId").value("route_v1"))
+                .andExpect(jsonPath("$.data[0].routeStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[1].routeVersion").value(2))
+                .andExpect(jsonPath("$.data[1].routeStatus").value("READY"));
+    }
+
+    @Test
+    void createReadyRouteReturnsVersionedSnapshot() throws Exception {
+        when(transportTaskService.createReadyRoute(1L)).thenReturn(
+                routeResponse("route_v2", 2, TransportTaskRouteStatus.READY));
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
+                .andExpect(jsonPath("$.data.routeVersion").value(2))
+                .andExpect(jsonPath("$.data.routeStatus").value("READY"));
+    }
+
+    @Test
+    void activateRouteReturnsNewActiveSnapshot() throws Exception {
+        when(transportTaskService.activateReadyRoute(1L, "route_v2")).thenReturn(
+                routeResponse("route_v2", 2, TransportTaskRouteStatus.ACTIVE));
+
+        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
+                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
+    }
+
+    @Test
+    void routeListPreservesTaskDataScopeFailure() throws Exception {
+        when(transportTaskService.listTransportTaskRoutes(1L)).thenThrow(
+                new BusinessException(ErrorCode.FORBIDDEN,
+                        "resource is outside current user data scope"));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/routes"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
     }
 
     @Test
@@ -119,7 +204,9 @@ class TransportTaskControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
-                                 "endLocation":"Beijing"}
+                                 "startLongitude":106.735012,"startLatitude":29.610634,
+                                 "endLocation":"Beijing",
+                                 "endLongitude":106.759396,"endLatitude":29.620115}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
@@ -132,7 +219,9 @@ class TransportTaskControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"cargoId":10,"vehicleId":20,"startLocation":"Shanghai",
-                                 "endLocation":"Beijing"}
+                                 "startLongitude":106.735012,"startLatitude":29.610634,
+                                 "endLocation":"Beijing",
+                                 "endLongitude":106.759396,"endLatitude":29.620115}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
@@ -145,7 +234,9 @@ class TransportTaskControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":" ",
-                                 "endLocation":"Beijing"}
+                                 "startLongitude":106.735012,"startLatitude":29.610634,
+                                 "endLocation":"Beijing",
+                                 "endLongitude":106.759396,"endLatitude":29.620115}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001))
@@ -153,9 +244,58 @@ class TransportTaskControllerTest {
     }
 
     @Test
+    void createRejectsMissingStartLongitude() throws Exception {
+        assertCreateCoordinateValidation(
+                "\"startLatitude\":29.610634,\"endLongitude\":106.759396,"
+                        + "\"endLatitude\":29.620115,",
+                "startLongitude must not be null");
+    }
+
+    @Test
+    void createRejectsMissingStartLatitude() throws Exception {
+        assertCreateCoordinateValidation(
+                "\"startLongitude\":106.735012,\"endLongitude\":106.759396,"
+                        + "\"endLatitude\":29.620115,",
+                "startLatitude must not be null");
+    }
+
+    @Test
+    void createRejectsMissingEndLongitude() throws Exception {
+        assertCreateCoordinateValidation(
+                "\"startLongitude\":106.735012,\"startLatitude\":29.610634,"
+                        + "\"endLatitude\":29.620115,",
+                "endLongitude must not be null");
+    }
+
+    @Test
+    void createRejectsMissingEndLatitude() throws Exception {
+        assertCreateCoordinateValidation(
+                "\"startLongitude\":106.735012,\"startLatitude\":29.610634,"
+                        + "\"endLongitude\":106.759396,",
+                "endLatitude must not be null");
+    }
+
+    @Test
+    void createRejectsLongitudeOutsideRange() throws Exception {
+        assertCreateCoordinateValidation(
+                "\"startLongitude\":180.000001,\"startLatitude\":29.610634,"
+                        + "\"endLongitude\":106.759396,\"endLatitude\":29.620115,",
+                "startLongitude must not exceed 180");
+    }
+
+    @Test
+    void createRejectsLatitudeOutsideRange() throws Exception {
+        assertCreateCoordinateValidation(
+                "\"startLongitude\":106.735012,\"startLatitude\":-90.000001,"
+                        + "\"endLongitude\":106.759396,\"endLatitude\":29.620115,",
+                "startLatitude must be at least -90");
+    }
+
+    @Test
     void listReturnsPageAndPassesStatusAndKeyword() throws Exception {
         when(transportTaskService.listTransportTasks(
-                2, 5, "Shanghai", TransportTaskStatus.WAITING,
+                2, 5, "Shanghai", List.of(TransportTaskStatus.WAITING,
+                        TransportTaskStatus.TRANSPORTING),
                 null, null, null, null))
                 .thenReturn(new PageResult<>(
                         List.of(response(TransportTaskStatus.WAITING)), 6, 2, 5));
@@ -164,7 +304,7 @@ class TransportTaskControllerTest {
                         .param("page", "2")
                         .param("pageSize", "5")
                         .param("keyword", "Shanghai")
-                        .param("status", "WAITING"))
+                        .param("status", "WAITING,TRANSPORTING"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.records[0].taskNo").value("T202608230001"))
                 .andExpect(jsonPath("$.data.total").value(6))
@@ -172,7 +312,8 @@ class TransportTaskControllerTest {
                 .andExpect(jsonPath("$.data.pageSize").value(5));
 
         verify(transportTaskService).listTransportTasks(
-                2, 5, "Shanghai", TransportTaskStatus.WAITING,
+                2, 5, "Shanghai", List.of(TransportTaskStatus.WAITING,
+                        TransportTaskStatus.TRANSPORTING),
                 null, null, null, null);
     }
 
@@ -302,10 +443,24 @@ class TransportTaskControllerTest {
     private String validCreateJson() {
         return """
                 {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
-                 "endLocation":"Beijing",
-                 "planStartTime":"2026-08-24T10:00:00+08:00",
+                 "startLongitude":106.735012,"startLatitude":29.610634,
+                 "endLocation":"Beijing","endLongitude":106.759396,"endLatitude":29.620115,
+                 "plannedStartTime":"2026-08-24T10:00:00+08:00",
                  "planEndTime":"2026-08-24T15:00:00+08:00"}
                 """;
+    }
+
+    private void assertCreateCoordinateValidation(String coordinateFields,
+                                                  String expectedMessage) throws Exception {
+        String body = "{\"cargoId\":10,\"ownerId\":30,\"vehicleId\":20,"
+                + "\"startLocation\":\"Shanghai\"," + coordinateFields
+                + "\"endLocation\":\"Beijing\"}";
+        mockMvc.perform(post("/api/v1/transport-tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.message").value(expectedMessage));
     }
 
     private TransportTaskResponse response(TransportTaskStatus status) {
@@ -322,5 +477,15 @@ class TransportTaskControllerTest {
                 OffsetDateTime.parse("2026-08-23T10:00:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:00:00+08:00")
         );
+    }
+
+    private TransportTaskRouteResponse routeResponse(
+            String routeId, int routeVersion, TransportTaskRouteStatus status) {
+        return new TransportTaskRouteResponse(
+                routeId, 1L, routeVersion, status, "AMAP", "GCJ02",
+                5_500, 720,
+                OffsetDateTime.parse("2026-08-26T16:00:00+08:00"),
+                List.of(List.of(106.5701, 29.4901),
+                        List.of(106.6101, 29.5201)));
     }
 }

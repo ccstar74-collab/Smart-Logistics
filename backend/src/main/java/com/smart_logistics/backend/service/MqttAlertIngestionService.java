@@ -1,18 +1,13 @@
 package com.smart_logistics.backend.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
 import com.smart_logistics.backend.dto.realtime.GpsSample;
 import com.smart_logistics.backend.entity.Alarm;
-import com.smart_logistics.backend.entity.TransportTask;
-import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.AlarmLevel;
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
-import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.mapper.AlarmMapper;
-import com.smart_logistics.backend.mapper.TransportTaskMapper;
-import com.smart_logistics.backend.mapper.VehicleMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -62,17 +57,14 @@ public class MqttAlertIngestionService {
     private static final Duration LOCATION_FORWARD_TOLERANCE = Duration.ofMinutes(1);
 
     private final AlarmMapper alarmMapper;
-    private final VehicleMapper vehicleMapper;
-    private final TransportTaskMapper transportTaskMapper;
+    private final AlarmAssociationService associationService;
     private final GpsInfluxService gpsInfluxService;
 
     public MqttAlertIngestionService(AlarmMapper alarmMapper,
-                                     VehicleMapper vehicleMapper,
-                                     TransportTaskMapper transportTaskMapper,
+                                     AlarmAssociationService associationService,
                                      GpsInfluxService gpsInfluxService) {
         this.alarmMapper = alarmMapper;
-        this.vehicleMapper = vehicleMapper;
-        this.transportTaskMapper = transportTaskMapper;
+        this.associationService = associationService;
         this.gpsInfluxService = gpsInfluxService;
     }
 
@@ -80,15 +72,15 @@ public class MqttAlertIngestionService {
     public IngestionResult ingest(MqttAlertPayload payload) {
         ValidatedAlert validated = validate(payload);
 
-        // 尽可能关联有效车辆和有效任务：未登记车辆或无活动任务时保留NULL，
-        // 不阻塞告警入库，详情权限校验会按车辆兜底放行调度/管理角色。
-        Vehicle vehicle = findVehicleByDeviceCode(payload.vehicleId());
-        Long taskId = activeTaskIdFor(vehicle);
+        // 告警归属统一由AlarmAssociationService解析：
+        // deviceCode/simCode -> Vehicle -> 当前TRANSPORTING Task，无Task时taskId=null
+        AlarmAssociationService.AlarmAssociation association =
+                associationService.resolve(payload.vehicleId());
         GpsSample location = locateNear(payload.vehicleId(), validated.occurredAt());
 
         Alarm alarm = new Alarm();
-        alarm.setTaskId(taskId);
-        alarm.setVehicleId(vehicle == null ? null : vehicle.getId());
+        alarm.setVehicleId(association.vehicleId());
+        alarm.setTaskId(association.taskId());
         alarm.setDeviceCode(payload.vehicleId());
         alarm.setAlarmType(validated.alarmType().name());
         alarm.setLevel(levelFor(validated.alarmType()).name());
@@ -98,6 +90,7 @@ public class MqttAlertIngestionService {
             alarm.setLatitude(BigDecimal.valueOf(location.latitude()));
         }
         alarm.setStatus(AlarmStatus.UNHANDLED.name());
+        alarm.setConditionStatus(AlarmConditionStatus.ACTIVE.name());
         alarm.setSource(payload.source());
         alarm.setSchemaVersion(payload.schemaVersion());
         alarm.setEventKey(createEventKey(payload, validated));
@@ -114,26 +107,6 @@ public class MqttAlertIngestionService {
         } catch (DuplicateKeyException exception) {
             return IngestionResult.DUPLICATE;
         }
-    }
-
-    private Vehicle findVehicleByDeviceCode(String deviceCode) {
-        return vehicleMapper.selectOne(new LambdaQueryWrapper<Vehicle>()
-                .eq(Vehicle::getSimCode, deviceCode));
-    }
-
-    private Long activeTaskIdFor(Vehicle vehicle) {
-        if (vehicle == null) {
-            return null;
-        }
-        List<TransportTask> tasks = transportTaskMapper.selectList(
-                new LambdaQueryWrapper<TransportTask>()
-                        .eq(TransportTask::getVehicleId, vehicle.getId())
-                        .in(TransportTask::getStatus,
-                                TransportTaskStatus.WAITING.name(),
-                                TransportTaskStatus.TRANSPORTING.name())
-                        .orderByDesc(TransportTask::getUpdatedAt)
-                        .orderByDesc(TransportTask::getId));
-        return tasks.isEmpty() ? null : tasks.get(0).getId();
     }
 
     /**

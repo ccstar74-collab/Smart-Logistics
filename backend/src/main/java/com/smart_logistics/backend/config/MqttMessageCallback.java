@@ -1,9 +1,6 @@
 package com.smart_logistics.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.influxdb.client.WriteApi;
-import com.influxdb.client.domain.WritePrecision;
-import com.influxdb.client.write.Point;
 import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
 import com.smart_logistics.backend.entity.Vehicle;
@@ -35,9 +32,6 @@ public class MqttMessageCallback implements MqttCallback {
 
     @Autowired
     private GpsWebSocketHandler gpsWebSocketHandler;
-
-    @Autowired
-    private WriteApi writeApi;
 
     @Autowired
     private VehicleService vehicleService;
@@ -127,6 +121,9 @@ public class MqttMessageCallback implements MqttCallback {
             String timestamp = String.valueOf(map.get("timestamp"));
             long ts = Instant.parse(timestamp).toEpochMilli();
 
+            // Influx写入走统一通道（canonical schema：longitude/latitude/speed_kmh/heading），
+            // tag vehicle_id存入原始simCode字符串
+
             // vehicleStateMap key 使用simCode，内存状态以simCode区分设备
             VehicleState state = vehicleStateMap.computeIfAbsent(simCode, k -> new VehicleState());
             state.vehicleId = simCode;
@@ -143,15 +140,8 @@ public class MqttMessageCallback implements MqttCallback {
             internalDto.setHeading(heading);
             internalDto.setTimestamp(ts);
 
-            // InfluxDB tag vehicle_id存入原始simCode字符串 sim_018
-            Point point = Point.measurement("vehicle_gps")
-                    .addTag("vehicle_id", simCode)
-                    .addField("lat", lat)
-                    .addField("lon", lon)
-                    .addField("speed_kmh", speed_kmh)
-                    .addField("heading", heading)
-                    .time(Instant.ofEpochMilli(ts), WritePrecision.MS);
-            writeApi.writePoint(point);
+            gpsInfluxService.writeGpsPoint(simCode, Double.toString(lat),
+                    Double.toString(lon), speed_kmh, heading, ts);
 
             VehicleTraceWsDTO outDto = new VehicleTraceWsDTO();
             outDto.setLatitude(internalDto.getLat());

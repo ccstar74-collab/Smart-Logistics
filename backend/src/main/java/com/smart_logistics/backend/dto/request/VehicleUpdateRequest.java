@@ -1,8 +1,9 @@
 package com.smart_logistics.backend.dto.request;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
@@ -23,8 +24,9 @@ public class VehicleUpdateRequest {
 
     private Long driverId;
 
-    // 和CreateRequest保持一致，兼容sim_code入参，WRITE_ONLY只用于接收请求
-    @JsonProperty(value = "sim_code", access = JsonProperty.Access.WRITE_ONLY)
+    @JsonAlias("sim_code")
+    @Pattern(regexp = "^sim_\\d{3}$",
+            message = "simCode must match ^sim_\\d{3}$")
     private String simCode;
 
     public String getPlateNumber() {

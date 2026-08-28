@@ -22,14 +22,17 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 @Service
 public class VehicleService {
 
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Pattern SIM_CODE_PATTERN = Pattern.compile("^sim_\\d{3}$");
 
     private final VehicleMapper vehicleMapper;
     private final UserDisplayNameService userDisplayNameService;
@@ -91,22 +94,61 @@ public class VehicleService {
                 .toList());
     }
 
+    public List<String> listAvailableSimCodes(String keyword) {
+        List<Vehicle> assignedVehicles = vehicleMapper.selectList(
+                new LambdaQueryWrapper<Vehicle>()
+                        .select(Vehicle::getSimCode)
+                        .isNotNull(Vehicle::getSimCode));
+        Set<String> assignedCodes = assignedVehicles.stream()
+                .map(Vehicle::getSimCode)
+                .filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
+        String normalizedKeyword = StringUtils.hasText(keyword)
+                ? keyword.trim().toLowerCase(Locale.ROOT) : null;
+        return java.util.stream.IntStream.rangeClosed(0, 999)
+                .mapToObj(number -> String.format(Locale.ROOT, "sim_%03d", number))
+                .filter(code -> !assignedCodes.contains(code))
+                .filter(code -> normalizedKeyword == null || code.contains(normalizedKeyword))
+                .toList();
+    }
+
     public Vehicle getVehicleForTransport(Long id) {
         return getRequiredVehicleRaw(id);
     }
 
     /**
-     * 根据simCode查询车辆记录，允许返回null（MQTT设备上报场景，设备可能未在数据库注册）
-     * @param simCode 设备sim编号 sim_018
-     * @return Vehicle，找不到返回null
+     * 按simCode查询车辆实体（实时推送链路使用，不做数据范围限制）。
+     * 未登记设备返回null。
      */
     public Vehicle getVehicleBySimCode(String simCode) {
         if (!StringUtils.hasText(simCode)) {
             return null;
         }
-        LambdaQueryWrapper<Vehicle> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Vehicle::getSimCode, simCode.trim());
-        return vehicleMapper.selectOne(wrapper);
+        return vehicleMapper.selectOne(new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getSimCode, simCode.trim()));
+    }
+
+    public Vehicle getVehicleForTransportForUpdate(Long id) {
+        Vehicle vehicle = vehicleMapper.selectOne(new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getId, id)
+                .last("FOR UPDATE"));
+        if (vehicle == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "vehicle not found");
+        }
+        return vehicle;
+    }
+
+    public String requireTransportSimCode(Vehicle vehicle) {
+        if (!StringUtils.hasText(vehicle.getSimCode())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "vehicle has no simCode");
+        }
+        String simCode = vehicle.getSimCode();
+        if (!SIM_CODE_PATTERN.matcher(simCode).matches()) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "vehicle simCode must match ^sim_\\d{3}$");
+        }
+        return simCode;
     }
 
     @Transactional
@@ -125,7 +167,9 @@ public class VehicleService {
     @Transactional
     public VehicleResponse createVehicle(VehicleCreateRequest request) {
         String plateNumber = request.getPlateNumber().trim();
+        String simCode = normalizeSimCode(request.getSimCode());
         ensurePlateNumberAvailable(plateNumber, null);
+        ensureSimCodeAvailable(simCode, null);
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Vehicle vehicle = new Vehicle();
@@ -133,7 +177,7 @@ public class VehicleService {
         vehicle.setType(trimToNull(request.getType()));
         vehicle.setCapacity(request.getCapacity());
         vehicle.setDriverId(request.getDriverId());
-        vehicle.setSimCode(trimToNull(request.getSimCode()));
+        vehicle.setSimCode(simCode);
         requireActiveDriverIfPresent(request.getDriverId());
         vehicle.setStatus(VehicleStatus.IDLE.name());
         vehicle.setCreatedAt(now);
@@ -144,7 +188,7 @@ public class VehicleService {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to create vehicle");
             }
         } catch (DuplicateKeyException exception) {
-            throw duplicatePlateNumber(exception);
+            throw duplicateVehicleKey(exception);
         }
         return toResponse(getRequiredVehicle(vehicle.getId()));
     }
@@ -155,6 +199,11 @@ public class VehicleService {
         validateDriverChange(current, request.getDriverId());
         String plateNumber = request.getPlateNumber().trim();
         ensurePlateNumberAvailable(plateNumber, id);
+        String simCode = request.getSimCode() == null
+                ? current.getSimCode() : normalizeSimCode(request.getSimCode());
+        if (!Objects.equals(current.getSimCode(), simCode)) {
+            ensureSimCodeAvailable(simCode, id);
+        }
 
         LambdaUpdateWrapper<Vehicle> update = new LambdaUpdateWrapper<>();
         update.eq(Vehicle::getId, id)
@@ -162,7 +211,7 @@ public class VehicleService {
                 .set(Vehicle::getType, trimToNull(request.getType()))
                 .set(Vehicle::getCapacity, request.getCapacity())
                 .set(Vehicle::getDriverId, request.getDriverId())
-                .set(Vehicle::getSimCode, trimToNull(request.getSimCode()))
+                .set(Vehicle::getSimCode, simCode)
                 .set(Vehicle::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
 
         try {
@@ -170,7 +219,7 @@ public class VehicleService {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to update vehicle");
             }
         } catch (DuplicateKeyException exception) {
-            throw duplicatePlateNumber(exception);
+            throw duplicateVehicleKey(exception);
         }
         return toResponse(getRequiredVehicle(id));
     }
@@ -265,6 +314,39 @@ public class VehicleService {
         return exception;
     }
 
+    private void ensureSimCodeAvailable(String simCode, Long excludedId) {
+        LambdaQueryWrapper<Vehicle> query = new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getSimCode, simCode);
+        if (excludedId != null) {
+            query.ne(Vehicle::getId, excludedId);
+        }
+        if (vehicleMapper.selectCount(query) > 0) {
+            throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                    "simCode is already assigned to another vehicle");
+        }
+    }
+
+    private BusinessException duplicateVehicleKey(DuplicateKeyException cause) {
+        Throwable current = cause;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(java.util.Locale.ROOT);
+                if (normalized.contains("sim_code")
+                        || normalized.contains("uk_vehicle_sim_code")) {
+                    BusinessException exception = new BusinessException(
+                            ErrorCode.DATA_CONFLICT,
+                            "simCode is already assigned to another vehicle"
+                    );
+                    exception.initCause(cause);
+                    return exception;
+                }
+            }
+            current = current.getCause();
+        }
+        return duplicatePlateNumber(cause);
+    }
+
     private List<VehicleResponse> toResponses(List<Vehicle> vehicles) {
         Map<Long, String> driverNames = userDisplayNameService.getDriverNames(
                 vehicles.stream().map(Vehicle::getDriverId).toList());
@@ -292,12 +374,12 @@ public class VehicleService {
                 parseStatus(vehicle.getStatus()),
                 vehicle.getDriverId(),
                 driverName,
+                vehicle.getSimCode(),
                 toOffsetDateTime(vehicle.getCreatedAt()),
                 toOffsetDateTime(vehicle.getUpdatedAt()),
                 vehicle.getLastLongitude(),
                 vehicle.getLastLatitude(),
-                toOffsetDateTime(vehicle.getLastUpdatedAt()),
-                vehicle.getSimCode()
+                toOffsetDateTime(vehicle.getLastUpdatedAt())
         );
     }
 
@@ -318,5 +400,17 @@ public class VehicleService {
             return null;
         }
         return value.trim();
+    }
+
+    private String normalizeSimCode(String value) {
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "simCode must not be blank");
+        }
+        if (!SIM_CODE_PATTERN.matcher(value).matches()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "simCode must match ^sim_\\d{3}$");
+        }
+        return value;
     }
 }

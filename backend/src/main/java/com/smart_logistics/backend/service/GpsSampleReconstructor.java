@@ -16,8 +16,10 @@ import java.util.Map;
 @Component
 public class GpsSampleReconstructor {
     private static final Map<String, String> CANONICAL_FIELDS = Map.of(
-            "lat", "lat",
-            "lon", "lon",
+            "latitude", "latitude",
+            "lat", "latitude",
+            "longitude", "longitude",
+            "lon", "longitude",
             "speed", "speed",
             "speed_kmh", "speed",
             "direction", "direction",
@@ -121,11 +123,11 @@ public class GpsSampleReconstructor {
         }
 
         private boolean isComplete() {
-            return values.containsKey("lat") && values.containsKey("lon");
+            return values.containsKey("latitude") && values.containsKey("longitude");
         }
 
         private GpsSample toSample() {
-            return new GpsSample(vehicleId, values.get("lon"), values.get("lat"),
+            return new GpsSample(vehicleId, values.get("longitude"), values.get("latitude"),
                     values.get("speed"), values.get("direction"), latest);
         }
     }

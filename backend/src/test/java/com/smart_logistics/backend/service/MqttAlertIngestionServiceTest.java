@@ -1,20 +1,12 @@
 package com.smart_logistics.backend.service;
 
-import com.baomidou.mybatisplus.core.MybatisConfiguration;
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.smart_logistics.backend.dto.mqtt.MqttAlertPayload;
 import com.smart_logistics.backend.dto.realtime.GpsSample;
 import com.smart_logistics.backend.entity.Alarm;
-import com.smart_logistics.backend.entity.TransportTask;
-import com.smart_logistics.backend.entity.Vehicle;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 import com.smart_logistics.backend.mapper.AlarmMapper;
-import com.smart_logistics.backend.mapper.TransportTaskMapper;
-import com.smart_logistics.backend.mapper.VehicleMapper;
-import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,12 +38,8 @@ class MqttAlertIngestionServiceTest {
 
     @Mock
     private AlarmMapper alarmMapper;
-
     @Mock
-    private VehicleMapper vehicleMapper;
-
-    @Mock
-    private TransportTaskMapper transportTaskMapper;
+    private AlarmAssociationService associationService;
 
     @Mock
     private GpsInfluxService gpsInfluxService;
@@ -59,16 +48,10 @@ class MqttAlertIngestionServiceTest {
 
     @BeforeEach
     void setUp() {
-        MybatisConfiguration configuration = new MybatisConfiguration();
-        TableInfoHelper.initTableInfo(
-                new MapperBuilderAssistant(configuration, "alarm-test"), Alarm.class);
-        TableInfoHelper.initTableInfo(
-                new MapperBuilderAssistant(configuration, "vehicle-test"), Vehicle.class);
-        TableInfoHelper.initTableInfo(
-                new MapperBuilderAssistant(configuration, "transport-task-test"),
-                TransportTask.class);
         service = new MqttAlertIngestionService(
-                alarmMapper, vehicleMapper, transportTaskMapper, gpsInfluxService);
+                alarmMapper, associationService, gpsInfluxService);
+        lenient().when(associationService.resolve("real_001"))
+                .thenReturn(new AlarmAssociationService.AlarmAssociation(23L, 15L));
     }
 
     @Test
@@ -83,6 +66,9 @@ class MqttAlertIngestionServiceTest {
         Alarm alarm = captor.getValue();
         assertEquals(MqttAlertIngestionService.IngestionResult.STORED, result);
         assertEquals("real_001", alarm.getDeviceCode());
+        assertEquals(23L, alarm.getVehicleId());
+        assertEquals(15L, alarm.getTaskId());
+        assertEquals("ACTIVE", alarm.getConditionStatus());
         assertEquals(AlarmType.ABNORMAL_OPEN.name(), alarm.getAlarmType());
         assertEquals(AlarmLevel.HIGH.name(), alarm.getLevel());
         assertEquals(AlarmStatus.UNHANDLED.name(), alarm.getStatus());
@@ -95,14 +81,8 @@ class MqttAlertIngestionServiceTest {
 
     @Test
     void associatesRegisteredVehicleActiveTaskAndLocation() {
-        Vehicle vehicle = new Vehicle();
-        vehicle.setId(20L);
-        vehicle.setSimCode("real_001");
-        when(vehicleMapper.selectOne(any(Wrapper.class))).thenReturn(vehicle);
-        TransportTask task = new TransportTask();
-        task.setId(30L);
-        when(transportTaskMapper.selectList(any(Wrapper.class)))
-                .thenReturn(List.of(task));
+        when(associationService.resolve("real_001"))
+                .thenReturn(new AlarmAssociationService.AlarmAssociation(20L, 30L));
         when(gpsInfluxService.querySamples(anyCollection(), any(), any()))
                 .thenReturn(List.of(new GpsSample("real_001", 121.5, 31.2,
                         40.0, 90.0, Instant.parse("2026-08-24T10:23:45Z"))));
@@ -121,6 +101,8 @@ class MqttAlertIngestionServiceTest {
 
     @Test
     void keepsNullAssociationsForUnregisteredDevice() {
+        when(associationService.resolve("real_001"))
+                .thenReturn(new AlarmAssociationService.AlarmAssociation(null, null));
         when(alarmMapper.insert(any(Alarm.class))).thenReturn(1);
 
         service.ingest(payload("异常停留", "2026-08-24T10:23:47.000Z"));
@@ -132,16 +114,12 @@ class MqttAlertIngestionServiceTest {
         assertNull(alarm.getTaskId());
         assertNull(alarm.getLongitude());
         assertNull(alarm.getLatitude());
-        verify(transportTaskMapper, never()).selectList(any(Wrapper.class));
     }
 
     @Test
     void ingestionSucceedsWhenLocationProviderIsUnavailable() {
-        Vehicle vehicle = new Vehicle();
-        vehicle.setId(20L);
-        vehicle.setSimCode("real_001");
-        when(vehicleMapper.selectOne(any(Wrapper.class))).thenReturn(vehicle);
-        when(transportTaskMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        when(associationService.resolve("real_001"))
+                .thenReturn(new AlarmAssociationService.AlarmAssociation(20L, null));
         when(gpsInfluxService.querySamples(anyCollection(), any(), any()))
                 .thenThrow(new RuntimeException("realtime location provider unavailable"));
         when(alarmMapper.insert(any(Alarm.class))).thenReturn(1);

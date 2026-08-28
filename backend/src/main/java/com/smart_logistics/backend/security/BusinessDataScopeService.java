@@ -118,22 +118,16 @@ public class BusinessDataScopeService {
             Long driverId = requireIdentity(current.getDriverId(), "driver");
             List<Long> taskIds = taskIdsForDriver(driverId);
             List<Long> vehicleIds = vehicleIdsForDriver(driverId);
-            // 司机可见本人车辆关联的告警：包括有任务的（task_id）和暂无任务的（vehicle_id）
-            query.and(wrapper -> {
-                boolean hasTaskScope = !taskIds.isEmpty();
-                boolean hasVehicleScope = !vehicleIds.isEmpty();
-                if (!hasTaskScope && !hasVehicleScope) {
-                    wrapper.eq(Alarm::getTaskId, IMPOSSIBLE_ID);
-                    return;
-                }
-                if (hasTaskScope) {
-                    wrapper.in(Alarm::getTaskId, taskIds);
-                }
-                if (hasVehicleScope) {
-                    if (hasTaskScope) {
-                        wrapper.or();
-                    }
-                    wrapper.in(Alarm::getVehicleId, vehicleIds);
+            query.and(scope -> {
+                if (taskIds.isEmpty() && vehicleIds.isEmpty()) {
+                    scope.eq(Alarm::getId, IMPOSSIBLE_ID);
+                } else if (taskIds.isEmpty()) {
+                    scope.in(Alarm::getVehicleId, vehicleIds);
+                } else if (vehicleIds.isEmpty()) {
+                    scope.in(Alarm::getTaskId, taskIds);
+                } else {
+                    scope.in(Alarm::getTaskId, taskIds)
+                            .or().in(Alarm::getVehicleId, vehicleIds);
                 }
             });
         } else if (current.getRole() == UserRole.OWNER) {
@@ -144,29 +138,26 @@ public class BusinessDataScopeService {
     }
 
     public void requireAlarmAccess(Alarm alarm) {
-        // taskId可能为NULL（未登记车辆或车辆无活动任务），不能直接按任务校验，
-        // 否则详情接口会因selectById(null)报"alarm references missing transport task"。
-        if (alarm.getTaskId() != null) {
-            TransportTask task = transportTaskMapper.selectById(alarm.getTaskId());
-            if (task != null) {
-                requireTaskAccess(task);
-                return;
-            }
-        }
-        if (alarm.getVehicleId() != null) {
-            Vehicle vehicle = vehicleMapper.selectById(alarm.getVehicleId());
-            if (vehicle != null) {
-                requireVehicleAccess(vehicle);
-                return;
-            }
-        }
-        // 任务和车辆都无法关联的历史/孤儿告警：仅调度员和管理员可见，
-        // 因为他们的数据范围本身不受限；司机/货主无法证明相关性，拒绝访问。
         UserIdentityResponse current = currentUserService.getCurrentUser();
-        if (current.getRole() != UserRole.DISPATCHER
-                && current.getRole() != UserRole.ADMIN) {
+        if (alarm.getTaskId() == null) {
+            if (current.getRole() == UserRole.DISPATCHER
+                    || current.getRole() == UserRole.ADMIN) {
+                return;
+            }
+            if (current.getRole() == UserRole.DRIVER
+                    && alarm.getVehicleId() != null
+                    && vehicleIdsForDriver(requireIdentity(current.getDriverId(), "driver"))
+                    .contains(alarm.getVehicleId())) {
+                return;
+            }
             forbidden();
         }
+        TransportTask task = transportTaskMapper.selectById(alarm.getTaskId());
+        if (task == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "alarm references missing transport task");
+        }
+        requireTaskAccess(task);
     }
 
     public List<Long> vehicleIdsForDriver(Long driverId) {

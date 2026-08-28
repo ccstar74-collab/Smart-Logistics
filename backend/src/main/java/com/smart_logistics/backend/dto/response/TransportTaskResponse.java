@@ -1,6 +1,7 @@
 package com.smart_logistics.backend.dto.response;
 
 import com.smart_logistics.backend.enums.TransportTaskStatus;
+import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 
 import java.time.OffsetDateTime;
 
@@ -10,6 +11,12 @@ public class TransportTaskResponse {
     private final String taskNo;
     private final Long cargoId;
     private final Long vehicleId;
+    private final Long driverId;
+    private final String driverName;
+    private final String plateNumber;
+    private final String routeId;
+    private final Integer routeVersion;
+    private final TransportTaskRouteStatus routeStatus;
     private final String startLocation;
     private final Double startLongitude;
     private final Double startLatitude;
@@ -47,10 +54,35 @@ public class TransportTaskResponse {
                                  TransportTaskStatus status, OffsetDateTime estimatedArrivalTime,
                                  OffsetDateTime etaCalculatedAt,
                                  OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+        this(id, taskNo, cargoId, vehicleId, startLocation, startLongitude,
+                startLatitude, endLocation, endLongitude, endLatitude,
+                planStartTime, planEndTime, actualStartTime, actualEndTime,
+                status, estimatedArrivalTime, etaCalculatedAt, createdAt, updatedAt,
+                null, null, null, null, null, null);
+    }
+
+    public TransportTaskResponse(Long id, String taskNo, Long cargoId, Long vehicleId,
+                                 String startLocation, Double startLongitude,
+                                 Double startLatitude, String endLocation,
+                                 Double endLongitude, Double endLatitude,
+                                 OffsetDateTime planStartTime, OffsetDateTime planEndTime,
+                                 OffsetDateTime actualStartTime, OffsetDateTime actualEndTime,
+                                 TransportTaskStatus status, OffsetDateTime estimatedArrivalTime,
+                                 OffsetDateTime etaCalculatedAt,
+                                 OffsetDateTime createdAt, OffsetDateTime updatedAt,
+                                 Long driverId, String driverName, String plateNumber,
+                                 String routeId, Integer routeVersion,
+                                 TransportTaskRouteStatus routeStatus) {
         this.id = id;
         this.taskNo = taskNo;
         this.cargoId = cargoId;
         this.vehicleId = vehicleId;
+        this.driverId = driverId;
+        this.driverName = driverName;
+        this.plateNumber = plateNumber;
+        this.routeId = routeId;
+        this.routeVersion = routeVersion;
+        this.routeStatus = routeStatus;
         this.startLocation = startLocation;
         this.startLongitude = startLongitude;
         this.startLatitude = startLatitude;
@@ -72,6 +104,12 @@ public class TransportTaskResponse {
     public String getTaskNo() { return taskNo; }
     public Long getCargoId() { return cargoId; }
     public Long getVehicleId() { return vehicleId; }
+    public Long getDriverId() { return driverId; }
+    public String getDriverName() { return driverName; }
+    public String getPlateNumber() { return plateNumber; }
+    public String getRouteId() { return routeId; }
+    public Integer getRouteVersion() { return routeVersion; }
+    public TransportTaskRouteStatus getRouteStatus() { return routeStatus; }
     public String getStartLocation() { return startLocation; }
     public Double getStartLongitude() { return startLongitude; }
     public Double getStartLatitude() { return startLatitude; }

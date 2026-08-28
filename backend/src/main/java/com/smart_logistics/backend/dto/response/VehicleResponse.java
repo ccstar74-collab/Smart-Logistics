@@ -14,20 +14,19 @@ public class VehicleResponse {
     private final VehicleStatus status;
     private final Long driverId;
     private final String driverName;
+    private final String simCode;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime updatedAt;
     private final BigDecimal lastLongitude;
     private final BigDecimal lastLatitude;
     private final OffsetDateTime lastUpdatedAt;
-    //新增simCode，final，和其他字段风格保持统一
-    private final String simCode;
 
     public VehicleResponse(Long id, String plateNumber, String type, BigDecimal capacity,
                            VehicleStatus status, Long driverId, String driverName,
+                           String simCode,
                            OffsetDateTime createdAt,
                            OffsetDateTime updatedAt, BigDecimal lastLongitude,
-                           BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt,
-                           String simCode) { // 构造函数末尾追加 simCode
+                           BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt) {
         this.id = id;
         this.plateNumber = plateNumber;
         this.type = type;
@@ -35,12 +34,12 @@ public class VehicleResponse {
         this.status = status;
         this.driverId = driverId;
         this.driverName = driverName;
+        this.simCode = simCode;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.lastLongitude = lastLongitude;
         this.lastLatitude = lastLatitude;
         this.lastUpdatedAt = lastUpdatedAt;
-        this.simCode = simCode; //给新增字段赋值
     }
 
     public Long getId() {
@@ -71,6 +70,10 @@ public class VehicleResponse {
         return driverName;
     }
 
+    public String getSimCode() {
+        return simCode;
+    }
+
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
@@ -89,10 +92,5 @@ public class VehicleResponse {
 
     public OffsetDateTime getLastUpdatedAt() {
         return lastUpdatedAt;
-    }
-
-    //新增getter，没有setter（本类是不可变对象）
-    public String getSimCode() {
-        return simCode;
     }
 }

@@ -2,6 +2,7 @@ package com.smart_logistics.backend.dto.request;
 
 import com.smart_logistics.backend.enums.AlarmStatus;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public class AlarmStatusUpdateRequest {
@@ -9,8 +10,9 @@ public class AlarmStatusUpdateRequest {
     @NotNull(message = "status must not be null")
     private AlarmStatus status;
 
-    @Size(max = 500, message = "handle note must not exceed 500 characters")
-    private String note;
+    @NotBlank(message = "remark must not be blank")
+    @Size(max = 500, message = "remark must not exceed 500 characters")
+    private String remark;
 
     public AlarmStatus getStatus() {
         return status;
@@ -20,11 +22,11 @@ public class AlarmStatusUpdateRequest {
         this.status = status;
     }
 
-    public String getNote() {
-        return note;
+    public String getRemark() {
+        return remark;
     }
 
-    public void setNote(String note) {
-        this.note = note;
+    public void setRemark(String remark) {
+        this.remark = remark;
     }
 }

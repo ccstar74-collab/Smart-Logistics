@@ -34,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "app.jwt.secret=phase-one-integration-test-secret-at-least-32-bytes",
         "app.jwt.expires-seconds=28800",
+        "mqtt.enabled=false",
         "influxdb.bucket=test-vehicle-trace-bucket",
         "influxdb2.url=http://127.0.0.1:65535",
         "influxdb2.token=test-token-not-a-real-secret",

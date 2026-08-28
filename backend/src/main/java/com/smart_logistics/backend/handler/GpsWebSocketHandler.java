@@ -1,6 +1,5 @@
 package com.smart_logistics.backend.handler;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smart_logistics.backend.dto.RealTimeGpsDTO;
 import com.smart_logistics.backend.dto.response.VehicleTraceWsDTO;
 import com.smart_logistics.backend.security.WsSessionAttributes;
@@ -10,6 +9,8 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.Set;
@@ -19,7 +20,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Component
 public class GpsWebSocketHandler extends TextWebSocketHandler {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // 使用Spring Boot自动配置的Jackson 3 ObjectMapper，
+    // 自建com.fasterxml的ObjectMapper不支持OffsetDateTime，会抛InvalidDefinitionException
+    private final ObjectMapper objectMapper;
+
+    public GpsWebSocketHandler(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     // /ws/logistics 会话集合：只用于ETA广播，交给其他同学维护
     private final CopyOnWriteArrayList<WebSocketSession> logisticsSessions = new CopyOnWriteArrayList<>();
@@ -93,7 +100,7 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
         try {
             String json = objectMapper.writeValueAsString(obj);
             session.sendMessage(new TextMessage(json));
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
             log.error("websocket发送消息失败 sessionId={}", session.getId(), e);
         }
     }

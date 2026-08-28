@@ -4,11 +4,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
-import lombok.Data;
 
 import java.time.OffsetDateTime;
 
-@Data
 public class TransportTaskUpdateRequest {
 
     @NotBlank(message = "startLocation must not be blank")
@@ -37,4 +35,21 @@ public class TransportTaskUpdateRequest {
 
     private OffsetDateTime planStartTime;
     private OffsetDateTime planEndTime;
+
+    public String getStartLocation() { return startLocation; }
+    public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
+    public Double getStartLongitude() { return startLongitude; }
+    public void setStartLongitude(Double startLongitude) { this.startLongitude = startLongitude; }
+    public Double getStartLatitude() { return startLatitude; }
+    public void setStartLatitude(Double startLatitude) { this.startLatitude = startLatitude; }
+    public String getEndLocation() { return endLocation; }
+    public void setEndLocation(String endLocation) { this.endLocation = endLocation; }
+    public Double getEndLongitude() { return endLongitude; }
+    public void setEndLongitude(Double endLongitude) { this.endLongitude = endLongitude; }
+    public Double getEndLatitude() { return endLatitude; }
+    public void setEndLatitude(Double endLatitude) { this.endLatitude = endLatitude; }
+    public OffsetDateTime getPlanStartTime() { return planStartTime; }
+    public void setPlanStartTime(OffsetDateTime planStartTime) { this.planStartTime = planStartTime; }
+    public OffsetDateTime getPlanEndTime() { return planEndTime; }
+    public void setPlanEndTime(OffsetDateTime planEndTime) { this.planEndTime = planEndTime; }
 }

@@ -17,10 +17,9 @@ public class EtaRefreshScheduler {
         this.etaCalculationService = etaCalculationService;
     }
 
-    // 周期默认值唯一配置源为application.yml的app.eta.refresh-delay-ms，此处不硬编码fallback
     @Scheduled(
-            initialDelayString = "${app.eta.initial-delay-ms}",
-            fixedDelayString = "${app.eta.refresh-delay-ms}"
+            initialDelayString = "${app.eta.initial-delay-ms:15000}",
+            fixedDelayString = "${app.eta.refresh-delay-ms:30000}"
     )
     public void refresh() {
         EtaCalculationService.EtaRefreshSummary summary =

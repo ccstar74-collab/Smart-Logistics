@@ -27,6 +27,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,23 +52,24 @@ class GpsWebSocketHandlerSerializationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // 业务类无参构造，内部自己new ObjectMapper
-        handler = new GpsWebSocketHandler();
+        // 构造器注入Jackson 3 JsonMapper（原生支持java.time）
+        handler = new GpsWebSocketHandler(
+                tools.jackson.databind.json.JsonMapper.builder().build());
 
-        // ETA会话，连接路径 /ws/logistics
-        when(sessionEta.isOpen()).thenReturn(true);
+        // ETA会话，连接路径 /ws/logistics（共用stub按lenient，避免严格模式误报）
+        lenient().when(sessionEta.isOpen()).thenReturn(true);
         Map<String, Object> attrEta = new HashMap<>();
         attrEta.put(WsSessionAttributes.ALLOW_ALL_VEHICLES, Boolean.TRUE);
-        when(sessionEta.getAttributes()).thenReturn(attrEta);
-        when(sessionEta.getUri()).thenReturn(new URI("ws://127.0.0.1/ws/logistics"));
+        lenient().when(sessionEta.getAttributes()).thenReturn(attrEta);
+        lenient().when(sessionEta.getUri()).thenReturn(new URI("ws://127.0.0.1/ws/logistics"));
         handler.afterConnectionEstablished(sessionEta);
 
         // GPS会话，连接路径 /ws/vehicle‑locations
-        when(sessionGps.isOpen()).thenReturn(true);
+        lenient().when(sessionGps.isOpen()).thenReturn(true);
         Map<String, Object> attrGps = new HashMap<>();
         attrGps.put(WsSessionAttributes.ALLOW_ALL_VEHICLES, Boolean.TRUE);
-        when(sessionGps.getAttributes()).thenReturn(attrGps);
-        when(sessionGps.getUri()).thenReturn(new URI("ws://127.0.0.1/ws/vehicle-locations"));
+        lenient().when(sessionGps.getAttributes()).thenReturn(attrGps);
+        lenient().when(sessionGps.getUri()).thenReturn(new URI("ws://127.0.0.1/ws/vehicle-locations"));
         handler.afterConnectionEstablished(sessionGps);
     }
 
@@ -133,7 +135,7 @@ class GpsWebSocketHandlerSerializationTest {
         Map<String, Object> attributes = new HashMap<>();
         attributes.put(WsSessionAttributes.ALLOWED_VEHICLE_SIM_CODES,
                 Set.of("other_sim_002"));
-        when(sessionEta.getAttributes()).thenReturn(attributes);
+        lenient().when(sessionEta.getAttributes()).thenReturn(attributes);
 
         handler.broadcastEta(etaMessage());
 
@@ -146,7 +148,7 @@ class GpsWebSocketHandlerSerializationTest {
         Map<String, Object> attributes = new HashMap<>();
         attributes.put(WsSessionAttributes.ALLOWED_VEHICLE_SIM_CODES,
                 Set.of("real_001"));
-        when(sessionEta.getAttributes()).thenReturn(attributes);
+        lenient().when(sessionEta.getAttributes()).thenReturn(attributes);
 
         handler.broadcastEta(etaMessage());
 
@@ -157,7 +159,7 @@ class GpsWebSocketHandlerSerializationTest {
     void broadcastIsRejectedWhenSessionHasNoScopeAttributes() throws Exception {
         // GPS会话：清空权限属性，GPS广播应当被权限拦截
         Map<String,Object> emptyAttr = new HashMap<>();
-        when(sessionGps.getAttributes()).thenReturn(emptyAttr);
+        lenient().when(sessionGps.getAttributes()).thenReturn(emptyAttr);
 
         handler.broadcastEta(etaMessage());
 

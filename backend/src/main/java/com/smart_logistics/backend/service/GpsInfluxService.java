@@ -12,10 +12,12 @@ import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Collection;
 import java.util.Objects;
@@ -27,7 +29,8 @@ public class GpsInfluxService {
 
     private static final String MEASUREMENT = "vehicle_gps";
     private static final Set<String> GPS_FIELDS =
-            Set.of("lat", "lon", "speed", "speed_kmh", "direction", "heading");
+            Set.of("latitude", "longitude", "speed_kmh", "heading",
+                    "lat", "lon", "speed", "direction");
 
     @Resource
     private InfluxDBClient influxDBClient;
@@ -63,6 +66,16 @@ public class GpsInfluxService {
     }
 
     /**
+     * Writes the production MQTT GPS schema. Heading is omitted when the source payload does not
+     * provide it; coordinates and speed always use the canonical field names.
+     */
+    public void writeGpsPoint(String vehicleId, String lat, String lon, double speed,
+                              Double heading, long ts) {
+        writeGpsPoint(vehicleId, Double.parseDouble(lon), Double.parseDouble(lat),
+                speed, heading, ts);
+    }
+
+    /**
      * 核心实现
      * @param vehicleId 车辆ID
      * @param lon 经度
@@ -71,39 +84,40 @@ public class GpsInfluxService {
      * @param ts 毫秒时间戳
      */
     public void writeGpsPoint(String vehicleId, double lon, double lat, double speed, long ts){
+        writeGpsPoint(vehicleId, lon, lat, speed, null, ts);
+    }
+
+    private void writeGpsPoint(String vehicleId, double lon, double lat, double speed,
+                               Double heading, long ts) {
         WriteApiBlocking writeApi = influxDBClient.getWriteApiBlocking();
         // NS纳秒：毫秒 *1e6
         long nanoTs = ts * 1_000_000L;
-        String lineProtocol = String.format(
-                "vehicle_gps,vehicle_id=%s lon=%f,lat=%f,speed=%f %d",
-                vehicleId, lon, lat, speed, nanoTs
-        );
+        String fields = String.format(Locale.ROOT,
+                "longitude=%f,latitude=%f,speed_kmh=%f", lon, lat, speed);
+        if (heading != null && Double.isFinite(heading)) {
+            fields += String.format(Locale.ROOT, ",heading=%f", heading);
+        }
+        String lineProtocol = String.format(Locale.ROOT,
+                "%s,vehicle_id=%s %s %d",
+                MEASUREMENT, escapeTagValue(vehicleId), fields, nanoTs);
         writeApi.writeRecord(WritePrecision.NS, lineProtocol);
     }
 
     /**
      * 查询某车辆一段时间轨迹
-     * @param vehicleIds 车辆id集合
+     * @param vehicleId 车辆id
      * @param start 开始Instant
      * @param stop 结束Instant
      * @return 轨迹点集合
      */
     public List<GpsSample> querySamples(Collection<String> vehicleIds,
                                         Instant start, Instant stop) {
-        List<String> normalizedIds = vehicleIds.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(value -> !value.isEmpty())
-                .distinct()
-                .toList();
+        List<String> normalizedIds = normalizeVehicleIds(vehicleIds);
         if (normalizedIds.isEmpty()) {
             return List.of();
         }
-        if (start == null || stop == null || !start.isBefore(stop)) {
-            throw new IllegalArgumentException("GPS query range must have start before stop");
-        }
+        validateRange(start, stop);
 
-        QueryApi queryApi = influxDBClient.getQueryApi();
         String vehicleSet = normalizedIds.stream()
                 .map(this::fluxString)
                 .collect(Collectors.joining(","));
@@ -112,14 +126,55 @@ public class GpsInfluxService {
                 |> range(start: time(v: %s), stop: time(v: %s))
                 |> filter(fn: (r) => r._measurement == %s)
                 |> filter(fn: (r) => contains(value: r.vehicle_id, set: [%s]))
-                |> filter(fn: (r) => contains(value: r._field, set: ["lat","lon","speed","speed_kmh","direction","heading"]))
+                |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
                 |> keep(columns: ["_time","_field","_value","vehicle_id"])
                 |> sort(columns: ["_time"])
                 """,
                 fluxString(bucket), fluxString(start.toString()), fluxString(stop.toString()),
                 fluxString(MEASUREMENT), vehicleSet
         );
+        return executeQuery(flux);
+    }
 
+    /**
+     * Returns the latest value for each vehicle and GPS field within a relative lookback window.
+     * Two-stage server-side reduction first collapses individual Influx series, then selects the
+     * newest record across series that differ by additional tags.
+     */
+    public List<GpsSample> queryLatestSamples(Collection<String> vehicleIds,
+                                              Duration lookback) {
+        long lookbackSeconds = validateLatestLookback(lookback);
+        List<String> normalizedIds = normalizeVehicleIds(vehicleIds);
+        if (normalizedIds.isEmpty()) {
+            return List.of();
+        }
+
+        String vehiclePredicate = buildVehiclePredicate(normalizedIds);
+        String flux = String.format("""
+                from(bucket: %s)
+                |> range(start: -%ds)
+                |> filter(fn: (r) => r._measurement == %s)
+                |> filter(fn: (r) => %s)
+                |> filter(fn: (r) => contains(value: r._field, set: ["latitude","longitude","speed_kmh","heading","lat","lon","speed","direction"]))
+                |> last()
+                |> group(columns: ["vehicle_id", "_field"])
+                |> sort(columns: ["_time"])
+                |> last()
+                |> keep(columns: ["_time","_field","_value","vehicle_id"])
+                """,
+                fluxString(bucket), lookbackSeconds, fluxString(MEASUREMENT), vehiclePredicate
+        );
+        return executeQuery(flux);
+    }
+
+    private String buildVehiclePredicate(List<String> normalizedIds) {
+        return normalizedIds.stream()
+                .map(vehicleId -> "r.vehicle_id == " + fluxString(vehicleId))
+                .collect(Collectors.joining(" or "));
+    }
+
+    private List<GpsSample> executeQuery(String flux) {
+        QueryApi queryApi = influxDBClient.getQueryApi();
         List<FluxTable> tables = queryApi.query(flux);
         List<GpsFieldRecord> rawRecords = new ArrayList<>();
         for (FluxTable table : tables) {
@@ -134,6 +189,32 @@ public class GpsInfluxService {
             }
         }
         return gpsSampleReconstructor.reconstruct(rawRecords);
+    }
+
+    private List<String> normalizeVehicleIds(Collection<String> vehicleIds) {
+        return vehicleIds.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    private void validateRange(Instant start, Instant stop) {
+        if (start == null || stop == null || !start.isBefore(stop)) {
+            throw new IllegalArgumentException("GPS query range must have start before stop");
+        }
+    }
+
+    private long validateLatestLookback(Duration lookback) {
+        if (lookback == null || lookback.isNegative() || lookback.isZero()) {
+            throw new IllegalArgumentException("GPS latest lookback must be positive");
+        }
+        long seconds = lookback.toSeconds();
+        if (seconds < 1) {
+            throw new IllegalArgumentException("GPS latest lookback must be at least one second");
+        }
+        return seconds;
     }
 
     /**
@@ -155,5 +236,12 @@ public class GpsInfluxService {
 
     private String fluxString(String value) {
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private String escapeTagValue(String value) {
+        return value.replace("\\", "\\\\")
+                .replace(" ", "\\ ")
+                .replace(",", "\\,")
+                .replace("=", "\\=");
     }
 }

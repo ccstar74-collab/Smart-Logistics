@@ -53,11 +53,8 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
         if (apiKey == null || apiKey.isBlank()) {
             throw new EtaProviderException("AMAP_WEB_SERVICE_KEY is not configured");
         }
-        Wgs84ToGcj02Converter.Coordinate start =
-                Wgs84ToGcj02Converter.convert(startLongitude, startLatitude);
-        Wgs84ToGcj02Converter.Coordinate end =
-                Wgs84ToGcj02Converter.convert(endLongitude, endLatitude);
-        HttpRequest request = HttpRequest.newBuilder(buildUri(start, end))
+        HttpRequest request = HttpRequest.newBuilder(buildUri(
+                        startLongitude, startLatitude, endLongitude, endLatitude))
                 .timeout(requestTimeout)
                 .GET()
                 .build();
@@ -77,18 +74,18 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
         }
     }
 
-    private URI buildUri(Wgs84ToGcj02Converter.Coordinate start,
-                         Wgs84ToGcj02Converter.Coordinate end) {
-        String query = "origin=" + coordinate(start)
-                + "&destination=" + coordinate(end)
+    URI buildUri(double startLongitude, double startLatitude,
+                 double endLongitude, double endLatitude) {
+        String query = "origin=" + coordinate(startLongitude, startLatitude)
+                + "&destination=" + coordinate(endLongitude, endLatitude)
                 + "&strategy=0&extensions=base&key="
                 + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         return URI.create(endpoint + "?" + query);
     }
 
-    private String coordinate(Wgs84ToGcj02Converter.Coordinate value) {
+    private String coordinate(double longitude, double latitude) {
         return String.format(Locale.ROOT, "%.6f,%.6f",
-                value.longitude(), value.latitude());
+                longitude, latitude);
     }
 
     EtaPlannedRoute parseResponse(String body) {

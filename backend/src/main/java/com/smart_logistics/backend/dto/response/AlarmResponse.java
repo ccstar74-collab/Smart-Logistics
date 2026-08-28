@@ -1,165 +1,82 @@
 package com.smart_logistics.backend.dto.response;
 
+import com.smart_logistics.backend.enums.AlarmConditionStatus;
 import com.smart_logistics.backend.enums.AlarmLevel;
 import com.smart_logistics.backend.enums.AlarmStatus;
 import com.smart_logistics.backend.enums.AlarmType;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 public class AlarmResponse {
 
-    private Long id;
-    private Long taskId;
-    private Long vehicleId;
-    private String deviceCode;
-    private AlarmType alarmType;
-    private AlarmLevel level;
-    private String message;
-    private BigDecimal longitude;
-    private BigDecimal latitude;
-    private AlarmStatus status;
-    private String source;
-    private OffsetDateTime occurredAt;
-    private Long handledBy;
-    private String handleNote;
-    private OffsetDateTime handledAt;
-    private OffsetDateTime createdAt;
-    private OffsetDateTime resolvedAt;
+    private final Long id;
+    private final Long vehicleId;
+    private final String plateNumber;
+    private final Long taskId;
+    private final String taskNo;
+    private final String deviceCode;
+    private final AlarmType type;
+    private final AlarmLevel level;
+    private final String description;
+    private final AlarmStatus status;
+    private final AlarmConditionStatus conditionStatus;
+    private final String source;
+    private final OffsetDateTime occurredAt;
+    private final OffsetDateTime recoveredAt;
+    private final Long handledBy;
+    private final OffsetDateTime handledAt;
+    private final OffsetDateTime createdAt;
+    private final OffsetDateTime resolvedAt;
+    private final String resolutionRemark;
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
+    public AlarmResponse(Long id, Long vehicleId, String plateNumber,
+                         Long taskId, String taskNo, String deviceCode,
+                         AlarmType type, AlarmLevel level, String description,
+                         AlarmStatus status, AlarmConditionStatus conditionStatus,
+                         String source, OffsetDateTime occurredAt,
+                         OffsetDateTime recoveredAt, Long handledBy,
+                         OffsetDateTime handledAt, OffsetDateTime createdAt,
+                         OffsetDateTime resolvedAt, String resolutionRemark) {
         this.id = id;
-    }
-
-    public Long getTaskId() {
-        return taskId;
-    }
-
-    public void setTaskId(Long taskId) {
-        this.taskId = taskId;
-    }
-
-    public Long getVehicleId() {
-        return vehicleId;
-    }
-
-    public void setVehicleId(Long vehicleId) {
         this.vehicleId = vehicleId;
-    }
-
-    public String getDeviceCode() {
-        return deviceCode;
-    }
-
-    public void setDeviceCode(String deviceCode) {
+        this.plateNumber = plateNumber;
+        this.taskId = taskId;
+        this.taskNo = taskNo;
         this.deviceCode = deviceCode;
-    }
-
-    public AlarmType getAlarmType() {
-        return alarmType;
-    }
-
-    public void setAlarmType(AlarmType alarmType) {
-        this.alarmType = alarmType;
-    }
-
-    public AlarmLevel getLevel() {
-        return level;
-    }
-
-    public void setLevel(AlarmLevel level) {
+        this.type = type;
         this.level = level;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
-    public void setMessage(String message) {
-        this.message = message;
-    }
-
-    public BigDecimal getLongitude() {
-        return longitude;
-    }
-
-    public void setLongitude(BigDecimal longitude) {
-        this.longitude = longitude;
-    }
-
-    public BigDecimal getLatitude() {
-        return latitude;
-    }
-
-    public void setLatitude(BigDecimal latitude) {
-        this.latitude = latitude;
-    }
-
-    public AlarmStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(AlarmStatus status) {
+        this.description = description;
         this.status = status;
-    }
-
-    public String getSource() {
-        return source;
-    }
-
-    public void setSource(String source) {
+        this.conditionStatus = conditionStatus;
         this.source = source;
-    }
-
-    public OffsetDateTime getOccurredAt() {
-        return occurredAt;
-    }
-
-    public void setOccurredAt(OffsetDateTime occurredAt) {
         this.occurredAt = occurredAt;
-    }
-
-    public Long getHandledBy() {
-        return handledBy;
-    }
-
-    public void setHandledBy(Long handledBy) {
+        this.recoveredAt = recoveredAt;
         this.handledBy = handledBy;
-    }
-
-    public String getHandleNote() {
-        return handleNote;
-    }
-
-    public void setHandleNote(String handleNote) {
-        this.handleNote = handleNote;
-    }
-
-    public OffsetDateTime getHandledAt() {
-        return handledAt;
-    }
-
-    public void setHandledAt(OffsetDateTime handledAt) {
         this.handledAt = handledAt;
-    }
-
-    public OffsetDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(OffsetDateTime createdAt) {
         this.createdAt = createdAt;
-    }
-
-    public OffsetDateTime getResolvedAt() {
-        return resolvedAt;
-    }
-
-    public void setResolvedAt(OffsetDateTime resolvedAt) {
         this.resolvedAt = resolvedAt;
+        this.resolutionRemark = resolutionRemark;
     }
+
+    public Long getId() { return id; }
+    public Long getVehicleId() { return vehicleId; }
+    public String getPlateNumber() { return plateNumber; }
+    public Long getTaskId() { return taskId; }
+    public String getTaskNo() { return taskNo; }
+    public String getDeviceCode() { return deviceCode; }
+    public AlarmType getType() { return type; }
+    public AlarmType getAlarmType() { return type; }
+    public AlarmLevel getLevel() { return level; }
+    public String getDescription() { return description; }
+    public String getMessage() { return description; }
+    public AlarmStatus getStatus() { return status; }
+    public AlarmConditionStatus getConditionStatus() { return conditionStatus; }
+    public String getSource() { return source; }
+    public OffsetDateTime getOccurredAt() { return occurredAt; }
+    public OffsetDateTime getRecoveredAt() { return recoveredAt; }
+    public Long getHandledBy() { return handledBy; }
+    public OffsetDateTime getHandledAt() { return handledAt; }
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public OffsetDateTime getResolvedAt() { return resolvedAt; }
+    public String getResolutionRemark() { return resolutionRemark; }
 }
