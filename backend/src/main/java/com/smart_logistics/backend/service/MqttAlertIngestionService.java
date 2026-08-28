@@ -166,6 +166,7 @@ public class MqttAlertIngestionService {
             return null;
         }
     }
+
     private IngestionResult toLegacyResult(AlarmIngestionResult result) {
         return result.created() ? IngestionResult.STORED : IngestionResult.DUPLICATE;
     }
