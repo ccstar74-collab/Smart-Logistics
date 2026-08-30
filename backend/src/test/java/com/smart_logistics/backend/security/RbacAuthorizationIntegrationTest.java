@@ -157,8 +157,8 @@ class RbacAuthorizationIntegrationTest {
 
     @ParameterizedTest
     @EnumSource(value = UserRole.class,
-            names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER"})
-    void nonOperationalRolesCannotManuallyResolveAlarm(UserRole role) throws Exception {
+            names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER", "ADMIN"})
+    void nonDispatcherRolesCannotManuallyResolveAlarm(UserRole role) throws Exception {
         mockMvc.perform(put("/api/v1/alarms/1/status")
                         .header("Authorization", token(role))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -167,11 +167,10 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
-    @ParameterizedTest
-    @EnumSource(value = UserRole.class, names = {"DISPATCHER", "ADMIN"})
-    void dispatcherAndAdminCanManuallyResolveAlarmWithRemark(UserRole role) throws Exception {
+    @Test
+    void dispatcherCanManuallyResolveAlarmWithRemark() throws Exception {
         mockMvc.perform(put("/api/v1/alarms/1/status")
-                        .header("Authorization", token(role))
+                        .header("Authorization", token(UserRole.DISPATCHER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"RESOLVED\"," +
                                 "\"remark\":\"False positive\"}"))
@@ -291,11 +290,19 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/alarms").header("Authorization", token))
                 .andExpect(status().isOk());
+        // 管理员只读：可查看全部告警，不能手动消警、不能下发调度指令
         mockMvc.perform(put("/api/v1/alarms/1/status").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"RESOLVED\"," +
                                 "\"remark\":\"False positive\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/dispatch-commands").header("Authorization", token))
                 .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/dispatch-commands").header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"taskId\":15,\"commandType\":\"TEXT\"," +
+                                "\"content\":\"Slow down\"}"))
+                .andExpect(status().isForbidden());
     }
 
     @ParameterizedTest

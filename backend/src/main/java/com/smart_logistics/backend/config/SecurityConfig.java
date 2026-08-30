@@ -46,7 +46,7 @@ public class SecurityConfig {
                         // 真正的鉴权由JwtWebSocketHandshakeInterceptor完成（无有效token返回401）
                         .requestMatchers(HttpMethod.GET,
                                 "/ws/logistics", "/ws/vehicle-locations",
-                                "/ws/alarms").permitAll()
+                                "/ws/alarms", "/ws/notifications").permitAll()
                         .requestMatchers("/api/v1/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(jwtAuthenticationFilter,

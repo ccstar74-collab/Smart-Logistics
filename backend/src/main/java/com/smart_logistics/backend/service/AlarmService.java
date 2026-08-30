@@ -139,10 +139,10 @@ public class AlarmService {
     @Transactional
     public AlarmResponse updateStatus(Long id, AlarmStatusUpdateRequest request) {
         UserIdentityResponse current = currentUserService.getCurrentUser();
-        if (current.getRole() != UserRole.DISPATCHER
-                && current.getRole() != UserRole.ADMIN) {
+        // 告警处置仅限调度员：管理员只读（可查看全部告警，不能手动消警）
+        if (current.getRole() != UserRole.DISPATCHER) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
-                    "current role cannot manually resolve alarms");
+                    "only dispatcher can manually resolve alarms");
         }
         if (request.getStatus() != AlarmStatus.RESOLVED) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,

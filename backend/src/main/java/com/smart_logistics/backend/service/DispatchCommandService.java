@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.TransportTaskRouteSnapshot;
 import com.smart_logistics.backend.dto.realtime.AlarmWsEvent;
+import com.smart_logistics.backend.dto.realtime.DispatchCommandCreatedEvent;
 import com.smart_logistics.backend.dto.request.DispatchCommandCreateRequest;
 import com.smart_logistics.backend.dto.request.DispatchCommandStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.DispatchCommandResponse;
@@ -85,7 +86,7 @@ public class DispatchCommandService {
 
     @Transactional
     public DispatchCommandResponse createCommand(DispatchCommandCreateRequest request) {
-        UserIdentityResponse creator = requireDispatcherOrAdmin();
+        UserIdentityResponse creator = requireDispatcher();
         TransportTask task = lockTask(request.getTaskId());
         Alarm alarm = request.getAlarmId() == null ? null
                 : lockAndValidateAlarm(request.getAlarmId(), task.getId());
@@ -126,6 +127,9 @@ public class DispatchCommandService {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR,
                     "failed to create dispatch command");
         }
+        // 指令入库成功，通知模块在事务提交后生成DISPATCH_COMMAND_CREATED通知，
+        // 只推给目标司机对应的用户账号（消息中心，与/ws/alarms互不依赖）
+        eventPublisher.publishEvent(new DispatchCommandCreatedEvent(command.getId()));
         if (alarm != null && AlarmStatus.UNHANDLED.name().equals(alarm.getStatus())) {
             alarm.setStatus(AlarmStatus.PROCESSING.name());
             if (alarm.getHandledAt() == null) {
@@ -306,6 +310,16 @@ public class DispatchCommandService {
         else if (target == DispatchCommandStatus.EXECUTING) command.setExecutingAt(now);
         else if (target == DispatchCommandStatus.COMPLETED) command.setCompletedAt(now);
         else if (target == DispatchCommandStatus.REJECTED) command.setRejectedAt(now);
+    }
+
+    private UserIdentityResponse requireDispatcher() {
+        UserIdentityResponse current = currentUserService.getCurrentUser();
+        // 下发调度指令仅限调度员：管理员只读，可查看但不能下发
+        if (current.getRole() != UserRole.DISPATCHER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "only dispatcher can dispatch commands");
+        }
+        return current;
     }
 
     private UserIdentityResponse requireDispatcherOrAdmin() {

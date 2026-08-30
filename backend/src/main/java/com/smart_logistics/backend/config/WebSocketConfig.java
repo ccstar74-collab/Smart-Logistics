@@ -2,6 +2,7 @@ package com.smart_logistics.backend.config;
 
 import com.smart_logistics.backend.handler.AlarmWebSocketHandler;
 import com.smart_logistics.backend.handler.GpsWebSocketHandler;
+import com.smart_logistics.backend.handler.NotificationWebSocketHandler;
 import com.smart_logistics.backend.security.JwtWebSocketHandshakeInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +21,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private AlarmWebSocketHandler alarmWebSocketHandler;
 
     @Autowired
+    private NotificationWebSocketHandler notificationWebSocketHandler;
+
+    @Autowired
     private JwtWebSocketHandshakeInterceptor jwtWebSocketHandshakeInterceptor;
 
     @Override
@@ -30,6 +34,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOrigins("*");
         // 告警事件推送，复用同一JWT握手拦截器（query token + active user检查）
         registry.addHandler(alarmWebSocketHandler, "/ws/alarms")
+                .addInterceptors(jwtWebSocketHandshakeInterceptor)
+                .setAllowedOrigins("*");
+        // 用户级消息中心推送，握手时绑定userId，按用户精确推送
+        registry.addHandler(notificationWebSocketHandler, "/ws/notifications")
                 .addInterceptors(jwtWebSocketHandshakeInterceptor)
                 .setAllowedOrigins("*");
     }

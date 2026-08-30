@@ -58,9 +58,9 @@ public class AlarmController {
         return ApiResponse.success(alarmService.getAlarm(id));
     }
 
-    // 告警处理权限明确限定为调度员和管理员；司机/货主只能查看与自己相关的告警
+    // 告警处理权限明确限定为调度员；管理员只读，司机/货主只能查看与自己相关的告警
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
+    @PreAuthorize("hasRole('DISPATCHER')")
     public ApiResponse<AlarmResponse> updateStatus(
             @PathVariable @Positive Long id,
             @Valid @RequestBody AlarmStatusUpdateRequest request) {
