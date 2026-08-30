@@ -52,8 +52,9 @@ public class DispatchCommandController {
         );
     }
 
+    // 下发调度指令仅限调度员；管理员只读（可看列表/详情，不能下发）
     @PostMapping
-    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
+    @PreAuthorize("hasRole('DISPATCHER')")
     public ApiResponse<DispatchCommandResponse> createCommand(
             @Valid @RequestBody DispatchCommandCreateRequest request) {
         return ApiResponse.success(dispatchCommandService.createCommand(request));

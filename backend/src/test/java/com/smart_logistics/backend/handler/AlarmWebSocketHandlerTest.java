@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
@@ -112,6 +113,24 @@ class AlarmWebSocketHandlerTest {
         handler.onAlarmEvent(AlarmWsEvent.created(42L));
 
         verify(closed, never()).sendMessage(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void pingTextIsAnsweredWithPong() throws Exception {
+        WebSocketSession admin = openSession(UserRole.ADMIN, null);
+
+        handler.handleTextMessage(admin, new TextMessage("ping"));
+
+        assertEquals("pong", captureSingle(admin).getPayload());
+    }
+
+    @Test
+    void nonPingTextFrameIsIgnored() throws Exception {
+        WebSocketSession admin = openSession(UserRole.ADMIN, null);
+
+        handler.handleTextMessage(admin, new TextMessage("hello"));
+
+        verify(admin, never()).sendMessage(org.mockito.ArgumentMatchers.any());
     }
 
     private TextMessage captureSingle(WebSocketSession session) throws Exception {

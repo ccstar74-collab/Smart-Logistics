@@ -235,9 +235,22 @@ class AlarmServiceTest {
     }
 
     @Test
+    void adminIsReadOnlyAndCannotManuallyResolveAlarm() {
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.ADMIN));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> alarmService.updateStatus(1L, request(AlarmStatus.RESOLVED))
+        );
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+        verify(alarmMapper, never()).updateById(any(Alarm.class));
+    }
+
+    @Test
     void updateStatusReportsDatabaseFailure() {
         Alarm alarm = alarm(1L, AlarmStatus.PROCESSING);
-        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.ADMIN));
+        when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DISPATCHER));
         when(alarmMapper.selectOne(any(Wrapper.class))).thenReturn(alarm);
         when(alarmMapper.updateById(any(Alarm.class))).thenReturn(0);
 
