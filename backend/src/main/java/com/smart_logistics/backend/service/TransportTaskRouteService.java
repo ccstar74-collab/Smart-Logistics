@@ -23,6 +23,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -103,6 +104,16 @@ public class TransportTaskRouteService {
     @Transactional
     public TransportTaskRouteSnapshot persistReadyRoute(
             Long taskId, EtaPlannedRoute plannedRoute) {
+        return persistReadyRoutes(taskId, List.of(plannedRoute)).getFirst();
+    }
+
+    @Transactional
+    public List<TransportTaskRouteSnapshot> persistReadyRoutes(
+            Long taskId, List<EtaPlannedRoute> plannedRoutes) {
+        if (plannedRoutes == null || plannedRoutes.isEmpty()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "at least one planned route is required");
+        }
         TransportTask task = lockTask(taskId);
         requireRouteMutationAllowed(task);
         if (getActiveRouteEntity(taskId) == null) {
@@ -115,22 +126,26 @@ public class TransportTaskRouteService {
                         .eq(TransportTaskRoute::getTaskId, taskId)
                         .orderByDesc(TransportTaskRoute::getRouteVersion)
                         .last("LIMIT 1"));
-        int nextVersion;
-        try {
-            nextVersion = Math.addExact(latest.getRouteVersion(), 1);
-        } catch (ArithmeticException exception) {
-            throw new BusinessException(ErrorCode.STATE_CONFLICT,
-                    "route version limit reached for transport task");
-        }
+        List<TransportTaskRouteSnapshot> persisted = new ArrayList<>();
+        for (int index = 0; index < plannedRoutes.size(); index++) {
+            int nextVersion;
+            try {
+                nextVersion = Math.addExact(latest.getRouteVersion(), index + 1);
+            } catch (ArithmeticException exception) {
+                throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "route version limit reached for transport task");
+            }
 
-        TransportTaskRoute route = newRoute(taskId, plannedRoute,
-                nextVersion, TransportTaskRouteStatus.READY);
-        try {
-            insertRoute(route);
-        } catch (DuplicateKeyException exception) {
-            throw duplicateRouteKey(exception);
+            TransportTaskRoute route = newRoute(taskId, plannedRoutes.get(index),
+                    nextVersion, TransportTaskRouteStatus.READY);
+            try {
+                insertRoute(route);
+            } catch (DuplicateKeyException exception) {
+                throw duplicateRouteKey(exception);
+            }
+            persisted.add(toSnapshot(route));
         }
-        return toSnapshot(route);
+        return List.copyOf(persisted);
     }
 
     @Transactional

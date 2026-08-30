@@ -3,6 +3,7 @@ package com.smart_logistics.backend.service.eta;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -53,6 +54,46 @@ class AmapEtaRouteProviderTest {
 
         assertTrue(uri.contains("origin=106.571234,29.493456"));
         assertTrue(uri.contains("destination=106.612345,29.523456"));
+    }
+
+    @Test
+    void requestsAmapMultiStrategyForRouteCandidates() {
+        String uri = provider.buildCandidateUri(
+                106.571234, 29.493456, 106.612345, 29.523456).toString();
+
+        assertTrue(uri.contains("strategy=11"));
+    }
+
+    @Test
+    void parsesEveryCandidatePathFromAmapResponse() {
+        List<EtaPlannedRoute> routes = provider.parseCandidateResponse("""
+                {
+                  "status": "1",
+                  "info": "OK",
+                  "infocode": "10000",
+                  "route": {"paths": [
+                    {
+                      "distance": "3800", "duration": "600",
+                      "steps": [{"polyline":
+                        "106.570000,29.490000;106.580000,29.500000"}]
+                    },
+                    {
+                      "distance": "3500", "duration": "680",
+                      "steps": [{"polyline":
+                        "106.570000,29.490000;106.590000,29.510000"}]
+                    },
+                    {
+                      "distance": "4100", "duration": "570",
+                      "steps": [{"polyline":
+                        "106.570000,29.490000;106.600000,29.520000"}]
+                    }
+                  ]}
+                }
+                """);
+
+        assertEquals(3, routes.size());
+        assertEquals(3500, routes.get(1).distanceMeters());
+        assertEquals(Duration.ofSeconds(570), routes.get(2).referenceDuration());
     }
 
     @Test

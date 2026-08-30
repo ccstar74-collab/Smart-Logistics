@@ -18,6 +18,7 @@ import com.smart_logistics.backend.service.VehicleService;
 import com.smart_logistics.backend.service.VehicleLocationQueryService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -70,6 +71,7 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private VehicleLocationQueryService vehicleLocationQueryService;
     @MockitoBean private TaskTrackQueryService taskTrackQueryService;
     @MockitoBean private TransportTaskStatusRecordService statusRecordService;
+    @MockitoBean private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     @Test
     void phase5ReadEndpointsRequireAuthentication() throws Exception {
@@ -113,6 +115,9 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
         mockMvc.perform(post(
                         "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
                         .header("Authorization", token)
@@ -128,6 +133,9 @@ class RbacAuthorizationIntegrationTest {
         String token = token(role);
 
         mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates")
                         .header("Authorization", token))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post(

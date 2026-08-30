@@ -21,6 +21,7 @@ import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +59,8 @@ class TransportTaskControllerTest {
     private TransportTaskReplanService transportTaskReplanService;
     @Mock
     private TransportTaskPlaybackService transportTaskPlaybackService;
+    @Mock
+    private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     private MockMvc mockMvc;
 
@@ -72,7 +75,7 @@ class TransportTaskControllerTest {
         Object controller = methodValidation.postProcessAfterInitialization(
                 new TransportTaskController(transportTaskService, taskTrackQueryService,
                         etaPlannedRouteService, transportTaskReplanService,
-                        transportTaskPlaybackService),
+                        transportTaskPlaybackService, multiObjectiveRoutePlanningService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
@@ -270,6 +273,21 @@ class TransportTaskControllerTest {
                 .andExpect(jsonPath("$.data.routeId").value("route_v2"))
                 .andExpect(jsonPath("$.data.routeVersion").value(2))
                 .andExpect(jsonPath("$.data.routeStatus").value("READY"));
+    }
+
+    @Test
+    void createRouteCandidatesReturnsReadyVersions() throws Exception {
+        when(multiObjectiveRoutePlanningService.createReadyCandidates(1L)).thenReturn(
+                List.of(
+                        routeResponse("route_v2", 2, TransportTaskRouteStatus.READY),
+                        routeResponse("route_v3", 3, TransportTaskRouteStatus.READY)));
+
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].routeId").value("route_v2"))
+                .andExpect(jsonPath("$.data[0].routeStatus").value("READY"))
+                .andExpect(jsonPath("$.data[1].routeVersion").value(3));
     }
 
     @Test

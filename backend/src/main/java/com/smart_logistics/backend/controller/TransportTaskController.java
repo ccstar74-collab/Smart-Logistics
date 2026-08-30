@@ -17,6 +17,7 @@ import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -46,17 +47,21 @@ public class TransportTaskController {
     private final EtaPlannedRouteService etaPlannedRouteService;
     private final TransportTaskReplanService transportTaskReplanService;
     private final TransportTaskPlaybackService transportTaskPlaybackService;
+    private final MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     public TransportTaskController(TransportTaskService transportTaskService,
                                    TaskTrackQueryService taskTrackQueryService,
                                    EtaPlannedRouteService etaPlannedRouteService,
                                    TransportTaskReplanService transportTaskReplanService,
-                                   TransportTaskPlaybackService transportTaskPlaybackService) {
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   MultiObjectiveRoutePlanningService
+                                           multiObjectiveRoutePlanningService) {
         this.transportTaskService = transportTaskService;
         this.taskTrackQueryService = taskTrackQueryService;
         this.etaPlannedRouteService = etaPlannedRouteService;
         this.transportTaskReplanService = transportTaskReplanService;
         this.transportTaskPlaybackService = transportTaskPlaybackService;
+        this.multiObjectiveRoutePlanningService = multiObjectiveRoutePlanningService;
     }
 
     @GetMapping("/{id}/track-points")
@@ -86,6 +91,14 @@ public class TransportTaskController {
     public ApiResponse<TransportTaskRouteResponse> createReadyRoute(
             @PathVariable @Positive Long id) {
         return ApiResponse.success(transportTaskService.createReadyRoute(id));
+    }
+
+    @PostMapping("/{id}/routes/candidates")
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<List<TransportTaskRouteResponse>> createReadyRouteCandidates(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(
+                multiObjectiveRoutePlanningService.createReadyCandidates(id));
     }
 
     @GetMapping("/{id}/playback")

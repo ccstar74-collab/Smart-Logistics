@@ -32,6 +32,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -96,6 +97,39 @@ class TransportTaskRouteServiceTest {
         assertEquals(LocalDateTime.of(2026, 8, 26, 16, 0),
                 captor.getValue().getActivatedAt());
         assertEquals(result.createdAt(), result.activatedAt());
+    }
+
+    @Test
+    void persistsCandidateBatchWithConsecutiveReadyVersions() {
+        AtomicInteger routeSequence = new AtomicInteger();
+        service = new TransportTaskRouteService(
+                routeMapper, taskMapper, Clock.fixed(NOW, ZoneOffset.UTC),
+                () -> "route_" + routeSequence.incrementAndGet());
+        TransportTaskRoute latest = entity();
+        latest.setRouteVersion(4);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(latest);
+        AtomicInteger idSequence = new AtomicInteger(10);
+        when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
+            TransportTaskRoute route = invocation.getArgument(0);
+            route.setId((long) idSequence.incrementAndGet());
+            return 1;
+        });
+
+        List<TransportTaskRouteSnapshot> result = service.persistReadyRoutes(
+                1L, List.of(plannedRoute(), plannedRoute()));
+
+        assertEquals(List.of(5, 6), result.stream()
+                .map(TransportTaskRouteSnapshot::routeVersion).toList());
+        assertEquals(List.of("route_1", "route_2"), result.stream()
+                .map(TransportTaskRouteSnapshot::routeId).toList());
+        assertTrue(result.stream().allMatch(route ->
+                route.status() == TransportTaskRouteStatus.READY));
+        ArgumentCaptor<TransportTaskRoute> captor =
+                ArgumentCaptor.forClass(TransportTaskRoute.class);
+        verify(routeMapper, org.mockito.Mockito.times(2)).insert(captor.capture());
+        assertEquals(List.of(5, 6), captor.getAllValues().stream()
+                .map(TransportTaskRoute::getRouteVersion).toList());
     }
 
     @Test
