@@ -69,6 +69,31 @@ public class AlarmWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
+     * 前端心跳：收到"ping"文本帧立即回写"pong"，保持连接活跃，
+     * 避免静置时被反向代理/网关按空闲超时掐断（表现为code:1006）。
+     * 该端点为单向推送，其余文本帧忽略。
+     */
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        if (!"ping".equals(message.getPayload())) {
+            // 非心跳文本帧不进入任何业务逻辑，直接忽略
+            return;
+        }
+        try {
+            // isOpen校验放在锁内，避免检查与发送之间会话被关闭的竞态；
+            // 与广播路径共用同一把session锁，避免帧交错
+            synchronized (session) {
+                if (!session.isOpen()) {
+                    return;
+                }
+                session.sendMessage(new TextMessage("pong"));
+            }
+        } catch (IOException e) {
+            log.error("pong回写失败 sessionId={}", session.getId(), e);
+        }
+    }
+
+    /**
      * 事务提交后转发告警事件。提交前不推送，保证前端收到的告警
      * 一定已持久化；推送丢失时前端可通过REST刷新最终状态。
      */

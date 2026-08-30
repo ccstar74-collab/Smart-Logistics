@@ -65,6 +65,31 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
+     * 前端心跳：收到"ping"文本帧立即回写"pong"，保持连接活跃，
+     * 避免静置时被反向代理/网关按空闲超时掐断（表现为code:1006）。
+     * 该端点为单向推送，其余文本帧忽略。
+     */
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        if (!"ping".equals(message.getPayload())) {
+            // 非心跳文本帧不进入任何业务逻辑，直接忽略
+            return;
+        }
+        try {
+            // WebSocketSession并发发送不安全，与广播路径保持一致加锁；
+            // isOpen校验放在锁内，避免检查与发送之间会话被关闭的竞态
+            synchronized (session) {
+                if (!session.isOpen()) {
+                    return;
+                }
+                session.sendMessage(new TextMessage("pong"));
+            }
+        } catch (IOException e) {
+            log.error("pong回写失败 sessionId={}", session.getId(), e);
+        }
+    }
+
+    /**
      * GPS广播：只推送给 /ws/vehicle-locations 的会话，做权限过滤
      */
     public void broadcastGps(VehicleTraceWsDTO payload) {
@@ -99,7 +124,10 @@ public class GpsWebSocketHandler extends TextWebSocketHandler {
     private void sendObject(WebSocketSession session, Object obj) {
         try {
             String json = objectMapper.writeValueAsString(obj);
-            session.sendMessage(new TextMessage(json));
+            // WebSocketSession并发发送不安全，与心跳回写路径保持一致加锁
+            synchronized (session) {
+                session.sendMessage(new TextMessage(json));
+            }
         } catch (IOException | JacksonException e) {
             log.error("websocket发送消息失败 sessionId={}", session.getId(), e);
         }
