@@ -86,6 +86,22 @@ class TransportTaskStatusRecordServiceTest {
         assertTrue(captor.getValue().getSqlSegment().contains("ORDER BY"));
     }
 
+    @Test
+    void taskTransitionsAreTypedAndDeterministicallyOrdered() {
+        when(recordMapper.selectList(any())).thenReturn(List.of(record()));
+
+        var result = service.findTaskTransitions(10L);
+
+        assertEquals(1, result.size());
+        assertEquals(TransportTaskStatus.WAITING, result.getFirst().fromStatus());
+        assertEquals(TransportTaskStatus.TRANSPORTING, result.getFirst().toStatus());
+        ArgumentCaptor<LambdaQueryWrapper<TransportTaskStatusRecord>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(recordMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("task_id"));
+        assertTrue(captor.getValue().getSqlSegment().contains("ORDER BY"));
+    }
+
     private TransportTaskStatusRecord record() {
         TransportTaskStatusRecord record = new TransportTaskStatusRecord();
         record.setId(1L);

@@ -23,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -157,6 +158,7 @@ public class TransportTaskRouteService {
                 .eq(TransportTaskRoute::getId, active.getId())
                 .eq(TransportTaskRoute::getStatus, TransportTaskRouteStatus.ACTIVE.name())
                 .set(TransportTaskRoute::getStatus, TransportTaskRouteStatus.INACTIVE.name())
+                .set(TransportTaskRoute::getDeactivatedAt, now)
                 .set(TransportTaskRoute::getUpdatedAt, now)) != 1) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "active route status conflict");
@@ -165,13 +167,76 @@ public class TransportTaskRouteService {
                 .eq(TransportTaskRoute::getId, target.getId())
                 .eq(TransportTaskRoute::getStatus, TransportTaskRouteStatus.READY.name())
                 .set(TransportTaskRoute::getStatus, TransportTaskRouteStatus.ACTIVE.name())
+                .set(TransportTaskRoute::getActivatedAt, now)
                 .set(TransportTaskRoute::getUpdatedAt, now)) != 1) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "ready route status conflict");
         }
         target.setStatus(TransportTaskRouteStatus.ACTIVE.name());
+        target.setActivatedAt(now);
         target.setUpdatedAt(now);
         return toSnapshot(target);
+    }
+
+    @Transactional
+    public TransportTaskRouteSnapshot replaceActiveRouteFromReplan(
+            Long taskId, Long expectedVehicleId, EtaPlannedRoute plannedRoute) {
+        TransportTask task = lockTask(taskId);
+        requireTransportingForReplan(task);
+        if (!Objects.equals(expectedVehicleId, task.getVehicleId())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "transport task vehicle changed during route planning");
+        }
+
+        TransportTaskRoute active = getActiveRouteEntity(taskId);
+        if (active == null) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "task has no active planned route");
+        }
+        TransportTaskRoute latest = routeMapper.selectOne(
+                new LambdaQueryWrapper<TransportTaskRoute>()
+                        .eq(TransportTaskRoute::getTaskId, taskId)
+                        .orderByDesc(TransportTaskRoute::getRouteVersion)
+                        .last("LIMIT 1"));
+        int nextVersion;
+        try {
+            nextVersion = Math.addExact(latest.getRouteVersion(), 1);
+        } catch (ArithmeticException exception) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "route version limit reached for transport task");
+        }
+
+        TransportTaskRoute replacement = newRoute(taskId, plannedRoute,
+                nextVersion, TransportTaskRouteStatus.READY);
+        try {
+            insertRoute(replacement);
+        } catch (DuplicateKeyException exception) {
+            throw duplicateRouteKey(exception);
+        }
+
+        LocalDateTime now = now();
+        if (routeMapper.update(null, new LambdaUpdateWrapper<TransportTaskRoute>()
+                .eq(TransportTaskRoute::getId, active.getId())
+                .eq(TransportTaskRoute::getStatus, TransportTaskRouteStatus.ACTIVE.name())
+                .set(TransportTaskRoute::getStatus, TransportTaskRouteStatus.INACTIVE.name())
+                .set(TransportTaskRoute::getDeactivatedAt, now)
+                .set(TransportTaskRoute::getUpdatedAt, now)) != 1) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "active route status conflict");
+        }
+        if (routeMapper.update(null, new LambdaUpdateWrapper<TransportTaskRoute>()
+                .eq(TransportTaskRoute::getId, replacement.getId())
+                .eq(TransportTaskRoute::getStatus, TransportTaskRouteStatus.READY.name())
+                .set(TransportTaskRoute::getStatus, TransportTaskRouteStatus.ACTIVE.name())
+                .set(TransportTaskRoute::getActivatedAt, now)
+                .set(TransportTaskRoute::getUpdatedAt, now)) != 1) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "replanned route activation conflict");
+        }
+        replacement.setStatus(TransportTaskRouteStatus.ACTIVE.name());
+        replacement.setActivatedAt(now);
+        replacement.setUpdatedAt(now);
+        return toSnapshot(replacement);
     }
 
     @Transactional(readOnly = true)
@@ -210,6 +275,13 @@ public class TransportTaskRouteService {
         }
     }
 
+    private void requireTransportingForReplan(TransportTask task) {
+        if (!TransportTaskStatus.TRANSPORTING.name().equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "route can only be replanned for transporting task");
+        }
+    }
+
     private TransportTaskRoute getActiveRouteEntity(Long taskId) {
         return routeMapper.selectOne(new LambdaQueryWrapper<TransportTaskRoute>()
                 .eq(TransportTaskRoute::getTaskId, taskId)
@@ -236,6 +308,9 @@ public class TransportTaskRouteService {
         route.setDurationSeconds(plannedRoute.referenceDuration().toSeconds());
         route.setRouteVersion(routeVersion);
         route.setStatus(status.name());
+        if (status == TransportTaskRouteStatus.ACTIVE) {
+            route.setActivatedAt(now);
+        }
         route.setCreatedAt(now);
         route.setUpdatedAt(now);
         return route;
@@ -255,6 +330,8 @@ public class TransportTaskRouteService {
                 route.getDistanceMeters(), route.getDurationSeconds(),
                 route.getRouteVersion(), parseStatus(route.getStatus()),
                 toOffsetDateTime(route.getCreatedAt()),
+                toOffsetDateTime(route.getActivatedAt()),
+                toOffsetDateTime(route.getDeactivatedAt()),
                 toOffsetDateTime(route.getUpdatedAt()));
     }
 

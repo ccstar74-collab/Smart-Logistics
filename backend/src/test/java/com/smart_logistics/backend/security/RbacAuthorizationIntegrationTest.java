@@ -11,6 +11,8 @@ import com.smart_logistics.backend.service.DriverService;
 import com.smart_logistics.backend.service.OwnerService;
 import com.smart_logistics.backend.service.RegistrationService;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.TransportTaskReplanService;
+import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.UserService;
 import com.smart_logistics.backend.service.VehicleService;
 import com.smart_logistics.backend.service.VehicleLocationQueryService;
@@ -55,6 +57,8 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private CargoItemService cargoItemService;
     @MockitoBean private VehicleService vehicleService;
     @MockitoBean private TransportTaskService transportTaskService;
+    @MockitoBean private TransportTaskReplanService transportTaskReplanService;
+    @MockitoBean private TransportTaskPlaybackService transportTaskPlaybackService;
     @MockitoBean private AlarmService alarmService;
     @MockitoBean private DriverService driverService;
     @MockitoBean private OwnerService ownerService;
@@ -68,6 +72,8 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(get("/api/v1/vehicles/locations/latest"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/transport-tasks/1/track-points"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/playback"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
                 .andExpect(status().isUnauthorized());
@@ -83,6 +89,9 @@ class RbacAuthorizationIntegrationTest {
                         .header("Authorization", token))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/transport-tasks/1/track-points")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/playback")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/cargos/1/status-records")
@@ -103,6 +112,12 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
+        mockMvc.perform(post(
+                        "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(replanJson()))
+                .andExpect(status().isOk());
     }
 
     @ParameterizedTest
@@ -116,6 +131,12 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
                         .header("Authorization", token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post(
+                        "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(replanJson()))
                 .andExpect(status().isForbidden());
     }
 
@@ -362,6 +383,12 @@ class RbacAuthorizationIntegrationTest {
 
     private String cargoUpdateJson() {
         return "{\"name\":\"Updated Cargo\",\"weight\":10,\"volume\":2}";
+    }
+
+    private String replanJson() {
+        return "{\"vehicleDeviceCode\":\"sim_019\",\"longitude\":106.580123,"
+                + "\"latitude\":29.620456,\"coordinateSystem\":\"WGS84\","
+                + "\"positionAt\":\"2026-08-28T12:00:01.123Z\"}";
     }
 
     private String cargoItemJson() {

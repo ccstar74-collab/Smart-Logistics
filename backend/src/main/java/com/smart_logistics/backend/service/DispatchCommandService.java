@@ -174,6 +174,23 @@ public class DispatchCommandService {
         return toResponse(command);
     }
 
+    @Transactional(readOnly = true)
+    public List<DispatchCommandResponse> listTaskCommandHistory(Long taskId) {
+        TransportTask task = transportTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                    "transport task not found");
+        }
+        dataScopeService.requireTaskAccess(task);
+        return dispatchCommandMapper.selectList(new LambdaQueryWrapper<DispatchCommand>()
+                        .eq(DispatchCommand::getTaskId, taskId)
+                        .orderByAsc(DispatchCommand::getCreatedAt)
+                        .orderByAsc(DispatchCommand::getId))
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     @Transactional
     public DispatchCommandResponse updateStatus(
             Long id, DispatchCommandStatusUpdateRequest request) {

@@ -110,6 +110,23 @@ public class AlarmService {
         return toResponse(getRequiredAlarm(id));
     }
 
+    @Transactional(readOnly = true)
+    public List<AlarmResponse> listTaskAlarmHistory(Long taskId) {
+        TransportTask task = transportTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                    "transport task not found");
+        }
+        dataScopeService.requireTaskAccess(task);
+        return alarmMapper.selectList(new LambdaQueryWrapper<Alarm>()
+                        .eq(Alarm::getTaskId, taskId)
+                        .orderByAsc(Alarm::getOccurredAt)
+                        .orderByAsc(Alarm::getId))
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     /**
      * 供WebSocket推送使用的只读查询：不做当前用户数据范围检查，
      * 权限过滤由推送端按会话属性完成；告警不存在时返回null。

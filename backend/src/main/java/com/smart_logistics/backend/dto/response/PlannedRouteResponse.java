@@ -1,5 +1,6 @@
 package com.smart_logistics.backend.dto.response;
 
+import com.smart_logistics.backend.dto.TransportTaskRouteSnapshot;
 import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
 
 import java.time.OffsetDateTime;
@@ -35,5 +36,14 @@ public record PlannedRouteResponse(Long taskId,
         if (points.size() < 2) {
             throw new IllegalArgumentException("planned route must contain at least two points");
         }
+    }
+
+    public static PlannedRouteResponse from(TransportTaskRouteSnapshot route,
+                                            String vehicleDeviceCode) {
+        return new PlannedRouteResponse(
+                route.taskId(), route.routeId(), route.routeVersion(), route.status(),
+                vehicleDeviceCode, route.provider(), route.coordinateSystem(),
+                route.distanceMeters(), route.durationSeconds(), route.createdAt(),
+                route.routePoints());
     }
 }

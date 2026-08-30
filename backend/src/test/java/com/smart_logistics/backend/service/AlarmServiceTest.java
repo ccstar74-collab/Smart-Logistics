@@ -34,6 +34,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -163,6 +164,32 @@ class AlarmServiceTest {
         assertTrue(query.getParamNameValuePairs().containsValue(AlarmStatus.UNHANDLED.name()));
         assertTrue(query.getParamNameValuePairs().containsValue(AlarmLevel.HIGH.name()));
         assertTrue(query.getParamNameValuePairs().containsValue(AlarmType.ROUTE_DEVIATION.name()));
+    }
+
+    @Test
+    void taskAlarmHistoryAppliesTaskScopeOrdersAndReusesAlarmResponse() {
+        Alarm first = alarm(1L, AlarmStatus.PROCESSING);
+        first.setDeviceCode("sim_019");
+        first.setOccurredAt(LocalDateTime.of(2026, 8, 30, 10, 1));
+        first.setLongitude(new BigDecimal("106.580123"));
+        first.setLatitude(new BigDecimal("29.620456"));
+        first.setCoordSystem("WGS84");
+        Alarm second = alarm(2L, AlarmStatus.RESOLVED);
+        second.setOccurredAt(LocalDateTime.of(2026, 8, 30, 10, 2));
+        when(alarmMapper.selectList(any())).thenReturn(List.of(first, second));
+
+        List<AlarmResponse> result = alarmService.listTaskAlarmHistory(15L);
+
+        assertEquals(List.of(1L, 2L), result.stream().map(AlarmResponse::getId).toList());
+        assertEquals("sim_019", result.getFirst().getDeviceCode());
+        assertEquals(new BigDecimal("106.580123"), result.getFirst().getLongitude());
+        assertEquals("WGS84", result.getFirst().getCoordSystem());
+        verify(dataScopeService).requireTaskAccess(any(TransportTask.class));
+        ArgumentCaptor<LambdaQueryWrapper<Alarm>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(alarmMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("task_id"));
+        assertTrue(captor.getValue().getSqlSegment().contains("ORDER BY"));
     }
 
     @Test

@@ -50,16 +50,21 @@ public class EtaPlannedRouteService {
         }
     }
 
+    public EtaPlannedRoute planRouteFromWgs84Origin(
+            double startLongitude, double startLatitude,
+            double endLongitude, double endLatitude) {
+        Wgs84ToGcj02Converter.Coordinate converted =
+                Wgs84ToGcj02Converter.convert(startLongitude, startLatitude);
+        return planRoute(converted.longitude(), converted.latitude(),
+                endLongitude, endLatitude);
+    }
+
     public PlannedRouteResponse getResponse(TransportTaskResponse task) {
         requireRouteStatus(task.getStatus());
         String vehicleDeviceCode = getVehicleDeviceCode(task.getVehicleId());
         TransportTaskRouteSnapshot route = getOrPlan(task.getId(), task.getStartLongitude(),
                 task.getStartLatitude(), task.getEndLongitude(), task.getEndLatitude());
-        return new PlannedRouteResponse(
-                task.getId(), route.routeId(), route.routeVersion(), route.status(),
-                vehicleDeviceCode, route.provider(), route.coordinateSystem(),
-                route.distanceMeters(), route.durationSeconds(), route.createdAt(),
-                route.routePoints());
+        return PlannedRouteResponse.from(route, vehicleDeviceCode);
     }
 
     private void requireRouteStatus(TransportTaskStatus status) {

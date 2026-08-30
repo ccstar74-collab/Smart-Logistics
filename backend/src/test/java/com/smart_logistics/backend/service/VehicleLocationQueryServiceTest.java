@@ -18,9 +18,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -156,6 +158,58 @@ class VehicleLocationQueryServiceTest {
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> service.getLatestLocation(1L));
         assertEquals(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE, exception.getErrorCode());
+    }
+
+    @Test
+    void latestOnlineGpsReusesOnlineThresholdAndRequiresMatchingSimCode() {
+        Instant now = Instant.parse("2026-08-28T08:00:00Z");
+        service = new VehicleLocationQueryService(vehicleMapper, transportTaskMapper,
+                dataScopeService, gpsInfluxService, Duration.ofHours(24),
+                Duration.ofMinutes(2), Clock.fixed(now, ZoneOffset.UTC));
+        GpsSample expected = new GpsSample("sim_019", 121.5, 31.2, null, null,
+                now.minusSeconds(30));
+        when(gpsInfluxService.queryLatestSamples(any(), any())).thenReturn(List.of(
+                new GpsSample("sim_020", 122.0, 32.0, null, null,
+                        now.minusSeconds(1)), expected));
+
+        assertEquals(expected, service.getLatestOnlineGps("sim_019"));
+    }
+
+    @Test
+    void latestOnlineGpsRejectsMissingAndStaleSamples() {
+        Instant now = Instant.parse("2026-08-28T08:00:00Z");
+        service = new VehicleLocationQueryService(vehicleMapper, transportTaskMapper,
+                dataScopeService, gpsInfluxService, Duration.ofHours(24),
+                Duration.ofMinutes(2), Clock.fixed(now, ZoneOffset.UTC));
+        when(gpsInfluxService.queryLatestSamples(any(), any()))
+                .thenReturn(List.of())
+                .thenReturn(List.of(new GpsSample("sim_019", 121.5, 31.2,
+                        null, null, now.minusSeconds(121))));
+
+        BusinessException missing = assertThrows(BusinessException.class,
+                () -> service.getLatestOnlineGps("sim_019"));
+        BusinessException stale = assertThrows(BusinessException.class,
+                () -> service.getLatestOnlineGps("sim_019"));
+
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND, missing.getErrorCode());
+        assertEquals(ErrorCode.STATE_CONFLICT, stale.getErrorCode());
+        assertEquals("vehicle latest location is offline", stale.getMessage());
+    }
+
+    @Test
+    void latestOnlineGpsRejectsInvalidCoordinates() {
+        Instant now = Instant.parse("2026-08-28T08:00:00Z");
+        service = new VehicleLocationQueryService(vehicleMapper, transportTaskMapper,
+                dataScopeService, gpsInfluxService, Duration.ofHours(24),
+                Duration.ofMinutes(2), Clock.fixed(now, ZoneOffset.UTC));
+        when(gpsInfluxService.queryLatestSamples(any(), any())).thenReturn(List.of(
+                new GpsSample("sim_019", Double.NaN, 31.2, null, null,
+                        now.minusSeconds(10))));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.getLatestOnlineGps("sim_019"));
+
+        assertEquals(ErrorCode.INVALID_PARAMETER, exception.getErrorCode());
     }
 
     private Vehicle vehicle() {

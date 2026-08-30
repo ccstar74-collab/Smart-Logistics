@@ -93,6 +93,9 @@ class TransportTaskRouteServiceTest {
         verify(routeMapper).insert(captor.capture());
         assertEquals(1L, captor.getValue().getTaskId());
         assertEquals("ACTIVE", captor.getValue().getStatus());
+        assertEquals(LocalDateTime.of(2026, 8, 26, 16, 0),
+                captor.getValue().getActivatedAt());
+        assertEquals(result.createdAt(), result.activatedAt());
     }
 
     @Test
@@ -253,6 +256,11 @@ class TransportTaskRouteServiceTest {
                 .containsValue("INACTIVE"));
         assertTrue(captor.getAllValues().get(1).getParamNameValuePairs()
                 .containsValue("ACTIVE"));
+        assertTrue(captor.getAllValues().get(0).getSqlSet()
+                .contains("deactivated_at"));
+        assertTrue(captor.getAllValues().get(1).getSqlSet()
+                .contains("activated_at"));
+        assertEquals(result.updatedAt(), result.activatedAt());
     }
 
     @Test
@@ -307,6 +315,85 @@ class TransportTaskRouteServiceTest {
     }
 
     @Test
+    void replanCreatesNextVersionFromMaximumAndAtomicallyReplacesActive() {
+        TransportTaskRoute active = entity();
+        active.setRouteVersion(2);
+        TransportTaskRoute latest = readyEntity();
+        latest.setRouteVersion(3);
+        when(taskMapper.selectOne(any(Wrapper.class)))
+                .thenReturn(task(TransportTaskStatus.TRANSPORTING));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(active, latest);
+        when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
+            TransportTaskRoute route = invocation.getArgument(0);
+            assertEquals(TransportTaskRouteStatus.READY.name(), route.getStatus());
+            route.setId(9L);
+            return 1;
+        });
+        when(routeMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class)))
+                .thenReturn(1, 1);
+
+        TransportTaskRouteSnapshot result = service.replaceActiveRouteFromReplan(
+                1L, 20L, plannedRoute());
+
+        assertEquals(4, result.routeVersion());
+        assertEquals(TransportTaskRouteStatus.ACTIVE, result.status());
+        verify(routeMapper).insert(any(TransportTaskRoute.class));
+        ArgumentCaptor<LambdaUpdateWrapper<TransportTaskRoute>> updates =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(routeMapper, org.mockito.Mockito.times(2)).update(
+                org.mockito.ArgumentMatchers.isNull(), updates.capture());
+        assertTrue(updates.getAllValues().get(0).getParamNameValuePairs()
+                .containsValue("INACTIVE"));
+        assertTrue(updates.getAllValues().get(1).getParamNameValuePairs()
+                .containsValue("ACTIVE"));
+        assertTrue(updates.getAllValues().get(0).getSqlSet()
+                .contains("deactivated_at"));
+        assertTrue(updates.getAllValues().get(1).getSqlSet()
+                .contains("activated_at"));
+        assertEquals(result.updatedAt(), result.activatedAt());
+    }
+
+    @Test
+    void replanActivationFailureEscapesTransactionForFullRollback() {
+        TransportTaskRoute active = entity();
+        TransportTaskRoute latest = readyEntity();
+        when(taskMapper.selectOne(any(Wrapper.class)))
+                .thenReturn(task(TransportTaskStatus.TRANSPORTING));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(active, latest);
+        when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
+            TransportTaskRoute route = invocation.getArgument(0);
+            route.setId(9L);
+            return 1;
+        });
+        when(routeMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class)))
+                .thenReturn(1, 0);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.replaceActiveRouteFromReplan(1L, 20L, plannedRoute()));
+
+        assertEquals("replanned route activation conflict", exception.getMessage());
+        verify(routeMapper).insert(any(TransportTaskRoute.class));
+        verify(routeMapper, org.mockito.Mockito.times(2)).update(
+                org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void replanRejectsTaskOrVehicleChangedDuringAmapCall() {
+        TransportTask changed = task(TransportTaskStatus.COMPLETED);
+        when(taskMapper.selectOne(any(Wrapper.class))).thenReturn(changed);
+
+        assertThrows(BusinessException.class,
+                () -> service.replaceActiveRouteFromReplan(1L, 20L, plannedRoute()));
+
+        changed.setStatus(TransportTaskStatus.TRANSPORTING.name());
+        changed.setVehicleId(21L);
+        when(taskMapper.selectOne(any(Wrapper.class))).thenReturn(changed);
+        assertThrows(BusinessException.class,
+                () -> service.replaceActiveRouteFromReplan(1L, 20L, plannedRoute()));
+        verify(routeMapper, never()).insert(any(TransportTaskRoute.class));
+    }
+
+    @Test
     void oldActiveUpdateFailureLeavesReadyRouteUntouched() {
         when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(readyEntity(), entity());
         when(routeMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class)))
@@ -339,9 +426,13 @@ class TransportTaskRouteServiceTest {
                 "persistReadyRoute", Long.class, EtaPlannedRoute.class);
         Method activate = TransportTaskRouteService.class.getMethod(
                 "activateReadyRoute", Long.class, String.class);
+        Method replan = TransportTaskRouteService.class.getMethod(
+                "replaceActiveRouteFromReplan", Long.class, Long.class,
+                EtaPlannedRoute.class);
 
         assertTrue(ready.getAnnotation(Transactional.class) != null);
         assertTrue(activate.getAnnotation(Transactional.class) != null);
+        assertTrue(replan.getAnnotation(Transactional.class) != null);
     }
 
     private EtaPlannedRoute plannedRoute() {
@@ -383,6 +474,7 @@ class TransportTaskRouteServiceTest {
         TransportTask task = new TransportTask();
         task.setId(1L);
         task.setStatus(status.name());
+        task.setVehicleId(20L);
         return task;
     }
 }

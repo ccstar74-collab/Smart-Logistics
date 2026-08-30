@@ -11,11 +11,13 @@ import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.mapper.TransportTaskMapper;
 import com.smart_logistics.backend.mapper.VehicleMapper;
 import com.smart_logistics.backend.security.BusinessDataScopeService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -38,7 +40,9 @@ public class VehicleLocationQueryService {
     private final GpsInfluxService gpsInfluxService;
     private final Duration latestLookback;
     private final Duration onlineThreshold;
+    private final Clock clock;
 
+    @Autowired
     public VehicleLocationQueryService(
             VehicleMapper vehicleMapper,
             TransportTaskMapper transportTaskMapper,
@@ -46,12 +50,25 @@ public class VehicleLocationQueryService {
             GpsInfluxService gpsInfluxService,
             @Value("${app.realtime.latest-lookback:PT24H}") Duration latestLookback,
             @Value("${app.realtime.online-threshold:PT2M}") Duration onlineThreshold) {
+        this(vehicleMapper, transportTaskMapper, dataScopeService, gpsInfluxService,
+                latestLookback, onlineThreshold, Clock.systemUTC());
+    }
+
+    VehicleLocationQueryService(
+            VehicleMapper vehicleMapper,
+            TransportTaskMapper transportTaskMapper,
+            BusinessDataScopeService dataScopeService,
+            GpsInfluxService gpsInfluxService,
+            Duration latestLookback,
+            Duration onlineThreshold,
+            Clock clock) {
         this.vehicleMapper = vehicleMapper;
         this.transportTaskMapper = transportTaskMapper;
         this.dataScopeService = dataScopeService;
         this.gpsInfluxService = gpsInfluxService;
         this.latestLookback = latestLookback;
         this.onlineThreshold = onlineThreshold;
+        this.clock = clock;
     }
 
     public List<VehicleLocationResponse> getLatestLocations() {
@@ -64,7 +81,7 @@ public class VehicleLocationQueryService {
                 .toList();
         if (mappedVehicles.isEmpty()) return List.of();
 
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<GpsSample> samples = queryLatestRealtime(
                 mappedVehicles.stream().map(Vehicle::getSimCode).toList(),
                 latestLookback);
@@ -88,12 +105,31 @@ public class VehicleLocationQueryService {
         if (vehicle.getSimCode() == null || vehicle.getSimCode().isBlank()) {
             throw locationNotFound();
         }
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         GpsSample latest = queryLatestRealtime(List.of(vehicle.getSimCode()),
                 latestLookback).stream()
                 .max(java.util.Comparator.comparing(GpsSample::collectedAt))
                 .orElseThrow(this::locationNotFound);
         return toResponse(vehicle, latest, activeTaskIds(List.of(vehicleId)).get(vehicleId), now);
+    }
+
+    public GpsSample getLatestOnlineGps(String simCode) {
+        if (simCode == null || simCode.isBlank()) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "vehicle simCode is missing");
+        }
+        GpsSample latest = queryLatestRealtime(List.of(simCode), latestLookback).stream()
+                .filter(sample -> simCode.equals(sample.vehicleId()))
+                .filter(sample -> sample.collectedAt() != null)
+                .max(java.util.Comparator.comparing(GpsSample::collectedAt))
+                .orElseThrow(this::locationNotFound);
+        if (latest.collectedAt().isBefore(clock.instant().minus(onlineThreshold))) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "vehicle latest location is offline");
+        }
+        validateGpsCoordinate("longitude", latest.longitude(), -180, 180);
+        validateGpsCoordinate("latitude", latest.latitude(), -90, 90);
+        return latest;
     }
 
     public List<VehicleLocationResponse> getLocationHistory(
@@ -104,7 +140,7 @@ public class VehicleLocationQueryService {
         }
         Vehicle vehicle = getAuthorizedVehicle(vehicleId);
         if (vehicle.getSimCode() == null || vehicle.getSimCode().isBlank()) return List.of();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         return queryRealtime(List.of(vehicle.getSimCode()), startTime.toInstant(), endTime.toInstant())
                 .stream().map(sample -> toResponse(vehicle, sample, null, now)).toList();
     }
@@ -174,5 +210,13 @@ public class VehicleLocationQueryService {
 
     private BusinessException locationNotFound() {
         return new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "vehicle location not found");
+    }
+
+    private void validateGpsCoordinate(String name, double value,
+                                       double minimum, double maximum) {
+        if (!Double.isFinite(value) || value < minimum || value > maximum) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+                    "latest GPS " + name + " is outside the valid range");
+        }
     }
 }
