@@ -1,11 +1,20 @@
 package com.smart_logistics.backend.service.eta;
 
+import com.smart_logistics.backend.dto.TrafficSnapshot;
+
 import java.time.Duration;
 import java.util.List;
 
 public record EtaPlannedRoute(List<EtaCoordinate> polyline,
                               long distanceMeters,
-                              Duration referenceDuration) {
+                              Duration referenceDuration,
+                              TrafficSnapshot trafficSnapshot) {
+
+    public EtaPlannedRoute(List<EtaCoordinate> polyline,
+                           long distanceMeters,
+                           Duration referenceDuration) {
+        this(polyline, distanceMeters, referenceDuration, null);
+    }
 
     public EtaPlannedRoute {
         polyline = List.copyOf(polyline);

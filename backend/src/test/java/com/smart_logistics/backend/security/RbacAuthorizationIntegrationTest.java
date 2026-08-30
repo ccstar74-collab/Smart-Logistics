@@ -23,6 +23,7 @@ import com.smart_logistics.backend.service.WarehouseTransportTaskCreateService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
 import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
+import com.smart_logistics.backend.service.weather.RouteWeatherService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -80,6 +81,7 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private TaskTrackQueryService taskTrackQueryService;
     @MockitoBean private TransportTaskStatusRecordService statusRecordService;
     @MockitoBean private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
+    @MockitoBean private RouteWeatherService routeWeatherService;
 
     @Test
     void phase5ReadEndpointsRequireAuthentication() throws Exception {
@@ -90,6 +92,8 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(get("/api/v1/transport-tasks/1/playback"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/route-data/weather"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/cargos/1/status-records"))
                 .andExpect(status().isUnauthorized());
@@ -112,6 +116,9 @@ class RbacAuthorizationIntegrationTest {
                         .header("Authorization", token))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/transport-tasks/1/routes")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/transport-tasks/1/route-data/weather")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
     }

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.smart_logistics.backend.dto.TransportTaskRouteSnapshot;
+import com.smart_logistics.backend.dto.TrafficSnapshot;
 import com.smart_logistics.backend.entity.TransportTask;
 import com.smart_logistics.backend.entity.TransportTaskRoute;
 import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
@@ -97,6 +98,30 @@ class TransportTaskRouteServiceTest {
         assertEquals(LocalDateTime.of(2026, 8, 26, 16, 0),
                 captor.getValue().getActivatedAt());
         assertEquals(result.createdAt(), result.activatedAt());
+    }
+
+    @Test
+    void persistsTrafficFactsTogetherWithImmutableRouteSnapshot() {
+        TrafficSnapshot traffic = new TrafficSnapshot(
+                "AMAP_DRIVING_V3", "躲避拥堵", false, 4,
+                20, 5_000, 300, 150, 30);
+        EtaPlannedRoute planned = new EtaPlannedRoute(
+                plannedRoute().polyline(), 5_500, Duration.ofSeconds(720), traffic);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
+            TransportTaskRoute route = invocation.getArgument(0);
+            route.setId(7L);
+            return 1;
+        });
+
+        TransportTaskRouteSnapshot result =
+                service.persistInitialActiveRoute(1L, planned);
+
+        assertEquals(traffic, result.trafficSnapshot());
+        ArgumentCaptor<TransportTaskRoute> captor =
+                ArgumentCaptor.forClass(TransportTaskRoute.class);
+        verify(routeMapper).insert(captor.capture());
+        assertEquals(traffic, captor.getValue().getTrafficSnapshot());
     }
 
     @Test
