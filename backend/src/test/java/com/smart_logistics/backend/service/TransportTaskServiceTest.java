@@ -103,6 +103,9 @@ class TransportTaskServiceTest {
     private UserDisplayNameService userDisplayNameService;
 
     @Mock
+    private ArrivalGeofenceService arrivalGeofenceService;
+
+    @Mock
     private TransactionOperations transactionOperations;
 
     private TransportTaskService service;
@@ -146,6 +149,7 @@ class TransportTaskServiceTest {
                 availabilityService,
                 dataScopeService, currentUserService, statusRecordService,
                 etaPlannedRouteService, taskRouteService, userDisplayNameService,
+                arrivalGeofenceService,
                 transactionOperations);
     }
 
@@ -903,6 +907,25 @@ class TransportTaskServiceTest {
         assertEquals(ErrorCode.FORBIDDEN, assertThrows(BusinessException.class,
                 () -> service.updateTransportTaskStatusForDriver(1L,
                         statusRequest(TransportTaskStatus.ABNORMAL))).getErrorCode());
+    }
+
+    @Test
+    void driverCompletionRequiresArrivalGeofenceEligibility() {
+        TransportTask transporting = task(1L, TransportTaskStatus.TRANSPORTING);
+        when(transportTaskMapper.selectById(1L)).thenReturn(transporting);
+        Vehicle assignedVehicle = vehicle(VehicleStatus.TRANSPORTING);
+        assignedVehicle.setDriverId(9L);
+        when(vehicleService.getVehicleForTransport(20L)).thenReturn(assignedVehicle);
+        org.mockito.Mockito.doThrow(new BusinessException(
+                        ErrorCode.STATE_CONFLICT, "vehicle is outside arrival geofence"))
+                .when(arrivalGeofenceService).requireArrivalAllowed(transporting);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.updateTransportTaskStatusForDriver(
+                        1L, statusRequest(TransportTaskStatus.COMPLETED)));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(transportTaskMapper, never()).update(isNull(), any(Wrapper.class));
     }
 
     @Test

@@ -1,6 +1,6 @@
 package com.smart_logistics.backend.service.eta;
 
-final class Wgs84ToGcj02Converter {
+public final class Wgs84ToGcj02Converter {
 
     private static final double PI = Math.PI;
     private static final double SEMI_MAJOR_AXIS = 6378245.0;
@@ -9,7 +9,7 @@ final class Wgs84ToGcj02Converter {
     private Wgs84ToGcj02Converter() {
     }
 
-    static Coordinate convert(double longitude, double latitude) {
+    public static Coordinate convert(double longitude, double latitude) {
         if (outsideChina(longitude, latitude)) {
             return new Coordinate(longitude, latitude);
         }
@@ -56,6 +56,6 @@ final class Wgs84ToGcj02Converter {
         return result;
     }
 
-    record Coordinate(double longitude, double latitude) {
+    public record Coordinate(double longitude, double latitude) {
     }
 }
