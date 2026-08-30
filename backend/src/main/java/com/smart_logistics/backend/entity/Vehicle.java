@@ -17,6 +17,7 @@ public class Vehicle {
     private BigDecimal capacity;
     private String status;
     private Long driverId;
+    private Long warehouseId;
     @TableField("sim_code")
     private String simCode;
     private LocalDateTime createdAt;
@@ -71,6 +72,14 @@ public class Vehicle {
 
     public void setDriverId(Long driverId) {
         this.driverId = driverId;
+    }
+
+    public Long getWarehouseId() {
+        return warehouseId;
+    }
+
+    public void setWarehouseId(Long warehouseId) {
+        this.warehouseId = warehouseId;
     }
 
     public String getSimCode() {

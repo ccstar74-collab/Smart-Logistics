@@ -14,6 +14,7 @@ public class TransportTask {
     private String taskNo;
     private Long cargoId;
     private Long vehicleId;
+    private Long originWarehouseId;
     private String startLocation;
     private Double startLongitude;
     private Double startLatitude;
@@ -38,6 +39,8 @@ public class TransportTask {
     public void setCargoId(Long cargoId) { this.cargoId = cargoId; }
     public Long getVehicleId() { return vehicleId; }
     public void setVehicleId(Long vehicleId) { this.vehicleId = vehicleId; }
+    public Long getOriginWarehouseId() { return originWarehouseId; }
+    public void setOriginWarehouseId(Long originWarehouseId) { this.originWarehouseId = originWarehouseId; }
     public String getStartLocation() { return startLocation; }
     public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
     public Double getStartLongitude() { return startLongitude; }
