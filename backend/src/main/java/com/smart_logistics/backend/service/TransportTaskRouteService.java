@@ -14,6 +14,8 @@ import com.smart_logistics.backend.mapper.TransportTaskRouteMapper;
 import com.smart_logistics.backend.service.eta.EtaPlannedRoute;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,8 @@ import java.util.function.Supplier;
 @Service
 public class TransportTaskRouteService {
 
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(TransportTaskRouteService.class);
     private static final ZoneId API_TIME_ZONE = ZoneId.of("Asia/Shanghai");
     private static final int INITIAL_ROUTE_VERSION = 1;
     private static final String AMAP = "AMAP";
@@ -283,12 +287,24 @@ public class TransportTaskRouteService {
     }
 
     private TransportTaskRoute getActiveRouteEntity(Long taskId) {
-        return routeMapper.selectOne(new LambdaQueryWrapper<TransportTaskRoute>()
+        List<TransportTaskRoute> activeRoutes = routeMapper.selectList(
+                new LambdaQueryWrapper<TransportTaskRoute>()
                 .eq(TransportTaskRoute::getTaskId, taskId)
                 .eq(TransportTaskRoute::getStatus,
                         TransportTaskRouteStatus.ACTIVE.name())
-                .orderByDesc(TransportTaskRoute::getRouteVersion)
-                .last("LIMIT 1"));
+                .orderByDesc(TransportTaskRoute::getRouteVersion));
+        if (activeRoutes.size() > 1) {
+            List<String> activeRouteIds = activeRoutes.stream()
+                    .map(TransportTaskRoute::getRouteId)
+                    .toList();
+            LOGGER.error(
+                    "transport task route invariant violated: multiple ACTIVE routes, "
+                            + "taskId={}, activeRouteIds={}",
+                    taskId, activeRouteIds);
+            throw new BusinessException(ErrorCode.DATA_CONFLICT,
+                    "multiple active routes found for transport task");
+        }
+        return activeRoutes.isEmpty() ? null : activeRoutes.getFirst();
     }
 
     private TransportTaskRoute newRoute(Long taskId,

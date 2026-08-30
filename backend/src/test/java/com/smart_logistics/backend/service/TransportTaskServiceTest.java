@@ -605,20 +605,6 @@ class TransportTaskServiceTest {
     }
 
     @Test
-    void activateReadyRouteDelegatesAfterTaskAccessCheck() {
-        TransportTask task = task(1L, TransportTaskStatus.TRANSPORTING);
-        when(transportTaskMapper.selectById(1L)).thenReturn(task);
-        when(taskRouteService.activateReadyRoute(1L, "route_v2")).thenReturn(
-                routeSnapshot(8L, "route_v2", 2, TransportTaskRouteStatus.ACTIVE));
-
-        TransportTaskRouteResponse response = service.activateReadyRoute(1L, "route_v2");
-
-        assertEquals("route_v2", response.routeId());
-        assertEquals(TransportTaskRouteStatus.ACTIVE, response.routeStatus());
-        verify(dataScopeService).requireTaskAccess(task);
-    }
-
-    @Test
     void waitingToTransportingUpdatesTaskCargoAndVehicleAndActualStart() {
         stubTransition(TransportTaskStatus.WAITING, TransportTaskStatus.TRANSPORTING);
 

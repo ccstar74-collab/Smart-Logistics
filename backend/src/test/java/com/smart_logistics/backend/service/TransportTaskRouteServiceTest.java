@@ -68,7 +68,7 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void persistsInitialRouteAsVersionOneActiveSnapshot() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
             TransportTaskRoute route = invocation.getArgument(0);
             route.setId(7L);
@@ -100,16 +100,34 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void readsCurrentActiveRouteByTaskAndStatus() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity());
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
 
         TransportTaskRouteSnapshot result = service.getActiveRoute(1L).orElseThrow();
 
         assertEquals("route_fixed", result.routeId());
         ArgumentCaptor<Wrapper<TransportTaskRoute>> captor =
                 ArgumentCaptor.forClass(Wrapper.class);
-        verify(routeMapper).selectOne(captor.capture());
+        verify(routeMapper).selectList(captor.capture());
         assertTrue(captor.getValue().getSqlSegment().contains("task_id"));
         assertTrue(captor.getValue().getSqlSegment().contains("status"));
+    }
+
+    @Test
+    void multipleActiveRoutesFailFastInsteadOfSelectingLatestVersion() {
+        TransportTaskRoute first = entity();
+        TransportTaskRoute second = entity();
+        second.setId(8L);
+        second.setRouteId("route_active_v2");
+        second.setRouteVersion(2);
+        when(routeMapper.selectList(any(Wrapper.class)))
+                .thenReturn(List.of(second, first));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.getActiveRoute(1L));
+
+        assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
+        assertEquals("multiple active routes found for transport task",
+                exception.getMessage());
     }
 
     @Test
@@ -131,7 +149,7 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void routeIdUniqueViolationIsExplicitConflict() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenThrow(
                 new DuplicateKeyException("Duplicate key uk_transport_task_route_id"));
 
@@ -144,7 +162,7 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void taskVersionUniqueViolationIsExplicitConflict() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenThrow(
                 new DuplicateKeyException("Duplicate key uk_transport_task_route_version"));
 
@@ -157,7 +175,8 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void concurrentInitialInsertReturnsWinningActiveRoute() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(null, entity());
+        when(routeMapper.selectList(any(Wrapper.class)))
+                .thenReturn(List.of(), List.of(entity()));
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenThrow(
                 new DuplicateKeyException("Duplicate key uk_transport_task_route_version"));
 
@@ -170,7 +189,8 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void persistsReadyRouteWithNextVersionWithoutReplacingActive() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity(), entity());
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity());
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
             TransportTaskRoute route = invocation.getArgument(0);
             route.setId(8L);
@@ -190,7 +210,8 @@ class TransportTaskRouteServiceTest {
     @Test
     void subsequentReadyRouteUsesMonotonicallyIncreasingVersion() {
         TransportTaskRoute latest = readyEntity();
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity(), latest);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(latest);
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenReturn(1);
 
         TransportTaskRouteSnapshot result = service.persistReadyRoute(1L, plannedRoute());
@@ -201,7 +222,8 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void readyVersionAllocationLocksTaskRowForConcurrentRequests() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity(), entity());
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity());
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenReturn(1);
 
         service.persistReadyRoute(1L, plannedRoute());
@@ -214,7 +236,8 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void duplicateReadyVersionIsExplicitConflict() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity(), entity());
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(entity());
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenThrow(
                 new DuplicateKeyException("Duplicate key uk_transport_task_route_version"));
 
@@ -240,7 +263,8 @@ class TransportTaskRouteServiceTest {
     @Test
     void activatesReadyRouteAndInactivatesOldActiveRoute() {
         TransportTaskRoute ready = readyEntity();
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(ready, entity());
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(ready);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
         when(routeMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class)))
                 .thenReturn(1, 1);
 
@@ -301,7 +325,8 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void targetActivationFailureEscapesTransactionSoOldActiveRollsBack() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(readyEntity(), entity());
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(readyEntity());
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
         when(routeMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class)))
                 .thenReturn(1, 0);
 
@@ -322,7 +347,8 @@ class TransportTaskRouteServiceTest {
         latest.setRouteVersion(3);
         when(taskMapper.selectOne(any(Wrapper.class)))
                 .thenReturn(task(TransportTaskStatus.TRANSPORTING));
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(active, latest);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(active));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(latest);
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
             TransportTaskRoute route = invocation.getArgument(0);
             assertEquals(TransportTaskRouteStatus.READY.name(), route.getStatus());
@@ -359,7 +385,8 @@ class TransportTaskRouteServiceTest {
         TransportTaskRoute latest = readyEntity();
         when(taskMapper.selectOne(any(Wrapper.class)))
                 .thenReturn(task(TransportTaskStatus.TRANSPORTING));
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(active, latest);
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(active));
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(latest);
         when(routeMapper.insert(any(TransportTaskRoute.class))).thenAnswer(invocation -> {
             TransportTaskRoute route = invocation.getArgument(0);
             route.setId(9L);
@@ -395,7 +422,8 @@ class TransportTaskRouteServiceTest {
 
     @Test
     void oldActiveUpdateFailureLeavesReadyRouteUntouched() {
-        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(readyEntity(), entity());
+        when(routeMapper.selectOne(any(Wrapper.class))).thenReturn(readyEntity());
+        when(routeMapper.selectList(any(Wrapper.class))).thenReturn(List.of(entity()));
         when(routeMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class)))
                 .thenReturn(0);
 

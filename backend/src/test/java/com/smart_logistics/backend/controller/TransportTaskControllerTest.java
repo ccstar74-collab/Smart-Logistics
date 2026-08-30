@@ -273,17 +273,6 @@ class TransportTaskControllerTest {
     }
 
     @Test
-    void activateRouteReturnsNewActiveSnapshot() throws Exception {
-        when(transportTaskService.activateReadyRoute(1L, "route_v2")).thenReturn(
-                routeResponse("route_v2", 2, TransportTaskRouteStatus.ACTIVE));
-
-        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
-                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
-    }
-
-    @Test
     void routeListPreservesTaskDataScopeFailure() throws Exception {
         when(transportTaskService.listTransportTaskRoutes(1L)).thenThrow(
                 new BusinessException(ErrorCode.FORBIDDEN,

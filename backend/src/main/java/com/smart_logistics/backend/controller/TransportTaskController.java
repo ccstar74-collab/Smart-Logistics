@@ -18,7 +18,6 @@ import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
@@ -104,14 +103,6 @@ public class TransportTaskController {
             @Valid @RequestBody TransportTaskReplanRequest request) {
         return ApiResponse.success(
                 transportTaskReplanService.replanFromLatestLocation(id, request));
-    }
-
-    @PutMapping("/{id}/routes/{routeId}/activate")
-    @PreAuthorize("hasRole('DISPATCHER')")
-    public ApiResponse<TransportTaskRouteResponse> activateReadyRoute(
-            @PathVariable @Positive Long id,
-            @PathVariable @NotBlank @Size(max = 64) String routeId) {
-        return ApiResponse.success(transportTaskService.activateReadyRoute(id, routeId));
     }
 
     @GetMapping
