@@ -3,16 +3,19 @@ package com.smart_logistics.backend.controller;
 import com.smart_logistics.backend.common.ApiResponse;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
+import com.smart_logistics.backend.dto.request.OriginRecommendationRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
+import com.smart_logistics.backend.dto.response.OriginRecommendationResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskPlaybackResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.OriginRecommendationService;
 import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
@@ -47,17 +50,20 @@ public class TransportTaskController {
     private final EtaPlannedRouteService etaPlannedRouteService;
     private final TransportTaskReplanService transportTaskReplanService;
     private final TransportTaskPlaybackService transportTaskPlaybackService;
+    private final OriginRecommendationService originRecommendationService;
 
     public TransportTaskController(TransportTaskService transportTaskService,
                                    TaskTrackQueryService taskTrackQueryService,
                                    EtaPlannedRouteService etaPlannedRouteService,
                                    TransportTaskReplanService transportTaskReplanService,
-                                   TransportTaskPlaybackService transportTaskPlaybackService) {
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   OriginRecommendationService originRecommendationService) {
         this.transportTaskService = transportTaskService;
         this.taskTrackQueryService = taskTrackQueryService;
         this.etaPlannedRouteService = etaPlannedRouteService;
         this.transportTaskReplanService = transportTaskReplanService;
         this.transportTaskPlaybackService = transportTaskPlaybackService;
+        this.originRecommendationService = originRecommendationService;
     }
 
     @GetMapping("/{id}/track-points")
@@ -135,6 +141,13 @@ public class TransportTaskController {
     public ApiResponse<TransportTaskResponse> createTransportTask(
             @Valid @RequestBody TransportTaskCreateRequest request) {
         return ApiResponse.success(transportTaskService.createTransportTask(request));
+    }
+
+    @PostMapping("/origin-recommendation")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
+    public ApiResponse<List<OriginRecommendationResponse>> recommendOrigin(
+            @Valid @RequestBody OriginRecommendationRequest request) {
+        return ApiResponse.success(originRecommendationService.recommend(request));
     }
 
     @GetMapping("/{id}")

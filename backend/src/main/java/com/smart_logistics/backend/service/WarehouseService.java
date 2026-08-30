@@ -15,6 +15,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
 
 @Service
@@ -67,6 +68,20 @@ public class WarehouseService {
                     "warehouse must be active");
         }
         return warehouse;
+    }
+
+    public List<Warehouse> listActiveWarehousesByIds(Collection<Long> warehouseIds) {
+        List<Long> ids = warehouseIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return warehouseMapper.selectList(new LambdaQueryWrapper<Warehouse>()
+                .in(Warehouse::getId, ids)
+                .eq(Warehouse::getStatus, WarehouseStatus.ACTIVE.name())
+                .orderByAsc(Warehouse::getId));
     }
 
     private WarehouseResponse toResponse(Warehouse warehouse) {

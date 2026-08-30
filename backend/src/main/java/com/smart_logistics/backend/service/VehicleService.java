@@ -90,6 +90,10 @@ public class VehicleService {
     }
 
     public List<VehicleResponse> listAvailableVehicles(Long warehouseId) {
+        return toResponses(findAvailableVehicles(warehouseId));
+    }
+
+    public List<Vehicle> findAvailableVehicles(Long warehouseId) {
         LambdaQueryWrapper<Vehicle> query = new LambdaQueryWrapper<Vehicle>()
                 .eq(Vehicle::getStatus, VehicleStatus.IDLE.name())
                 .isNotNull(Vehicle::getDriverId)
@@ -103,9 +107,9 @@ public class VehicleService {
                 query);
         Set<Long> occupiedIds = availabilityService.findActiveVehicleIds(
                 idleVehicles.stream().map(Vehicle::getId).toList());
-        return toResponses(idleVehicles.stream()
+        return idleVehicles.stream()
                 .filter(vehicle -> !occupiedIds.contains(vehicle.getId()))
-                .toList());
+                .toList();
     }
 
     public List<String> listAvailableSimCodes(String keyword) {

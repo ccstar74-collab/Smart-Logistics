@@ -109,6 +109,27 @@ class WarehouseServiceTest {
         assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void batchCandidateLookupAppliesIdsAndActiveStatusInOneQuery() {
+        Warehouse active = warehouse(1L, "WH-001", "Central", WarehouseStatus.ACTIVE);
+        when(warehouseMapper.selectList(any(Wrapper.class))).thenReturn(List.of(active));
+
+        List<Warehouse> result = warehouseService.listActiveWarehousesByIds(
+                List.of(1L, 2L, 1L));
+
+        assertEquals(List.of(active), result);
+        ArgumentCaptor<LambdaQueryWrapper<Warehouse>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(warehouseMapper).selectList(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("id IN"));
+        assertTrue(sql.contains("status"));
+        assertTrue(sql.contains("ORDER BY id ASC"));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(WarehouseStatus.ACTIVE.name()));
+    }
+
     private Warehouse warehouse(Long id, String warehouseNo, String name,
                                 WarehouseStatus status) {
         Warehouse warehouse = new Warehouse();

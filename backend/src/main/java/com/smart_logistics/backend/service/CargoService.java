@@ -109,6 +109,11 @@ public class CargoService {
 
     public List<CargoResponse> listAvailableCargos(Long cargoTypeId, Long warehouseId,
                                                    Long ownerId) {
+        return toResponses(findAvailableCargos(cargoTypeId, warehouseId, ownerId));
+    }
+
+    public List<Cargo> findAvailableCargos(Long cargoTypeId, Long warehouseId,
+                                           Long ownerId) {
         LambdaQueryWrapper<Cargo> query = new LambdaQueryWrapper<Cargo>()
                 .eq(Cargo::getStatus, CargoStatus.WAITING.name());
         if (cargoTypeId != null) {
@@ -127,9 +132,9 @@ public class CargoService {
                 query);
         Set<Long> occupiedIds = availabilityService.findActiveCargoIds(
                 waitingCargos.stream().map(Cargo::getId).toList());
-        return toResponses(waitingCargos.stream()
+        return waitingCargos.stream()
                 .filter(cargo -> !occupiedIds.contains(cargo.getId()))
-                .toList());
+                .toList();
     }
 
     public Cargo getCargoForTransport(Long id) {
