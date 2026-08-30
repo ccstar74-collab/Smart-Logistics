@@ -77,10 +77,10 @@ public class VehicleTraceController {
 
     // ====================== 原有旧接口：simCode字符串，完全保留兼容 ======================
     /**
-     * GET /api/v1/vehicles/{simCode}/location‑history?start&end
+     * GET /api/v1/vehicles/by-sim-code/{simCode}/location‑history?start&end
      * 直接传入simCode设备编号查询轨迹
      */
-    @GetMapping("/{simCode}/location-history")
+    @GetMapping("/by-sim-code/{simCode}/location-history")
     public List<VehicleTraceWsDTO> getTraceBySimCode(
             @PathVariable String simCode,
             @RequestParam long start,
@@ -104,10 +104,10 @@ public class VehicleTraceController {
     }
 
     /**
-     * GET /api/v1/vehicles/{simCode}/location/latest
+     * GET /api/v1/vehicles/by-sim-code/{simCode}/location/latest
      * 直接传入simCode获取最新点位
      */
-    @GetMapping("/{simCode}/location/latest")
+    @GetMapping("/by-sim-code/{simCode}/location/latest")
     public VehicleTraceWsDTO getSingleLatestLocationBySimCode(@PathVariable String simCode){
         var inner = vehicleTraceService.getVehicleLatestPoint(simCode);
         if(inner == null){
