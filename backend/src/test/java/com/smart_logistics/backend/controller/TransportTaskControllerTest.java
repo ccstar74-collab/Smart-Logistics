@@ -19,6 +19,7 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.OriginRecommendationService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
@@ -60,6 +61,8 @@ class TransportTaskControllerTest {
     private TransportTaskReplanService transportTaskReplanService;
     @Mock
     private TransportTaskPlaybackService transportTaskPlaybackService;
+    @Mock
+    private OriginRecommendationService originRecommendationService;
 
     private MockMvc mockMvc;
 
@@ -74,7 +77,7 @@ class TransportTaskControllerTest {
         Object controller = methodValidation.postProcessAfterInitialization(
                 new TransportTaskController(transportTaskService, taskTrackQueryService,
                         etaPlannedRouteService, transportTaskReplanService,
-                        transportTaskPlaybackService),
+                        transportTaskPlaybackService, originRecommendationService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)

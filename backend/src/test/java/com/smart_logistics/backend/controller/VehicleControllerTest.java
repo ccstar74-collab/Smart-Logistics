@@ -273,11 +273,46 @@ class VehicleControllerTest {
 
     @Test
     void availableEndpointReturnsEnrichedVehicles() throws Exception {
-        when(vehicleService.listAvailableVehicles()).thenReturn(List.of(response("sim_008")));
+        when(vehicleService.listAvailableVehicles(null))
+                .thenReturn(List.of(response("sim_008")));
         mockMvc.perform(get("/api/v1/vehicles/available"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(1))
                 .andExpect(jsonPath("$.data[0].driverName").value("Driver Name"));
+    }
+
+    @Test
+    void availablePassesWarehouseFilterAndReturnsWarehouseId() throws Exception {
+        when(vehicleService.listAvailableVehicles(2L))
+                .thenReturn(List.of(multiWarehouseResponse()));
+
+        mockMvc.perform(get("/api/v1/vehicles/available")
+                        .param("warehouseId", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].warehouseId").value(2));
+
+        verify(vehicleService).listAvailableVehicles(2L);
+    }
+
+    @Test
+    void createAcceptsOptionalWarehouseId() throws Exception {
+        when(vehicleService.createVehicle(any(VehicleCreateRequest.class)))
+                .thenReturn(multiWarehouseResponse());
+
+        mockMvc.perform(post("/api/v1/vehicles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"plateNumber":"粤B23008","type":"厢式货车",
+                                 "capacity":10.5,"simCode":"sim_008","warehouseId":2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(2));
+
+        ArgumentCaptor<VehicleCreateRequest> captor =
+                ArgumentCaptor.forClass(VehicleCreateRequest.class);
+        verify(vehicleService).createVehicle(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(2L,
+                captor.getValue().getWarehouseId());
     }
 
     @Test
@@ -313,5 +348,14 @@ class VehicleControllerTest {
                 null,
                 null
         );
+    }
+
+    private VehicleResponse multiWarehouseResponse() {
+        return new VehicleResponse(
+                1L, "沪A10001", "VAN", BigDecimal.TEN, VehicleStatus.IDLE,
+                3L, "Driver Name", 2L, "sim_008",
+                OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
+                OffsetDateTime.parse("2026-08-22T10:30:00+08:00"),
+                null, null, null);
     }
 }

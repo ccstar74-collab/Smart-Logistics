@@ -150,23 +150,35 @@ public class TransportTaskService {
         availabilityService.ensureCargoAvailable(request.getCargoId());
         availabilityService.ensureVehicleAvailable(request.getVehicleId());
 
+        return persistTransportTaskWithInitialRoute(new CreateValues(
+                request.getOwnerId(), request.getCargoId(), request.getVehicleId(), null,
+                request.getStartLocation().trim(), request.getStartLongitude(),
+                request.getStartLatitude(), request.getEndLocation().trim(),
+                request.getEndLongitude(), request.getEndLatitude(),
+                request.getPlanStartTime(), request.getPlanEndTime()), cargo, plannedRoute);
+    }
+
+    TransportTaskResponse persistTransportTaskWithInitialRoute(
+            CreateValues values, Cargo cargo, EtaPlannedRoute plannedRoute) {
+
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         String taskNo = generateTaskNo(now);
         ensureTaskNoAvailable(taskNo);
-        cargoService.bindOwnerForTransport(cargo, request.getOwnerId());
+        cargoService.bindOwnerForTransport(cargo, values.ownerId());
 
         TransportTask task = new TransportTask();
         task.setTaskNo(taskNo);
-        task.setCargoId(request.getCargoId());
-        task.setVehicleId(request.getVehicleId());
-        task.setStartLocation(request.getStartLocation().trim());
-        task.setStartLongitude(request.getStartLongitude());
-        task.setStartLatitude(request.getStartLatitude());
-        task.setEndLocation(request.getEndLocation().trim());
-        task.setEndLongitude(request.getEndLongitude());
-        task.setEndLatitude(request.getEndLatitude());
-        task.setPlanStartTime(toDatabaseTime(request.getPlanStartTime()));
-        task.setPlanEndTime(toDatabaseTime(request.getPlanEndTime()));
+        task.setCargoId(values.cargoId());
+        task.setVehicleId(values.vehicleId());
+        task.setOriginWarehouseId(values.originWarehouseId());
+        task.setStartLocation(values.startLocation());
+        task.setStartLongitude(values.startLongitude());
+        task.setStartLatitude(values.startLatitude());
+        task.setEndLocation(values.endLocation());
+        task.setEndLongitude(values.endLongitude());
+        task.setEndLatitude(values.endLatitude());
+        task.setPlanStartTime(toDatabaseTime(values.planStartTime()));
+        task.setPlanEndTime(toDatabaseTime(values.planEndTime()));
         task.setStatus(TransportTaskStatus.WAITING.name());
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
@@ -301,6 +313,7 @@ public class TransportTaskService {
                     "only waiting transport task can be modified");
         }
         String startLocation = request.getStartLocation().trim();
+        requireWarehouseOriginSnapshotUnchanged(task, request, startLocation);
         String endLocation = request.getEndLocation().trim();
         boolean startLocationChanged = !Objects.equals(task.getStartLocation(), startLocation);
         boolean endLocationChanged = !Objects.equals(task.getEndLocation(), endLocation);
@@ -390,7 +403,7 @@ public class TransportTaskService {
         validatePlanTimes(request.getPlanStartTime(), request.getPlanEndTime());
     }
 
-    private Owner requireOwner(Long ownerId) {
+    Owner requireOwner(Long ownerId) {
         Owner owner = ownerMapper.selectById(ownerId);
         if (owner == null) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "owner not found");
@@ -405,7 +418,7 @@ public class TransportTaskService {
         }
     }
 
-    private void validatePlanTimes(OffsetDateTime planStartTime, OffsetDateTime planEndTime) {
+    void validatePlanTimes(OffsetDateTime planStartTime, OffsetDateTime planEndTime) {
         if (planStartTime != null && planEndTime != null
                 && planEndTime.isBefore(planStartTime)) {
             throw new BusinessException(ErrorCode.INVALID_PARAMETER,
@@ -452,10 +465,17 @@ public class TransportTaskService {
         }
     }
 
-    private void validateCoordinateRange(String name, double value,
-                                         double minimum, double maximum) {
+    void validateCoordinateRange(String name, double value,
+                                 double minimum, double maximum) {
+        validateCoordinateRange(name, value, minimum, maximum,
+                ErrorCode.INVALID_PARAMETER);
+    }
+
+    static void validateCoordinateRange(String name, double value,
+                                        double minimum, double maximum,
+                                        ErrorCode errorCode) {
         if (!Double.isFinite(value) || value < minimum || value > maximum) {
-            throw new BusinessException(ErrorCode.INVALID_PARAMETER,
+            throw new BusinessException(errorCode,
                     name + " is outside the valid range");
         }
     }
@@ -477,6 +497,20 @@ public class TransportTaskService {
         } else if (endLocationChanged) {
             task.setEndLongitude(null);
             task.setEndLatitude(null);
+        }
+    }
+
+    private void requireWarehouseOriginSnapshotUnchanged(
+            TransportTask task, TransportTaskUpdateRequest request, String startLocation) {
+        if (task.getOriginWarehouseId() == null) {
+            return;
+        }
+        boolean coordinatesChanged = request.getStartLongitude() != null
+                && (!Objects.equals(task.getStartLongitude(), request.getStartLongitude())
+                || !Objects.equals(task.getStartLatitude(), request.getStartLatitude()));
+        if (!Objects.equals(task.getStartLocation(), startLocation) || coordinatesChanged) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT,
+                    "warehouse-origin task start snapshot cannot be modified");
         }
     }
 
@@ -659,7 +693,15 @@ public class TransportTaskService {
                 vehicle.getPlateNumber(),
                 activeRoute == null ? null : activeRoute.routeId(),
                 activeRoute == null ? null : activeRoute.routeVersion(),
-                activeRoute == null ? null : activeRoute.status()
+                activeRoute == null ? null : activeRoute.status(),
+                task.getOriginWarehouseId()
         );
+    }
+
+    record CreateValues(Long ownerId, Long cargoId, Long vehicleId,
+                        Long originWarehouseId, String startLocation,
+                        Double startLongitude, Double startLatitude,
+                        String endLocation, Double endLongitude, Double endLatitude,
+                        OffsetDateTime planStartTime, OffsetDateTime planEndTime) {
     }
 }

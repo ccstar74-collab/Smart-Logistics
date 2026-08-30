@@ -17,6 +17,8 @@ public class Cargo {
     private String description;
     private BigDecimal weight;
     private BigDecimal volume;
+    private Long cargoTypeId;
+    private Long warehouseId;
     private Long ownerId;
     private String status;
     private LocalDateTime createdAt;
@@ -68,6 +70,22 @@ public class Cargo {
 
     public void setVolume(BigDecimal volume) {
         this.volume = volume;
+    }
+
+    public Long getCargoTypeId() {
+        return cargoTypeId;
+    }
+
+    public void setCargoTypeId(Long cargoTypeId) {
+        this.cargoTypeId = cargoTypeId;
+    }
+
+    public Long getWarehouseId() {
+        return warehouseId;
+    }
+
+    public void setWarehouseId(Long warehouseId) {
+        this.warehouseId = warehouseId;
     }
 
     public Long getOwnerId() {

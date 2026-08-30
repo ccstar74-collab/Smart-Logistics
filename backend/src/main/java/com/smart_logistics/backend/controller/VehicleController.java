@@ -87,8 +87,9 @@ public class VehicleController{
 
     @GetMapping("/available")
     @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
-    public ApiResponse<List<VehicleResponse>> listAvailableVehicles() {
-        return ApiResponse.success(vehicleService.listAvailableVehicles());
+    public ApiResponse<List<VehicleResponse>> listAvailableVehicles(
+            @RequestParam(required = false) @Positive Long warehouseId) {
+        return ApiResponse.success(vehicleService.listAvailableVehicles(warehouseId));
     }
 
     @GetMapping("/sim-codes/available")

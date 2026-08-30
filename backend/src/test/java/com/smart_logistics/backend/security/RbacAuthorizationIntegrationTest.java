@@ -6,9 +6,11 @@ import com.smart_logistics.backend.enums.UserStatus;
 import com.smart_logistics.backend.service.AlarmService;
 import com.smart_logistics.backend.service.CargoItemService;
 import com.smart_logistics.backend.service.CargoService;
+import com.smart_logistics.backend.service.CargoTypeService;
 import com.smart_logistics.backend.service.DispatchCommandService;
 import com.smart_logistics.backend.service.DriverService;
 import com.smart_logistics.backend.service.OwnerService;
+import com.smart_logistics.backend.service.OriginRecommendationService;
 import com.smart_logistics.backend.service.RegistrationService;
 import com.smart_logistics.backend.service.TransportTaskService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
@@ -16,6 +18,8 @@ import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.UserService;
 import com.smart_logistics.backend.service.VehicleService;
 import com.smart_logistics.backend.service.VehicleLocationQueryService;
+import com.smart_logistics.backend.service.WarehouseService;
+import com.smart_logistics.backend.service.WarehouseTransportTaskCreateService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
 import org.junit.jupiter.api.Test;
@@ -54,6 +58,7 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private UserService userService;
     @MockitoBean private RegistrationService registrationService;
     @MockitoBean private CargoService cargoService;
+    @MockitoBean private CargoTypeService cargoTypeService;
     @MockitoBean private CargoItemService cargoItemService;
     @MockitoBean private VehicleService vehicleService;
     @MockitoBean private TransportTaskService transportTaskService;
@@ -62,8 +67,11 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private AlarmService alarmService;
     @MockitoBean private DriverService driverService;
     @MockitoBean private OwnerService ownerService;
+    @MockitoBean private OriginRecommendationService originRecommendationService;
     @MockitoBean private DispatchCommandService dispatchCommandService;
     @MockitoBean private VehicleLocationQueryService vehicleLocationQueryService;
+    @MockitoBean private WarehouseService warehouseService;
+    @MockitoBean private WarehouseTransportTaskCreateService warehouseTaskCreateService;
     @MockitoBean private TaskTrackQueryService taskTrackQueryService;
     @MockitoBean private TransportTaskStatusRecordService statusRecordService;
 
@@ -231,6 +239,16 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(post("/api/v1/transport-tasks").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON).content(taskJson()))
                 .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/transport-tasks/origin-recommendation")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(originRecommendationJson()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(warehouseTaskJson()))
+                .andExpect(status().isOk());
         mockMvc.perform(put("/api/v1/transport-tasks/1").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON).content(taskBaseUpdateJson()))
                 .andExpect(status().isOk());
@@ -259,6 +277,75 @@ class RbacAuthorizationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(cargoJson()))
                 .andExpect(status().isForbidden());
         mockMvc.perform(delete("/api/v1/vehicles/1").header("Authorization", token))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "DISPATCHER", "ADMIN"})
+    void originRecommendationRejectsRolesWithoutTaskCreatePermission(UserRole role)
+            throws Exception {
+        mockMvc.perform(post("/api/v1/transport-tasks/origin-recommendation")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(originRecommendationJson()))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "DISPATCHER", "ADMIN"})
+    void warehouseTaskCreateRejectsRolesWithoutLegacyCreatePermission(UserRole role)
+            throws Exception {
+        mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(warehouseTaskJson()))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"WAREHOUSE_MANAGER", "DISPATCHER", "ADMIN"})
+    void operationalBaseDataRolesCanReadCargoTypesAndWarehouses(UserRole role)
+            throws Exception {
+        String token = token(role);
+        mockMvc.perform(get("/api/v1/cargo-types").header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/warehouses").header("Authorization", token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/warehouses/1").header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"OWNER", "DRIVER"})
+    void ownerAndDriverCannotReadOperationalBaseData(UserRole role) throws Exception {
+        String token = token(role);
+        mockMvc.perform(get("/api/v1/cargo-types").header("Authorization", token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/warehouses").header("Authorization", token))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class, names = {"WAREHOUSE_MANAGER", "ADMIN"})
+    void warehouseManagerAndAdminCanCreateCargoTypes(UserRole role) throws Exception {
+        mockMvc.perform(post("/api/v1/cargo-types")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Medical\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "DISPATCHER"})
+    void otherRolesCannotCreateCargoTypes(UserRole role) throws Exception {
+        mockMvc.perform(post("/api/v1/cargo-types")
+                        .header("Authorization", token(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Medical\"}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -379,6 +466,17 @@ class RbacAuthorizationIntegrationTest {
 
     private String taskBaseUpdateJson() {
         return "{\"startLocation\":\"A2\",\"endLocation\":\"B2\"}";
+    }
+
+    private String originRecommendationJson() {
+        return "{\"ownerId\":3,\"cargoTypeId\":10,\"endLocation\":\"B\","
+                + "\"endLongitude\":106.759396,\"endLatitude\":29.620115}";
+    }
+
+    private String warehouseTaskJson() {
+        return "{\"ownerId\":3,\"cargoTypeId\":10,\"originWarehouseId\":1,"
+                + "\"cargoId\":10,\"vehicleId\":20,\"endLocation\":\"B\","
+                + "\"endLongitude\":106.759396,\"endLatitude\":29.620115}";
     }
 
     private String cargoUpdateJson() {
