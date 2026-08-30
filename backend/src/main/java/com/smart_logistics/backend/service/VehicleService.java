@@ -39,17 +39,20 @@ public class VehicleService {
     private final TransportTaskAvailabilityService availabilityService;
     private final BusinessDataScopeService dataScopeService;
     private final DriverService driverService;
+    private final WarehouseService warehouseService;
 
     public VehicleService(VehicleMapper vehicleMapper,
                           UserDisplayNameService userDisplayNameService,
                           TransportTaskAvailabilityService availabilityService,
                           BusinessDataScopeService dataScopeService,
-                          DriverService driverService) {
+                          DriverService driverService,
+                          WarehouseService warehouseService) {
         this.vehicleMapper = vehicleMapper;
         this.userDisplayNameService = userDisplayNameService;
         this.availabilityService = availabilityService;
         this.dataScopeService = dataScopeService;
         this.driverService = driverService;
+        this.warehouseService = warehouseService;
     }
 
     public PageResult<VehicleResponse> listVehicles(long page, long pageSize,
@@ -83,10 +86,21 @@ public class VehicleService {
     }
 
     public List<VehicleResponse> listAvailableVehicles() {
+        return listAvailableVehicles(null);
+    }
+
+    public List<VehicleResponse> listAvailableVehicles(Long warehouseId) {
+        LambdaQueryWrapper<Vehicle> query = new LambdaQueryWrapper<Vehicle>()
+                .eq(Vehicle::getStatus, VehicleStatus.IDLE.name())
+                .isNotNull(Vehicle::getDriverId)
+                .isNotNull(Vehicle::getSimCode)
+                .apply("TRIM(sim_code) <> ''");
+        if (warehouseId != null) {
+            query.eq(Vehicle::getWarehouseId, warehouseId);
+        }
+        query.orderByAsc(Vehicle::getId);
         List<Vehicle> idleVehicles = vehicleMapper.selectList(
-                new LambdaQueryWrapper<Vehicle>()
-                        .eq(Vehicle::getStatus, VehicleStatus.IDLE.name())
-                        .orderByAsc(Vehicle::getId));
+                query);
         Set<Long> occupiedIds = availabilityService.findActiveVehicleIds(
                 idleVehicles.stream().map(Vehicle::getId).toList());
         return toResponses(idleVehicles.stream()
@@ -170,6 +184,7 @@ public class VehicleService {
         String simCode = normalizeSimCode(request.getSimCode());
         ensurePlateNumberAvailable(plateNumber, null);
         ensureSimCodeAvailable(simCode, null);
+        requireActiveWarehouseIfPresent(request.getWarehouseId());
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Vehicle vehicle = new Vehicle();
@@ -177,6 +192,7 @@ public class VehicleService {
         vehicle.setType(trimToNull(request.getType()));
         vehicle.setCapacity(request.getCapacity());
         vehicle.setDriverId(request.getDriverId());
+        vehicle.setWarehouseId(request.getWarehouseId());
         vehicle.setSimCode(simCode);
         requireActiveDriverIfPresent(request.getDriverId());
         vehicle.setStatus(VehicleStatus.IDLE.name());
@@ -204,6 +220,12 @@ public class VehicleService {
         if (!Objects.equals(current.getSimCode(), simCode)) {
             ensureSimCodeAvailable(simCode, id);
         }
+        Long warehouseId = request.getWarehouseId() == null
+                ? current.getWarehouseId() : request.getWarehouseId();
+        requireActiveWarehouseIfPresent(request.getWarehouseId());
+        if (!Objects.equals(current.getWarehouseId(), warehouseId)) {
+            availabilityService.ensureVehicleAvailable(id);
+        }
 
         LambdaUpdateWrapper<Vehicle> update = new LambdaUpdateWrapper<>();
         update.eq(Vehicle::getId, id)
@@ -211,6 +233,7 @@ public class VehicleService {
                 .set(Vehicle::getType, trimToNull(request.getType()))
                 .set(Vehicle::getCapacity, request.getCapacity())
                 .set(Vehicle::getDriverId, request.getDriverId())
+                .set(Vehicle::getWarehouseId, warehouseId)
                 .set(Vehicle::getSimCode, simCode)
                 .set(Vehicle::getUpdatedAt, LocalDateTime.now(API_TIME_ZONE));
 
@@ -374,6 +397,7 @@ public class VehicleService {
                 parseStatus(vehicle.getStatus()),
                 vehicle.getDriverId(),
                 driverName,
+                vehicle.getWarehouseId(),
                 vehicle.getSimCode(),
                 toOffsetDateTime(vehicle.getCreatedAt()),
                 toOffsetDateTime(vehicle.getUpdatedAt()),
@@ -412,5 +436,11 @@ public class VehicleService {
                     "simCode must match ^sim_\\d{3}$");
         }
         return value;
+    }
+
+    private void requireActiveWarehouseIfPresent(Long warehouseId) {
+        if (warehouseId != null) {
+            warehouseService.requireActiveWarehouse(warehouseId);
+        }
     }
 }

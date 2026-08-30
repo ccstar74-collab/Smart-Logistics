@@ -1,6 +1,7 @@
 package com.smart_logistics.backend.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
@@ -21,6 +22,12 @@ public class CargoUpdateRequest {
     @PositiveOrZero(message = "volume must be greater than or equal to 0")
     private BigDecimal volume;
 
+    @Positive(message = "cargoTypeId must be greater than 0")
+    private Long cargoTypeId;
+
+    @Positive(message = "warehouseId must be greater than 0")
+    private Long warehouseId;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
@@ -29,4 +36,8 @@ public class CargoUpdateRequest {
     public void setWeight(BigDecimal weight) { this.weight = weight; }
     public BigDecimal getVolume() { return volume; }
     public void setVolume(BigDecimal volume) { this.volume = volume; }
+    public Long getCargoTypeId() { return cargoTypeId; }
+    public void setCargoTypeId(Long cargoTypeId) { this.cargoTypeId = cargoTypeId; }
+    public Long getWarehouseId() { return warehouseId; }
+    public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
 }

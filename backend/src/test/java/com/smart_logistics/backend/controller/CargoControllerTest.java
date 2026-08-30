@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -190,7 +191,8 @@ class CargoControllerTest {
     @Test
     void listReturnsStandardPageStructureAndPassesFilters() throws Exception {
         CargoResponse cargo = response();
-        when(cargoService.listCargos(2, 5, "Medical", CargoStatus.WAITING, null))
+        when(cargoService.listCargos(2, 5, "Medical", CargoStatus.WAITING,
+                null, null, null))
                 .thenReturn(new PageResult<>(List.of(cargo), 6, 2, 5));
 
         mockMvc.perform(get("/api/v1/cargos")
@@ -207,7 +209,8 @@ class CargoControllerTest {
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.pageSize").value(5));
 
-        verify(cargoService).listCargos(2, 5, "Medical", CargoStatus.WAITING, null);
+        verify(cargoService).listCargos(2, 5, "Medical", CargoStatus.WAITING,
+                null, null, null);
     }
 
     @Test
@@ -220,11 +223,72 @@ class CargoControllerTest {
 
     @Test
     void availableEndpointReturnsEnrichedCargos() throws Exception {
-        when(cargoService.listAvailableCargos()).thenReturn(List.of(response()));
+        when(cargoService.listAvailableCargos(null, null, null))
+                .thenReturn(List.of(response()));
         mockMvc.perform(get("/api/v1/cargos/available"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(1))
                 .andExpect(jsonPath("$.data[0].ownerName").value("Owner Name"));
+    }
+
+    @Test
+    void listPassesMultiWarehouseFiltersAndReturnsIds() throws Exception {
+        CargoResponse cargo = multiWarehouseResponse();
+        when(cargoService.listCargos(1, 10, "Medical", CargoStatus.WAITING,
+                3L, 10L, 2L)).thenReturn(new PageResult<>(List.of(cargo), 1, 1, 10));
+
+        mockMvc.perform(get("/api/v1/cargos")
+                        .param("keyword", "Medical")
+                        .param("status", "WAITING")
+                        .param("ownerId", "3")
+                        .param("cargoTypeId", "10")
+                        .param("warehouseId", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].cargoTypeId").value(10))
+                .andExpect(jsonPath("$.data.records[0].warehouseId").value(2));
+
+        verify(cargoService).listCargos(1, 10, "Medical", CargoStatus.WAITING,
+                3L, 10L, 2L);
+    }
+
+    @Test
+    void availablePassesCargoTypeWarehouseAndOwnerFilters() throws Exception {
+        when(cargoService.listAvailableCargos(10L, 2L, 3L))
+                .thenReturn(List.of(multiWarehouseResponse()));
+
+        mockMvc.perform(get("/api/v1/cargos/available")
+                        .param("cargoTypeId", "10")
+                        .param("warehouseId", "2")
+                        .param("ownerId", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].cargoTypeId").value(10))
+                .andExpect(jsonPath("$.data[0].warehouseId").value(2));
+
+        verify(cargoService).listAvailableCargos(10L, 2L, 3L);
+    }
+
+    @Test
+    void createAcceptsOptionalMultiWarehouseIds() throws Exception {
+        when(cargoService.createCargo(any(CargoCreateRequest.class)))
+                .thenReturn(multiWarehouseResponse());
+
+        mockMvc.perform(post("/api/v1/cargos")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"cargoNo":"CGO-001","name":"Medical supplies",
+                                 "cargoTypeId":10,"warehouseId":2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cargoTypeId").value(10))
+                .andExpect(jsonPath("$.data.warehouseId").value(2));
+
+        ArgumentCaptor<CargoCreateRequest> captor =
+                ArgumentCaptor.forClass(CargoCreateRequest.class);
+        verify(cargoService).createCargo(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(10L,
+                captor.getValue().getCargoTypeId());
+        org.junit.jupiter.api.Assertions.assertEquals(2L,
+                captor.getValue().getWarehouseId());
     }
 
     private String validRequestJson() {
@@ -255,6 +319,15 @@ class CargoControllerTest {
                 2L, "CGO-002", "Unassigned cargo", null,
                 new BigDecimal("12.50"), new BigDecimal("3.20"),
                 null, null, CargoStatus.WAITING,
+                OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
+                OffsetDateTime.parse("2026-08-23T10:30:00+08:00"));
+    }
+
+    private CargoResponse multiWarehouseResponse() {
+        return new CargoResponse(
+                1L, "CGO-001", "Medical supplies", "Fragile",
+                new BigDecimal("12.50"), new BigDecimal("3.20"),
+                10L, 2L, 3L, "Owner Name", CargoStatus.WAITING,
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00"),
                 OffsetDateTime.parse("2026-08-23T10:30:00+08:00"));
     }

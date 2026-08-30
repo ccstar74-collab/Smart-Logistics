@@ -59,6 +59,9 @@ class VehicleServiceTest {
     @Mock
     private DriverService driverService;
 
+    @Mock
+    private WarehouseService warehouseService;
+
     private VehicleService vehicleService;
 
     @BeforeEach
@@ -71,7 +74,7 @@ class VehicleServiceTest {
                 .thenReturn(Map.of());
         vehicleService = new VehicleService(
                 vehicleMapper, userDisplayNameService, availabilityService, dataScopeService,
-                driverService);
+                driverService, warehouseService);
     }
 
     @Test
@@ -424,8 +427,13 @@ class VehicleServiceTest {
     void availableReturnsIdleVehiclesWithoutActiveTaskAndIncludesDriverName() {
         Vehicle available = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
         available.setDriverId(3L);
+        available.setSimCode("sim_001");
         Vehicle occupied = vehicle(2L, "沪A10002", VehicleStatus.IDLE);
+        occupied.setDriverId(4L);
+        occupied.setSimCode("sim_002");
         Vehicle historicalOnly = vehicle(3L, "沪A10003", VehicleStatus.IDLE);
+        historicalOnly.setDriverId(5L);
+        historicalOnly.setSimCode("sim_003");
         when(vehicleMapper.selectList(any())).thenReturn(
                 List.of(available, occupied, historicalOnly));
         when(availabilityService.findActiveVehicleIds(List.of(1L, 2L, 3L)))
@@ -443,6 +451,179 @@ class VehicleServiceTest {
         assertTrue(captor.getValue().getSqlSegment().contains("status"));
         assertTrue(captor.getValue().getParamNameValuePairs()
                 .containsValue(VehicleStatus.IDLE.name()));
+        assertTrue(captor.getValue().getSqlSegment().contains("driver_id IS NOT NULL"));
+        assertTrue(captor.getValue().getSqlSegment().contains("sim_code IS NOT NULL"));
+        assertTrue(captor.getValue().getSqlSegment().contains("TRIM(sim_code) <> ''"));
+    }
+
+    @Test
+    void availableComposesWarehouseIdleDriverSimCodeAndActiveTaskPredicate() {
+        Vehicle available = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        available.setWarehouseId(2L);
+        available.setDriverId(3L);
+        available.setSimCode("sim_001");
+        Vehicle waitingTask = vehicle(2L, "沪A10002", VehicleStatus.IDLE);
+        waitingTask.setWarehouseId(2L);
+        waitingTask.setDriverId(4L);
+        waitingTask.setSimCode("sim_002");
+        Vehicle transportingTask = vehicle(3L, "沪A10003", VehicleStatus.IDLE);
+        transportingTask.setWarehouseId(2L);
+        transportingTask.setDriverId(5L);
+        transportingTask.setSimCode("sim_003");
+        Vehicle completedHistory = vehicle(4L, "沪A10004", VehicleStatus.IDLE);
+        completedHistory.setWarehouseId(2L);
+        completedHistory.setDriverId(6L);
+        completedHistory.setSimCode("sim_004");
+        when(vehicleMapper.selectList(any())).thenReturn(
+                List.of(available, waitingTask, transportingTask, completedHistory));
+        when(availabilityService.findActiveVehicleIds(List.of(1L, 2L, 3L, 4L)))
+                .thenReturn(Set.of(2L, 3L));
+
+        List<VehicleResponse> result = vehicleService.listAvailableVehicles(2L);
+
+        assertEquals(List.of(1L, 4L),
+                result.stream().map(VehicleResponse::getId).toList());
+        ArgumentCaptor<LambdaQueryWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(vehicleMapper).selectList(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("warehouse_id"));
+        assertTrue(sql.contains("status"));
+        assertTrue(sql.contains("driver_id IS NOT NULL"));
+        assertTrue(sql.contains("sim_code IS NOT NULL"));
+        assertTrue(sql.contains("TRIM(sim_code) <> ''"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(2L));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(VehicleStatus.IDLE.name()));
+    }
+
+    @Test
+    void createAcceptsActiveWarehouseAndLegacyNullWarehouse() {
+        VehicleCreateRequest request = createRequest("沪A10010", BigDecimal.TEN);
+        request.setWarehouseId(2L);
+        Vehicle[] inserted = new Vehicle[1];
+        when(vehicleMapper.selectCount(any())).thenReturn(0L);
+        when(vehicleMapper.insert(any(Vehicle.class))).thenAnswer(invocation -> {
+            inserted[0] = invocation.getArgument(0);
+            inserted[0].setId(10L);
+            return 1;
+        });
+        when(vehicleMapper.selectById(10L)).thenAnswer(invocation -> inserted[0]);
+
+        VehicleResponse response = vehicleService.createVehicle(request);
+
+        assertEquals(2L, response.getWarehouseId());
+        verify(warehouseService).requireActiveWarehouse(2L);
+
+        VehicleCreateRequest legacy = createRequest("沪A10011", BigDecimal.TEN);
+        Vehicle[] legacyInserted = new Vehicle[1];
+        when(vehicleMapper.insert(any(Vehicle.class))).thenAnswer(invocation -> {
+            legacyInserted[0] = invocation.getArgument(0);
+            legacyInserted[0].setId(11L);
+            return 1;
+        });
+        when(vehicleMapper.selectById(11L)).thenAnswer(invocation -> legacyInserted[0]);
+        assertEquals(null, vehicleService.createVehicle(legacy).getWarehouseId());
+    }
+
+    @Test
+    void createRejectsMissingOrInactiveWarehouse() {
+        VehicleCreateRequest missing = createRequest("沪A10012", BigDecimal.TEN);
+        missing.setWarehouseId(999L);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "warehouse not found"))
+                .when(warehouseService).requireActiveWarehouse(999L);
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND,
+                assertThrows(BusinessException.class,
+                        () -> vehicleService.createVehicle(missing)).getErrorCode());
+
+        VehicleCreateRequest inactive = createRequest("沪A10013", BigDecimal.TEN);
+        inactive.setWarehouseId(998L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "warehouse must be active"))
+                .when(warehouseService).requireActiveWarehouse(998L);
+        assertEquals(ErrorCode.STATE_CONFLICT,
+                assertThrows(BusinessException.class,
+                        () -> vehicleService.createVehicle(inactive)).getErrorCode());
+        verify(vehicleMapper, never()).insert(any(Vehicle.class));
+    }
+
+    @Test
+    void updateWarehouseValidatesActiveTargetAndPreservesValueForLegacyOmission() {
+        Vehicle existing = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        existing.setWarehouseId(1L);
+        existing.setSimCode("sim_008");
+        Vehicle updated = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        updated.setWarehouseId(2L);
+        updated.setSimCode("sim_008");
+        when(vehicleMapper.selectById(1L)).thenReturn(existing, updated, updated, updated);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L);
+        when(vehicleMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        VehicleUpdateRequest change = updateRequest("沪A10001", BigDecimal.TEN);
+        change.setWarehouseId(2L);
+
+        VehicleResponse changed = vehicleService.updateVehicle(1L, change);
+
+        assertEquals(2L, changed.getWarehouseId());
+        verify(warehouseService).requireActiveWarehouse(2L);
+        verify(availabilityService).ensureVehicleAvailable(1L);
+        ArgumentCaptor<LambdaUpdateWrapper<Vehicle>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(vehicleMapper).update(isNull(), captor.capture());
+        assertTrue(captor.getValue().getSqlSet().contains("warehouse_id"));
+
+        VehicleUpdateRequest legacy = updateRequest("沪A10001", BigDecimal.TEN);
+        vehicleService.updateVehicle(1L, legacy);
+        assertTrue(captor.getValue().getSqlSet().contains("warehouse_id"));
+    }
+
+    @Test
+    void activeTaskPreventsWarehouseChangeEvenWhenVehicleStatusIsIdle() {
+        Vehicle existing = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        existing.setWarehouseId(1L);
+        existing.setSimCode("sim_008");
+        when(vehicleMapper.selectById(1L)).thenReturn(existing);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.DATA_CONFLICT,
+                        "vehicle already has an active transport task"))
+                .when(availabilityService).ensureVehicleAvailable(1L);
+        VehicleUpdateRequest request = updateRequest("沪A10001", BigDecimal.TEN);
+        request.setWarehouseId(2L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> vehicleService.updateVehicle(1L, request));
+
+        assertEquals(ErrorCode.DATA_CONFLICT, exception.getErrorCode());
+        verify(vehicleMapper, never()).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void updateRejectsMissingOrInactiveWarehouse() {
+        Vehicle existing = vehicle(1L, "沪A10001", VehicleStatus.IDLE);
+        existing.setWarehouseId(1L);
+        existing.setSimCode("sim_008");
+        when(vehicleMapper.selectById(1L)).thenReturn(existing);
+        when(vehicleMapper.selectCount(any())).thenReturn(0L);
+
+        VehicleUpdateRequest missing = updateRequest("沪A10001", BigDecimal.TEN);
+        missing.setWarehouseId(999L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "warehouse not found"))
+                .when(warehouseService).requireActiveWarehouse(999L);
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND,
+                assertThrows(BusinessException.class,
+                        () -> vehicleService.updateVehicle(1L, missing)).getErrorCode());
+
+        VehicleUpdateRequest inactive = updateRequest("沪A10001", BigDecimal.TEN);
+        inactive.setWarehouseId(998L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "warehouse must be active"))
+                .when(warehouseService).requireActiveWarehouse(998L);
+        assertEquals(ErrorCode.STATE_CONFLICT,
+                assertThrows(BusinessException.class,
+                        () -> vehicleService.updateVehicle(1L, inactive)).getErrorCode());
+        verify(vehicleMapper, never()).update(isNull(), any(Wrapper.class));
     }
 
     @Test

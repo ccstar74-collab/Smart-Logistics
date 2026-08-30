@@ -37,17 +37,23 @@ public class CargoService {
     private final UserDisplayNameService userDisplayNameService;
     private final TransportTaskAvailabilityService availabilityService;
     private final BusinessDataScopeService dataScopeService;
+    private final CargoTypeService cargoTypeService;
+    private final WarehouseService warehouseService;
 
     public CargoService(CargoMapper cargoMapper,
                         OwnerMapper ownerMapper,
                         UserDisplayNameService userDisplayNameService,
                         TransportTaskAvailabilityService availabilityService,
-                        BusinessDataScopeService dataScopeService) {
+                        BusinessDataScopeService dataScopeService,
+                        CargoTypeService cargoTypeService,
+                        WarehouseService warehouseService) {
         this.cargoMapper = cargoMapper;
         this.ownerMapper = ownerMapper;
         this.userDisplayNameService = userDisplayNameService;
         this.availabilityService = availabilityService;
         this.dataScopeService = dataScopeService;
+        this.cargoTypeService = cargoTypeService;
+        this.warehouseService = warehouseService;
     }
 
     public PageResult<CargoResponse> listCargos(long page, long pageSize,
@@ -58,6 +64,13 @@ public class CargoService {
     public PageResult<CargoResponse> listCargos(long page, long pageSize,
                                                 String keyword, CargoStatus status,
                                                 Long ownerId) {
+        return listCargos(page, pageSize, keyword, status, ownerId, null, null);
+    }
+
+    public PageResult<CargoResponse> listCargos(long page, long pageSize,
+                                                String keyword, CargoStatus status,
+                                                Long ownerId, Long cargoTypeId,
+                                                Long warehouseId) {
         LambdaQueryWrapper<Cargo> query = new LambdaQueryWrapper<>();
         dataScopeService.applyCargoScope(query, ownerId);
         if (StringUtils.hasText(keyword)) {
@@ -73,6 +86,12 @@ public class CargoService {
         if (ownerId != null) {
             query.eq(Cargo::getOwnerId, ownerId);
         }
+        if (cargoTypeId != null) {
+            query.eq(Cargo::getCargoTypeId, cargoTypeId);
+        }
+        if (warehouseId != null) {
+            query.eq(Cargo::getWarehouseId, warehouseId);
+        }
         query.orderByDesc(Cargo::getId);
 
         Page<Cargo> entityPage = cargoMapper.selectPage(new Page<>(page, pageSize), query);
@@ -85,10 +104,27 @@ public class CargoService {
     }
 
     public List<CargoResponse> listAvailableCargos() {
+        return listAvailableCargos(null, null, null);
+    }
+
+    public List<CargoResponse> listAvailableCargos(Long cargoTypeId, Long warehouseId,
+                                                   Long ownerId) {
+        LambdaQueryWrapper<Cargo> query = new LambdaQueryWrapper<Cargo>()
+                .eq(Cargo::getStatus, CargoStatus.WAITING.name());
+        if (cargoTypeId != null) {
+            query.eq(Cargo::getCargoTypeId, cargoTypeId);
+        }
+        if (warehouseId != null) {
+            query.eq(Cargo::getWarehouseId, warehouseId);
+        }
+        if (ownerId != null) {
+            query.and(wrapper -> wrapper.isNull(Cargo::getOwnerId)
+                    .or()
+                    .eq(Cargo::getOwnerId, ownerId));
+        }
+        query.orderByAsc(Cargo::getId);
         List<Cargo> waitingCargos = cargoMapper.selectList(
-                new LambdaQueryWrapper<Cargo>()
-                        .eq(Cargo::getStatus, CargoStatus.WAITING.name())
-                        .orderByAsc(Cargo::getId));
+                query);
         Set<Long> occupiedIds = availabilityService.findActiveCargoIds(
                 waitingCargos.stream().map(Cargo::getId).toList());
         return toResponses(waitingCargos.stream()
@@ -150,6 +186,8 @@ public class CargoService {
         String cargoNo = request.getCargoNo().trim();
         ensureCargoNoAvailable(cargoNo);
         ensureOwnerExists(request.getOwnerId());
+        requireCargoTypeIfPresent(request.getCargoTypeId());
+        requireActiveWarehouseIfPresent(request.getWarehouseId());
 
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
         Cargo cargo = new Cargo();
@@ -158,6 +196,8 @@ public class CargoService {
         cargo.setDescription(trimToNull(request.getDescription()));
         cargo.setWeight(request.getWeight());
         cargo.setVolume(request.getVolume());
+        cargo.setCargoTypeId(request.getCargoTypeId());
+        cargo.setWarehouseId(request.getWarehouseId());
         cargo.setOwnerId(request.getOwnerId());
         cargo.setStatus(CargoStatus.WAITING.name());
         cargo.setCreatedAt(now);
@@ -176,10 +216,18 @@ public class CargoService {
     @Transactional
     public CargoResponse updateCargo(Long id, CargoUpdateRequest request) {
         Cargo cargo = requireCargoMutable(id);
+        requireCargoTypeIfPresent(request.getCargoTypeId());
+        requireActiveWarehouseIfPresent(request.getWarehouseId());
         cargo.setName(request.getName().trim());
         cargo.setDescription(trimToNull(request.getDescription()));
         cargo.setWeight(request.getWeight());
         cargo.setVolume(request.getVolume());
+        if (request.getCargoTypeId() != null) {
+            cargo.setCargoTypeId(request.getCargoTypeId());
+        }
+        if (request.getWarehouseId() != null) {
+            cargo.setWarehouseId(request.getWarehouseId());
+        }
         cargo.setUpdatedAt(LocalDateTime.now(API_TIME_ZONE));
         if (cargoMapper.updateById(cargo) != 1) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "failed to update cargo");
@@ -270,6 +318,8 @@ public class CargoService {
                 cargo.getDescription(),
                 cargo.getWeight(),
                 cargo.getVolume(),
+                cargo.getCargoTypeId(),
+                cargo.getWarehouseId(),
                 cargo.getOwnerId(),
                 ownerName,
                 parseStatus(cargo.getStatus()),
@@ -283,6 +333,18 @@ public class CargoService {
             return CargoStatus.valueOf(status);
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "invalid cargo status in database");
+        }
+    }
+
+    private void requireCargoTypeIfPresent(Long cargoTypeId) {
+        if (cargoTypeId != null) {
+            cargoTypeService.requireCargoType(cargoTypeId);
+        }
+    }
+
+    private void requireActiveWarehouseIfPresent(Long warehouseId) {
+        if (warehouseId != null) {
+            warehouseService.requireActiveWarehouse(warehouseId);
         }
     }
 

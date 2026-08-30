@@ -62,6 +62,12 @@ class CargoServiceTest {
     @Mock
     private BusinessDataScopeService dataScopeService;
 
+    @Mock
+    private CargoTypeService cargoTypeService;
+
+    @Mock
+    private WarehouseService warehouseService;
+
     private CargoService cargoService;
 
     @BeforeEach
@@ -77,7 +83,7 @@ class CargoServiceTest {
         org.mockito.Mockito.lenient().when(ownerMapper.selectById(100L)).thenReturn(owner);
         cargoService = new CargoService(
                 cargoMapper, ownerMapper, userDisplayNameService,
-                availabilityService, dataScopeService);
+                availabilityService, dataScopeService, cargoTypeService, warehouseService);
     }
 
     @Test
@@ -369,6 +375,240 @@ class CargoServiceTest {
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(cargoMapper).selectPage(any(Page.class), captor.capture());
         assertTrue(!captor.getValue().getSqlSegment().contains("owner_id"));
+    }
+
+    @Test
+    void listComposesKeywordStatusOwnerCargoTypeAndWarehouseFiltersWithAnd() {
+        when(cargoMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        cargoService.listCargos(1, 10, " Medical ", CargoStatus.WAITING,
+                3L, 10L, 2L);
+
+        ArgumentCaptor<LambdaQueryWrapper<Cargo>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(cargoMapper).selectPage(any(Page.class), captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("cargo_no"));
+        assertTrue(sql.contains("name"));
+        assertTrue(sql.contains("status"));
+        assertTrue(sql.contains("owner_id"));
+        assertTrue(sql.contains("cargo_type_id"));
+        assertTrue(sql.contains("warehouse_id"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("%Medical%"));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(CargoStatus.WAITING.name()));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(3L));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(10L));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(2L));
+    }
+
+    @Test
+    void legacyCargoSafelySerializesNullMultiWarehouseFields() {
+        Cargo legacy = cargo(1L, "CGO-001", "Legacy", CargoStatus.WAITING);
+        when(cargoMapper.selectById(1L)).thenReturn(legacy);
+
+        CargoResponse response = cargoService.getCargo(1L);
+
+        assertNull(response.getCargoTypeId());
+        assertNull(response.getWarehouseId());
+    }
+
+    @Test
+    void availableComposesFrozenPredicateAndExcludesOnlyActiveTaskIds() {
+        Cargo unassigned = cargo(1L, "CGO-001", "Unassigned", CargoStatus.WAITING);
+        unassigned.setOwnerId(null);
+        unassigned.setCargoTypeId(10L);
+        unassigned.setWarehouseId(2L);
+        Cargo sameOwner = cargo(2L, "CGO-002", "Owned", CargoStatus.WAITING);
+        sameOwner.setOwnerId(3L);
+        sameOwner.setCargoTypeId(10L);
+        sameOwner.setWarehouseId(2L);
+        Cargo activeTask = cargo(3L, "CGO-003", "Occupied", CargoStatus.WAITING);
+        activeTask.setOwnerId(3L);
+        activeTask.setCargoTypeId(10L);
+        activeTask.setWarehouseId(2L);
+        Cargo completedHistoryOnly = cargo(4L, "CGO-004", "Historical",
+                CargoStatus.WAITING);
+        completedHistoryOnly.setOwnerId(null);
+        completedHistoryOnly.setCargoTypeId(10L);
+        completedHistoryOnly.setWarehouseId(2L);
+        when(cargoMapper.selectList(any())).thenReturn(
+                List.of(unassigned, sameOwner, activeTask, completedHistoryOnly));
+        when(availabilityService.findActiveCargoIds(List.of(1L, 2L, 3L, 4L)))
+                .thenReturn(Set.of(3L));
+
+        List<CargoResponse> result = cargoService.listAvailableCargos(10L, 2L, 3L);
+
+        assertEquals(List.of(1L, 2L, 4L),
+                result.stream().map(CargoResponse::getId).toList());
+        ArgumentCaptor<LambdaQueryWrapper<Cargo>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(cargoMapper).selectList(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("status"));
+        assertTrue(sql.contains("cargo_type_id"));
+        assertTrue(sql.contains("warehouse_id"));
+        assertTrue(sql.contains("owner_id IS NULL"));
+        assertTrue(sql.contains("OR owner_id"));
+        assertTrue(captor.getValue().getParamNameValuePairs()
+                .containsValue(CargoStatus.WAITING.name()));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(10L));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(2L));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue(3L));
+    }
+
+    @Test
+    void createAcceptsValidMultiWarehouseIdsAndLegacyNulls() {
+        CargoCreateRequest request = createRequest("CGO-010", "Typed cargo");
+        request.setCargoTypeId(10L);
+        request.setWarehouseId(2L);
+        Cargo[] inserted = new Cargo[1];
+        when(cargoMapper.selectCount(any())).thenReturn(0L);
+        when(cargoMapper.insert(any(Cargo.class))).thenAnswer(invocation -> {
+            inserted[0] = invocation.getArgument(0);
+            inserted[0].setId(10L);
+            return 1;
+        });
+        when(cargoMapper.selectById(10L)).thenAnswer(invocation -> inserted[0]);
+
+        CargoResponse response = cargoService.createCargo(request);
+
+        assertEquals(10L, response.getCargoTypeId());
+        assertEquals(2L, response.getWarehouseId());
+        verify(cargoTypeService).requireCargoType(10L);
+        verify(warehouseService).requireActiveWarehouse(2L);
+
+        CargoCreateRequest legacy = createRequest("CGO-011", "Legacy");
+        Cargo[] legacyInserted = new Cargo[1];
+        when(cargoMapper.insert(any(Cargo.class))).thenAnswer(invocation -> {
+            legacyInserted[0] = invocation.getArgument(0);
+            legacyInserted[0].setId(11L);
+            return 1;
+        });
+        when(cargoMapper.selectById(11L)).thenAnswer(invocation -> legacyInserted[0]);
+        CargoResponse legacyResponse = cargoService.createCargo(legacy);
+        assertNull(legacyResponse.getCargoTypeId());
+        assertNull(legacyResponse.getWarehouseId());
+    }
+
+    @Test
+    void createRejectsMissingCargoTypeMissingWarehouseAndInactiveWarehouse() {
+        CargoCreateRequest missingType = createRequest("CGO-012", "Missing type");
+        missingType.setCargoTypeId(999L);
+        when(cargoMapper.selectCount(any())).thenReturn(0L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "cargo type not found"))
+                .when(cargoTypeService).requireCargoType(999L);
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.createCargo(missingType)).getErrorCode());
+
+        CargoCreateRequest missingWarehouse = createRequest("CGO-013", "Missing warehouse");
+        missingWarehouse.setWarehouseId(998L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "warehouse not found"))
+                .when(warehouseService).requireActiveWarehouse(998L);
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.createCargo(missingWarehouse)).getErrorCode());
+
+        CargoCreateRequest inactiveWarehouse = createRequest("CGO-014", "Inactive warehouse");
+        inactiveWarehouse.setWarehouseId(997L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "warehouse must be active"))
+                .when(warehouseService).requireActiveWarehouse(997L);
+        assertEquals(ErrorCode.STATE_CONFLICT,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.createCargo(inactiveWarehouse)).getErrorCode());
+        verify(cargoMapper, never()).insert(org.mockito.ArgumentMatchers.<Cargo>argThat(
+                cargo -> cargo != null && cargo.getId() == null));
+    }
+
+    @Test
+    void updateValidatesAndPersistsMultiWarehouseIdsButLegacyOmissionPreservesThem() {
+        Cargo cargo = cargo(1L, "CGO-001", "Old", CargoStatus.WAITING);
+        cargo.setCargoTypeId(9L);
+        cargo.setWarehouseId(1L);
+        when(cargoMapper.selectById(1L)).thenReturn(cargo);
+        when(cargoMapper.updateById(any(Cargo.class))).thenReturn(1);
+        CargoUpdateRequest request = new CargoUpdateRequest();
+        request.setName("Updated");
+        request.setCargoTypeId(10L);
+        request.setWarehouseId(2L);
+
+        CargoResponse response = cargoService.updateCargo(1L, request);
+
+        assertEquals(10L, response.getCargoTypeId());
+        assertEquals(2L, response.getWarehouseId());
+        verify(cargoTypeService).requireCargoType(10L);
+        verify(warehouseService).requireActiveWarehouse(2L);
+
+        CargoUpdateRequest legacy = new CargoUpdateRequest();
+        legacy.setName("Legacy edit");
+        CargoResponse legacyResponse = cargoService.updateCargo(1L, legacy);
+        assertEquals(10L, legacyResponse.getCargoTypeId());
+        assertEquals(2L, legacyResponse.getWarehouseId());
+    }
+
+    @Test
+    void activeTaskPreventsCargoTypeOrWarehouseChange() {
+        Cargo cargo = cargo(1L, "CGO-001", "Old", CargoStatus.WAITING);
+        when(cargoMapper.selectById(1L)).thenReturn(cargo);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.DATA_CONFLICT,
+                        "cargo already has an active transport task"))
+                .when(availabilityService).ensureCargoAvailable(1L);
+        CargoUpdateRequest typeChange = new CargoUpdateRequest();
+        typeChange.setName("Updated");
+        typeChange.setCargoTypeId(10L);
+        assertEquals(ErrorCode.DATA_CONFLICT,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.updateCargo(1L, typeChange)).getErrorCode());
+
+        CargoUpdateRequest warehouseChange = new CargoUpdateRequest();
+        warehouseChange.setName("Updated");
+        warehouseChange.setWarehouseId(2L);
+        assertEquals(ErrorCode.DATA_CONFLICT,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.updateCargo(1L, warehouseChange)).getErrorCode());
+        verify(cargoMapper, never()).updateById(any(Cargo.class));
+    }
+
+    @Test
+    void updateRejectsMissingCargoTypeMissingWarehouseAndInactiveWarehouse() {
+        Cargo cargo = cargo(1L, "CGO-001", "Old", CargoStatus.WAITING);
+        when(cargoMapper.selectById(1L)).thenReturn(cargo);
+
+        CargoUpdateRequest missingType = new CargoUpdateRequest();
+        missingType.setName("Updated");
+        missingType.setCargoTypeId(999L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "cargo type not found"))
+                .when(cargoTypeService).requireCargoType(999L);
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.updateCargo(1L, missingType)).getErrorCode());
+
+        CargoUpdateRequest missingWarehouse = new CargoUpdateRequest();
+        missingWarehouse.setName("Updated");
+        missingWarehouse.setWarehouseId(998L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "warehouse not found"))
+                .when(warehouseService).requireActiveWarehouse(998L);
+        assertEquals(ErrorCode.RESOURCE_NOT_FOUND,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.updateCargo(1L, missingWarehouse)).getErrorCode());
+
+        CargoUpdateRequest inactiveWarehouse = new CargoUpdateRequest();
+        inactiveWarehouse.setName("Updated");
+        inactiveWarehouse.setWarehouseId(997L);
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.STATE_CONFLICT,
+                        "warehouse must be active"))
+                .when(warehouseService).requireActiveWarehouse(997L);
+        assertEquals(ErrorCode.STATE_CONFLICT,
+                assertThrows(BusinessException.class,
+                        () -> cargoService.updateCargo(1L, inactiveWarehouse)).getErrorCode());
+        verify(cargoMapper, never()).updateById(any(Cargo.class));
     }
 
     @Test

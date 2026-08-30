@@ -49,9 +49,12 @@ public class CargoController {
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) long pageSize,
             @RequestParam(required = false) @Size(max = 100) String keyword,
             @RequestParam(required = false) CargoStatus status,
-            @RequestParam(required = false) @Positive Long ownerId) {
+            @RequestParam(required = false) @Positive Long ownerId,
+            @RequestParam(required = false) @Positive Long cargoTypeId,
+            @RequestParam(required = false) @Positive Long warehouseId) {
         return ApiResponse.success(
-                cargoService.listCargos(page, pageSize, keyword, status, ownerId));
+                cargoService.listCargos(page, pageSize, keyword, status, ownerId,
+                        cargoTypeId, warehouseId));
     }
 
     @GetMapping("/{id}")
@@ -62,8 +65,12 @@ public class CargoController {
 
     @GetMapping("/available")
     @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
-    public ApiResponse<List<CargoResponse>> listAvailableCargos() {
-        return ApiResponse.success(cargoService.listAvailableCargos());
+    public ApiResponse<List<CargoResponse>> listAvailableCargos(
+            @RequestParam(required = false) @Positive Long cargoTypeId,
+            @RequestParam(required = false) @Positive Long warehouseId,
+            @RequestParam(required = false) @Positive Long ownerId) {
+        return ApiResponse.success(
+                cargoService.listAvailableCargos(cargoTypeId, warehouseId, ownerId));
     }
 
     @PostMapping
