@@ -177,6 +177,26 @@ class GpsWebSocketHandlerSerializationTest {
         verify(sessionGps, never()).sendMessage(any(TextMessage.class));
     }
 
+    @Test
+    void pingTextIsAnsweredWithPongOnBothEndpoints() throws Exception {
+        handler.handleTextMessage(sessionGps, new TextMessage("ping"));
+        handler.handleTextMessage(sessionEta, new TextMessage("ping"));
+
+        ArgumentCaptor<TextMessage> gpsCaptor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(sessionGps).sendMessage(gpsCaptor.capture());
+        assertEquals("pong", gpsCaptor.getValue().getPayload());
+        ArgumentCaptor<TextMessage> etaCaptor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(sessionEta).sendMessage(etaCaptor.capture());
+        assertEquals("pong", etaCaptor.getValue().getPayload());
+    }
+
+    @Test
+    void nonPingTextFrameIsIgnored() throws Exception {
+        handler.handleTextMessage(sessionGps, new TextMessage("hello"));
+
+        verify(sessionGps, never()).sendMessage(any(TextMessage.class));
+    }
+
     private EtaRealtimeMessage etaMessage() {
         return new EtaRealtimeMessage(
                 1L, "real_001",
