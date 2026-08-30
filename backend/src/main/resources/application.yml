@@ -26,6 +26,8 @@ app:
     gps-merge-tolerance: ${GPS_MERGE_TOLERANCE:PT1S}
     latest-lookback: ${GPS_LATEST_LOOKBACK:PT24H}
     online-threshold: ${GPS_ONLINE_THRESHOLD:PT2M}
+  geofence:
+    arrival-radius-meters: ${ARRIVAL_GEOFENCE_RADIUS_METERS:200}
   realtime-anomaly:
     enabled: ${REALTIME_ANOMALY_ENABLED:true}
     deviation-threshold-meters: ${ANOMALY_DEVIATION_THRESHOLD_METERS:100}

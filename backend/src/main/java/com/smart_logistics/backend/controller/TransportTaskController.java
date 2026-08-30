@@ -6,6 +6,7 @@ import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
+import com.smart_logistics.backend.dto.response.ArrivalEligibilityResponse;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskPlaybackResponse;
@@ -148,6 +149,14 @@ public class TransportTaskController {
     @PreAuthorize("hasRole('DRIVER')")
     public ApiResponse<TransportTaskResponse> getCurrentTransportTask() {
         return ApiResponse.success(transportTaskService.getCurrentTransportTask());
+    }
+
+    @GetMapping("/{id}/arrival-eligibility")
+    @PreAuthorize("hasRole('DRIVER')")
+    public ApiResponse<ArrivalEligibilityResponse> getArrivalEligibility(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(
+                transportTaskService.getArrivalEligibilityForDriver(id));
     }
 
     @PutMapping("/{id}")

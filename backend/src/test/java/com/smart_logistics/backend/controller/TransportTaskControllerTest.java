@@ -4,6 +4,7 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
+import com.smart_logistics.backend.dto.response.ArrivalEligibilityResponse;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.PlaybackActualTrackResponse;
 import com.smart_logistics.backend.dto.response.PlaybackTrackPointResponse;
@@ -12,6 +13,7 @@ import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskRouteStatus;
+import com.smart_logistics.backend.enums.ArrivalEligibilityReason;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
@@ -460,6 +462,23 @@ class TransportTaskControllerTest {
     @Test
     void updateTransportingToCompletedReturnsCompleted() throws Exception {
         assertStatusUpdate(TransportTaskStatus.COMPLETED);
+    }
+
+    @Test
+    void arrivalEligibilityReturnsDistanceAndFenceRadius() throws Exception {
+        when(transportTaskService.getArrivalEligibilityForDriver(1L))
+                .thenReturn(new ArrivalEligibilityResponse(
+                        1L, false, 428.6, 200.0,
+                        OffsetDateTime.parse("2026-08-30T16:00:00+08:00"),
+                        true, ArrivalEligibilityReason.OUTSIDE_GEOFENCE));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/arrival-eligibility"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.taskId").value(1))
+                .andExpect(jsonPath("$.data.eligible").value(false))
+                .andExpect(jsonPath("$.data.distanceMeters").value(428.6))
+                .andExpect(jsonPath("$.data.radiusMeters").value(200.0))
+                .andExpect(jsonPath("$.data.reason").value("OUTSIDE_GEOFENCE"));
     }
 
     @Test

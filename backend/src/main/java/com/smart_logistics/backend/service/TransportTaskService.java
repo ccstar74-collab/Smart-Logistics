@@ -7,6 +7,7 @@ import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
+import com.smart_logistics.backend.dto.response.ArrivalEligibilityResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
@@ -61,6 +62,7 @@ public class TransportTaskService {
     private final EtaPlannedRouteService etaPlannedRouteService;
     private final TransportTaskRouteService taskRouteService;
     private final UserDisplayNameService userDisplayNameService;
+    private final ArrivalGeofenceService arrivalGeofenceService;
     private final TransactionOperations transactionOperations;
 
     @Autowired
@@ -75,11 +77,12 @@ public class TransportTaskService {
                                 EtaPlannedRouteService etaPlannedRouteService,
                                 TransportTaskRouteService taskRouteService,
                                 UserDisplayNameService userDisplayNameService,
+                                ArrivalGeofenceService arrivalGeofenceService,
                                 PlatformTransactionManager transactionManager) {
         this(transportTaskMapper, ownerMapper, cargoService, vehicleService,
                 availabilityService, dataScopeService, currentUserService,
                 statusRecordService, etaPlannedRouteService, taskRouteService,
-                userDisplayNameService,
+                userDisplayNameService, arrivalGeofenceService,
                 new TransactionTemplate(transactionManager));
     }
 
@@ -94,6 +97,7 @@ public class TransportTaskService {
                          EtaPlannedRouteService etaPlannedRouteService,
                          TransportTaskRouteService taskRouteService,
                          UserDisplayNameService userDisplayNameService,
+                         ArrivalGeofenceService arrivalGeofenceService,
                          TransactionOperations transactionOperations) {
         this.transportTaskMapper = transportTaskMapper;
         this.ownerMapper = ownerMapper;
@@ -106,6 +110,7 @@ public class TransportTaskService {
         this.etaPlannedRouteService = etaPlannedRouteService;
         this.taskRouteService = taskRouteService;
         this.userDisplayNameService = userDisplayNameService;
+        this.arrivalGeofenceService = arrivalGeofenceService;
         this.transactionOperations = transactionOperations;
     }
 
@@ -316,6 +321,30 @@ public class TransportTaskService {
     public TransportTaskResponse updateTransportTaskStatusForDriver(
             Long id, TransportTaskStatusUpdateRequest request) {
         TransportTask task = getRequiredTransportTaskRaw(id);
+        requireTaskAssignedToCurrentDriver(task);
+        TransportTaskStatus currentStatus = parseStatus(task.getStatus());
+        TransportTaskStatus targetStatus = request.getStatus();
+        boolean allowed = currentStatus == TransportTaskStatus.WAITING
+                && targetStatus == TransportTaskStatus.TRANSPORTING
+                || currentStatus == TransportTaskStatus.TRANSPORTING
+                && targetStatus == TransportTaskStatus.COMPLETED;
+        if (!allowed) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "driver is not allowed to report this task status transition");
+        }
+        if (targetStatus == TransportTaskStatus.COMPLETED) {
+            arrivalGeofenceService.requireArrivalAllowed(task);
+        }
+        return updateTransportTaskStatus(id, request);
+    }
+
+    public ArrivalEligibilityResponse getArrivalEligibilityForDriver(Long id) {
+        TransportTask task = getRequiredTransportTaskRaw(id);
+        requireTaskAssignedToCurrentDriver(task);
+        return arrivalGeofenceService.evaluate(task);
+    }
+
+    private Vehicle requireTaskAssignedToCurrentDriver(TransportTask task) {
         UserIdentityResponse currentUser = currentUserService.getCurrentUser();
         if (currentUser.getRole() != UserRole.DRIVER
                 || currentUser.getDriverId() == null) {
@@ -327,17 +356,7 @@ public class TransportTaskService {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "task is not assigned to current driver");
         }
-        TransportTaskStatus currentStatus = parseStatus(task.getStatus());
-        TransportTaskStatus targetStatus = request.getStatus();
-        boolean allowed = currentStatus == TransportTaskStatus.WAITING
-                && targetStatus == TransportTaskStatus.TRANSPORTING
-                || currentStatus == TransportTaskStatus.TRANSPORTING
-                && targetStatus == TransportTaskStatus.COMPLETED;
-        if (!allowed) {
-            throw new BusinessException(ErrorCode.FORBIDDEN,
-                    "driver is not allowed to report this task status transition");
-        }
-        return updateTransportTaskStatus(id, request);
+        return assignedVehicle;
     }
 
     @Transactional
