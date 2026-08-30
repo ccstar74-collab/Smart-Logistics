@@ -19,11 +19,11 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.TransportTaskService;
-import com.smart_logistics.backend.service.OriginRecommendationService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,7 +62,7 @@ class TransportTaskControllerTest {
     @Mock
     private TransportTaskPlaybackService transportTaskPlaybackService;
     @Mock
-    private OriginRecommendationService originRecommendationService;
+    private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     private MockMvc mockMvc;
 
@@ -77,7 +77,7 @@ class TransportTaskControllerTest {
         Object controller = methodValidation.postProcessAfterInitialization(
                 new TransportTaskController(transportTaskService, taskTrackQueryService,
                         etaPlannedRouteService, transportTaskReplanService,
-                        transportTaskPlaybackService, originRecommendationService),
+                        transportTaskPlaybackService, multiObjectiveRoutePlanningService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
@@ -278,14 +278,18 @@ class TransportTaskControllerTest {
     }
 
     @Test
-    void activateRouteReturnsNewActiveSnapshot() throws Exception {
-        when(transportTaskService.activateReadyRoute(1L, "route_v2")).thenReturn(
-                routeResponse("route_v2", 2, TransportTaskRouteStatus.ACTIVE));
+    void createRouteCandidatesReturnsReadyVersions() throws Exception {
+        when(multiObjectiveRoutePlanningService.createReadyCandidates(1L)).thenReturn(
+                List.of(
+                        routeResponse("route_v2", 2, TransportTaskRouteStatus.READY),
+                        routeResponse("route_v3", 3, TransportTaskRouteStatus.READY)));
 
-        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate"))
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
-                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].routeId").value("route_v2"))
+                .andExpect(jsonPath("$.data[0].routeStatus").value("READY"))
+                .andExpect(jsonPath("$.data[1].routeVersion").value(3));
     }
 
     @Test

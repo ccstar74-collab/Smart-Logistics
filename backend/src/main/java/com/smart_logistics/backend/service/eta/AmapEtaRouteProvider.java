@@ -2,6 +2,7 @@ package com.smart_logistics.backend.service.eta;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smart_logistics.backend.service.route.MultiObjectiveRouteProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -19,7 +20,10 @@ import java.util.List;
 import java.util.Locale;
 
 @Service
-public class AmapEtaRouteProvider implements EtaRouteProvider {
+public class AmapEtaRouteProvider implements EtaRouteProvider, MultiObjectiveRouteProvider {
+
+    private static final int DEFAULT_STRATEGY = 0;
+    private static final int MULTI_OBJECTIVE_STRATEGY = 11;
 
     private final String endpoint;
     private final String apiKey;
@@ -50,11 +54,26 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
     @Override
     public EtaPlannedRoute plan(double startLongitude, double startLatitude,
                                 double endLongitude, double endLatitude) {
+        return parseResponse(request(startLongitude, startLatitude,
+                endLongitude, endLatitude, DEFAULT_STRATEGY));
+    }
+
+    @Override
+    public List<EtaPlannedRoute> planCandidates(
+            double startLongitude, double startLatitude,
+            double endLongitude, double endLatitude) {
+        return parseCandidateResponse(request(startLongitude, startLatitude,
+                endLongitude, endLatitude, MULTI_OBJECTIVE_STRATEGY));
+    }
+
+    private String request(double startLongitude, double startLatitude,
+                           double endLongitude, double endLatitude,
+                           int strategy) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new EtaProviderException("AMAP_WEB_SERVICE_KEY is not configured");
         }
         HttpRequest request = HttpRequest.newBuilder(buildUri(
-                        startLongitude, startLatitude, endLongitude, endLatitude))
+                        startLongitude, startLatitude, endLongitude, endLatitude, strategy))
                 .timeout(requestTimeout)
                 .GET()
                 .build();
@@ -65,7 +84,7 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
                 throw new EtaProviderException(
                         "Amap route request failed with HTTP " + response.statusCode());
             }
-            return parseResponse(response.body());
+            return response.body();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new EtaProviderException("Amap route request was interrupted", exception);
@@ -76,9 +95,22 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
 
     URI buildUri(double startLongitude, double startLatitude,
                  double endLongitude, double endLatitude) {
+        return buildUri(startLongitude, startLatitude,
+                endLongitude, endLatitude, DEFAULT_STRATEGY);
+    }
+
+    URI buildCandidateUri(double startLongitude, double startLatitude,
+                          double endLongitude, double endLatitude) {
+        return buildUri(startLongitude, startLatitude,
+                endLongitude, endLatitude, MULTI_OBJECTIVE_STRATEGY);
+    }
+
+    private URI buildUri(double startLongitude, double startLatitude,
+                         double endLongitude, double endLatitude,
+                         int strategy) {
         String query = "origin=" + coordinate(startLongitude, startLatitude)
                 + "&destination=" + coordinate(endLongitude, endLatitude)
-                + "&strategy=0&extensions=base&key="
+                + "&strategy=" + strategy + "&extensions=base&key="
                 + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         return URI.create(endpoint + "?" + query);
     }
@@ -89,6 +121,15 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
     }
 
     EtaPlannedRoute parseResponse(String body) {
+        List<EtaPlannedRoute> routes = parseRoutes(body);
+        return routes.getFirst();
+    }
+
+    List<EtaPlannedRoute> parseCandidateResponse(String body) {
+        return parseRoutes(body);
+    }
+
+    private List<EtaPlannedRoute> parseRoutes(String body) {
         try {
             JsonNode root = objectMapper.readTree(body);
             if (!"1".equals(root.path("status").asText())) {
@@ -97,10 +138,24 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
                 throw new EtaProviderException(
                         "Amap route API rejected request: " + info + " (" + infoCode + ")");
             }
-            JsonNode path = root.path("route").path("paths").path(0);
-            if (path.isMissingNode()) {
+            JsonNode paths = root.path("route").path("paths");
+            if (!paths.isArray() || paths.isEmpty()) {
                 throw new EtaProviderException("Amap route API returned no driving path");
             }
+            List<EtaPlannedRoute> routes = new ArrayList<>();
+            for (JsonNode path : paths) {
+                routes.add(parsePath(path));
+            }
+            return List.copyOf(routes);
+        } catch (EtaProviderException exception) {
+            throw exception;
+        } catch (IOException | IllegalArgumentException exception) {
+            throw new EtaProviderException("Invalid Amap route response", exception);
+        }
+    }
+
+    private EtaPlannedRoute parsePath(JsonNode path) {
+        try {
             long distanceMeters = parsePositiveLong(path.path("distance"), "distance");
             long durationSeconds = parsePositiveLong(path.path("duration"), "duration");
             List<EtaCoordinate> polyline = parsePolyline(path.path("steps"));
@@ -108,7 +163,7 @@ public class AmapEtaRouteProvider implements EtaRouteProvider {
                     polyline, distanceMeters, Duration.ofSeconds(durationSeconds));
         } catch (EtaProviderException exception) {
             throw exception;
-        } catch (IOException | IllegalArgumentException exception) {
+        } catch (IllegalArgumentException exception) {
             throw new EtaProviderException("Invalid Amap route response", exception);
         }
     }

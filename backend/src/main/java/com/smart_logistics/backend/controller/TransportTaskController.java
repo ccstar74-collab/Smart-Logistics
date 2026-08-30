@@ -23,8 +23,8 @@ import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
@@ -56,6 +56,7 @@ public class TransportTaskController {
     private final TransportTaskPlaybackService transportTaskPlaybackService;
     private final OriginRecommendationService originRecommendationService;
     private final WarehouseTransportTaskCreateService warehouseTaskCreateService;
+    private final MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     @Autowired
     public TransportTaskController(TransportTaskService transportTaskService,
@@ -64,7 +65,8 @@ public class TransportTaskController {
                                    TransportTaskReplanService transportTaskReplanService,
                                    TransportTaskPlaybackService transportTaskPlaybackService,
                                    OriginRecommendationService originRecommendationService,
-                                   WarehouseTransportTaskCreateService warehouseTaskCreateService) {
+                                   WarehouseTransportTaskCreateService warehouseTaskCreateService,
+                                   MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService) {
         this.transportTaskService = transportTaskService;
         this.taskTrackQueryService = taskTrackQueryService;
         this.etaPlannedRouteService = etaPlannedRouteService;
@@ -72,6 +74,7 @@ public class TransportTaskController {
         this.transportTaskPlaybackService = transportTaskPlaybackService;
         this.originRecommendationService = originRecommendationService;
         this.warehouseTaskCreateService = warehouseTaskCreateService;
+        this.multiObjectiveRoutePlanningService = multiObjectiveRoutePlanningService;
     }
 
     public TransportTaskController(TransportTaskService transportTaskService,
@@ -80,9 +83,47 @@ public class TransportTaskController {
                                    TransportTaskReplanService transportTaskReplanService,
                                    TransportTaskPlaybackService transportTaskPlaybackService,
                                    OriginRecommendationService originRecommendationService) {
-        this(transportTaskService, taskTrackQueryService, etaPlannedRouteService,
-                transportTaskReplanService, transportTaskPlaybackService,
-                originRecommendationService, null);
+        this(transportTaskService,
+                taskTrackQueryService,
+                etaPlannedRouteService,
+                transportTaskReplanService,
+                transportTaskPlaybackService,
+                originRecommendationService,
+                null,
+                null);
+    }
+
+    public TransportTaskController(TransportTaskService transportTaskService,
+                                   TaskTrackQueryService taskTrackQueryService,
+                                   EtaPlannedRouteService etaPlannedRouteService,
+                                   TransportTaskReplanService transportTaskReplanService,
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   OriginRecommendationService originRecommendationService,
+                                   WarehouseTransportTaskCreateService warehouseTaskCreateService) {
+        this(transportTaskService,
+                taskTrackQueryService,
+                etaPlannedRouteService,
+                transportTaskReplanService,
+                transportTaskPlaybackService,
+                originRecommendationService,
+                warehouseTaskCreateService,
+                null);
+    }
+
+    public TransportTaskController(TransportTaskService transportTaskService,
+                                   TaskTrackQueryService taskTrackQueryService,
+                                   EtaPlannedRouteService etaPlannedRouteService,
+                                   TransportTaskReplanService transportTaskReplanService,
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService) {
+        this(transportTaskService,
+                taskTrackQueryService,
+                etaPlannedRouteService,
+                transportTaskReplanService,
+                transportTaskPlaybackService,
+                null,
+                null,
+                multiObjectiveRoutePlanningService);
     }
 
     @GetMapping("/{id}/track-points")
@@ -114,6 +155,14 @@ public class TransportTaskController {
         return ApiResponse.success(transportTaskService.createReadyRoute(id));
     }
 
+    @PostMapping("/{id}/routes/candidates")
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<List<TransportTaskRouteResponse>> createReadyRouteCandidates(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(
+                multiObjectiveRoutePlanningService.createReadyCandidates(id));
+    }
+
     @GetMapping("/{id}/playback")
     @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<TransportTaskPlaybackResponse> getPlayback(
@@ -129,14 +178,6 @@ public class TransportTaskController {
             @Valid @RequestBody TransportTaskReplanRequest request) {
         return ApiResponse.success(
                 transportTaskReplanService.replanFromLatestLocation(id, request));
-    }
-
-    @PutMapping("/{id}/routes/{routeId}/activate")
-    @PreAuthorize("hasRole('DISPATCHER')")
-    public ApiResponse<TransportTaskRouteResponse> activateReadyRoute(
-            @PathVariable @Positive Long id,
-            @PathVariable @NotBlank @Size(max = 64) String routeId) {
-        return ApiResponse.success(transportTaskService.activateReadyRoute(id, routeId));
     }
 
     @GetMapping

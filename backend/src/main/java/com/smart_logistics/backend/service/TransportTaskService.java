@@ -277,13 +277,6 @@ public class TransportTaskService {
                 taskRouteService.persistReadyRoute(id, plannedRoute));
     }
 
-    public TransportTaskRouteResponse activateReadyRoute(Long id, String routeId) {
-        TransportTask task = getRequiredTransportTask(id);
-        requireRouteMutationAllowed(parseStatus(task.getStatus()));
-        return TransportTaskRouteResponse.from(
-                taskRouteService.activateReadyRoute(id, routeId));
-    }
-
     public TransportTaskResponse getCurrentTransportTask() {
         UserIdentityResponse current = currentUserService.getCurrentUser();
         Long driverId = current.getDriverId();

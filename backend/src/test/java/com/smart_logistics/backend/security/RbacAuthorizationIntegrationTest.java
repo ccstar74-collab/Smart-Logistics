@@ -22,6 +22,7 @@ import com.smart_logistics.backend.service.WarehouseService;
 import com.smart_logistics.backend.service.WarehouseTransportTaskCreateService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.TransportTaskStatusRecordService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -31,7 +32,10 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -55,6 +59,7 @@ class RbacAuthorizationIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JwtService jwtService;
+    @Autowired private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @MockitoBean private UserService userService;
     @MockitoBean private RegistrationService registrationService;
     @MockitoBean private CargoService cargoService;
@@ -74,6 +79,7 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private WarehouseTransportTaskCreateService warehouseTaskCreateService;
     @MockitoBean private TaskTrackQueryService taskTrackQueryService;
     @MockitoBean private TransportTaskStatusRecordService statusRecordService;
+    @MockitoBean private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     @Test
     void phase5ReadEndpointsRequireAuthentication() throws Exception {
@@ -111,13 +117,13 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
-    void dispatcherCanCreateAndActivateRouteVersions() throws Exception {
+    void dispatcherCanCreateCandidatesAndRunFastRecovery() throws Exception {
         String token = token(UserRole.DISPATCHER);
 
         mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
-        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates")
                         .header("Authorization", token))
                 .andExpect(status().isOk());
         mockMvc.perform(post(
@@ -137,7 +143,7 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
                         .header("Authorization", token))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate")
+        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates")
                         .header("Authorization", token))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post(
@@ -146,6 +152,18 @@ class RbacAuthorizationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replanJson()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void directRouteActivationEndpointIsNotRegistered() {
+        boolean directActivationRegistered = requestMappingHandlerMapping.getHandlerMethods()
+                .keySet()
+                .stream()
+                .filter(mapping -> mapping.getMethodsCondition().getMethods().contains(RequestMethod.PUT))
+                .flatMap(mapping -> mapping.getPatternValues().stream())
+                .anyMatch("/api/v1/transport-tasks/{id}/routes/{routeId}/activate"::equals);
+
+        assertFalse(directActivationRegistered);
     }
 
     @ParameterizedTest
