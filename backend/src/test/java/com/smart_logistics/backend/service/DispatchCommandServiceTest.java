@@ -208,6 +208,33 @@ class DispatchCommandServiceTest {
     }
 
     @Test
+    void taskCommandHistoryAppliesTaskScopeOrdersAndKeepsRealTimestamps() {
+        DispatchCommand command = command(DispatchCommandStatus.COMPLETED,
+                DispatchCommandType.TEXT);
+        command.setAlarmId(35L);
+        command.setAcknowledgedAt(java.time.LocalDateTime.of(2026, 8, 27, 10, 31));
+        command.setExecutingAt(java.time.LocalDateTime.of(2026, 8, 27, 10, 32));
+        command.setCompletedAt(java.time.LocalDateTime.of(2026, 8, 27, 10, 33));
+        command.setFeedback("Recovered");
+        when(commandMapper.selectList(any())).thenReturn(List.of(command));
+
+        List<DispatchCommandResponse> result = service.listTaskCommandHistory(15L);
+
+        assertEquals(1, result.size());
+        DispatchCommandResponse response = result.getFirst();
+        assertEquals(35L, response.getAlarmId());
+        assertEquals(DispatchCommandStatus.COMPLETED, response.getStatus());
+        assertEquals("Recovered", response.getFeedback());
+        assertEquals(33, response.getCompletedAt().getMinute());
+        verify(dataScopeService).requireTaskAccess(any(TransportTask.class));
+        ArgumentCaptor<LambdaQueryWrapper<DispatchCommand>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(commandMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("task_id"));
+        assertTrue(captor.getValue().getSqlSegment().contains("ORDER BY"));
+    }
+
+    @Test
     void acknowledgedTransitionSucceedsButSentToCompletedIsRejected() {
         when(currentUserService.getCurrentUser()).thenReturn(identity(UserRole.DRIVER, 2L));
         DispatchCommand sent = command(DispatchCommandStatus.SENT, DispatchCommandType.TEXT);

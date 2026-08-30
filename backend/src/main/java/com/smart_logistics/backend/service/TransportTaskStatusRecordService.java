@@ -2,6 +2,7 @@ package com.smart_logistics.backend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smart_logistics.backend.dto.response.CargoStatusRecordResponse;
+import com.smart_logistics.backend.dto.TransportTaskStatusTransitionSnapshot;
 import com.smart_logistics.backend.dto.response.UserIdentityResponse;
 import com.smart_logistics.backend.entity.Cargo;
 import com.smart_logistics.backend.entity.TransportTask;
@@ -69,12 +70,36 @@ public class TransportTaskStatusRecordService {
                 .map(this::toResponse).toList();
     }
 
+    public List<TransportTaskStatusTransitionSnapshot> findTaskTransitions(Long taskId) {
+        return recordMapper.selectList(new LambdaQueryWrapper<TransportTaskStatusRecord>()
+                        .eq(TransportTaskStatusRecord::getTaskId, taskId)
+                        .orderByAsc(TransportTaskStatusRecord::getChangedAt)
+                        .orderByAsc(TransportTaskStatusRecord::getId))
+                .stream()
+                .map(this::toSnapshot)
+                .toList();
+    }
+
     private CargoStatusRecordResponse toResponse(TransportTaskStatusRecord record) {
         try {
             return new CargoStatusRecordResponse(record.getId(), record.getTaskId(),
                     record.getCargoId(), TransportTaskStatus.valueOf(record.getFromStatus()),
                     TransportTaskStatus.valueOf(record.getToStatus()), record.getOperatorUserId(),
                     UserRole.valueOf(record.getOperatorRole()),
+                    record.getChangedAt().atZone(API_TIME_ZONE).toOffsetDateTime());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "invalid transport task status record in database");
+        }
+    }
+
+    private TransportTaskStatusTransitionSnapshot toSnapshot(
+            TransportTaskStatusRecord record) {
+        try {
+            return new TransportTaskStatusTransitionSnapshot(
+                    record.getId(), record.getTaskId(),
+                    TransportTaskStatus.valueOf(record.getFromStatus()),
+                    TransportTaskStatus.valueOf(record.getToStatus()),
                     record.getChangedAt().atZone(API_TIME_ZONE).toOffsetDateTime());
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR,

@@ -3,14 +3,18 @@ package com.smart_logistics.backend.controller;
 import com.smart_logistics.backend.common.ApiResponse;
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
+import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskPlaybackResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.TransportTaskPlaybackService;
+import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import jakarta.validation.Valid;
@@ -20,6 +24,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,13 +45,19 @@ public class TransportTaskController {
     private final TransportTaskService transportTaskService;
     private final TaskTrackQueryService taskTrackQueryService;
     private final EtaPlannedRouteService etaPlannedRouteService;
+    private final TransportTaskReplanService transportTaskReplanService;
+    private final TransportTaskPlaybackService transportTaskPlaybackService;
 
     public TransportTaskController(TransportTaskService transportTaskService,
                                    TaskTrackQueryService taskTrackQueryService,
-                                   EtaPlannedRouteService etaPlannedRouteService) {
+                                   EtaPlannedRouteService etaPlannedRouteService,
+                                   TransportTaskReplanService transportTaskReplanService,
+                                   TransportTaskPlaybackService transportTaskPlaybackService) {
         this.transportTaskService = transportTaskService;
         this.taskTrackQueryService = taskTrackQueryService;
         this.etaPlannedRouteService = etaPlannedRouteService;
+        this.transportTaskReplanService = transportTaskReplanService;
+        this.transportTaskPlaybackService = transportTaskPlaybackService;
     }
 
     @GetMapping("/{id}/track-points")
@@ -76,6 +87,23 @@ public class TransportTaskController {
     public ApiResponse<TransportTaskRouteResponse> createReadyRoute(
             @PathVariable @Positive Long id) {
         return ApiResponse.success(transportTaskService.createReadyRoute(id));
+    }
+
+    @GetMapping("/{id}/playback")
+    @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
+    public ApiResponse<TransportTaskPlaybackResponse> getPlayback(
+            @PathVariable @Positive Long id) {
+        return ApiResponse.success(transportTaskPlaybackService.getPlayback(id));
+    }
+
+    @PostMapping(value = "/{id}/routes/replan-from-latest-location",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('DISPATCHER')")
+    public ApiResponse<PlannedRouteResponse> replanFromLatestLocation(
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody TransportTaskReplanRequest request) {
+        return ApiResponse.success(
+                transportTaskReplanService.replanFromLatestLocation(id, request));
     }
 
     @PutMapping("/{id}/routes/{routeId}/activate")

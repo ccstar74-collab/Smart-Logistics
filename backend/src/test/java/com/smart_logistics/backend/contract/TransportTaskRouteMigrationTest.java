@@ -20,4 +20,16 @@ class TransportTaskRouteMigrationTest {
         assertTrue(migration.contains("FOREIGN KEY (task_id) REFERENCES transport_task(id)"));
         assertTrue(migration.contains("READY / ACTIVE / INACTIVE"));
     }
+
+    @Test
+    void activationMigrationAddsNullablePlaybackIntervalWithoutFakeBackfill()
+            throws Exception {
+        String migration = Files.readString(Path.of("..", "docs", "sql",
+                "013_transport_task_route_activation.sql"));
+
+        assertTrue(migration.contains("activated_at DATETIME(3) NULL"));
+        assertTrue(migration.contains("deactivated_at DATETIME(3) NULL"));
+        assertTrue(migration.contains("(task_id, activated_at, route_version)"));
+        assertTrue(!migration.toUpperCase().contains("UPDATE TRANSPORT_TASK_ROUTE"));
+    }
 }

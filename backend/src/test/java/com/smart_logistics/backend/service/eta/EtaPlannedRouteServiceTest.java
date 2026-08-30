@@ -154,6 +154,24 @@ class EtaPlannedRouteServiceTest {
     }
 
     @Test
+    void convertsWgs84OriginToGcj02WithoutConvertingDestination() {
+        double wgsLongitude = 106.570123;
+        double wgsLatitude = 29.490987;
+        double destinationLongitude = 106.610987;
+        double destinationLatitude = 29.520123;
+        when(routeProvider.plan(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(route());
+
+        service.planRouteFromWgs84Origin(wgsLongitude, wgsLatitude,
+                destinationLongitude, destinationLatitude);
+
+        Wgs84ToGcj02Converter.Coordinate converted =
+                Wgs84ToGcj02Converter.convert(wgsLongitude, wgsLatitude);
+        verify(routeProvider).plan(converted.longitude(), converted.latitude(),
+                destinationLongitude, destinationLatitude);
+    }
+
+    @Test
     void rejectsLegacyTaskWithoutCompleteCoordinates() {
         stubVehicle("sim_000");
         when(taskRouteService.getActiveRoute(1L)).thenReturn(Optional.empty());

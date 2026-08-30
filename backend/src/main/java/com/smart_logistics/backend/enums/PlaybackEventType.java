@@ -1,0 +1,15 @@
+package com.smart_logistics.backend.enums;
+
+public enum PlaybackEventType {
+    TASK_STARTED,
+    ROUTE_GENERATED,
+    ALARM_TRIGGERED,
+    COMMAND_SENT,
+    COMMAND_ACKNOWLEDGED,
+    COMMAND_EXECUTING,
+    ROUTE_ACTIVATED,
+    ALARM_RECOVERED,
+    COMMAND_COMPLETED,
+    ALARM_RESOLVED,
+    TASK_COMPLETED
+}

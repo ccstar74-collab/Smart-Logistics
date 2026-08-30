@@ -2,8 +2,12 @@ package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.common.PageResult;
 import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
+import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
+import com.smart_logistics.backend.dto.response.PlaybackActualTrackResponse;
+import com.smart_logistics.backend.dto.response.PlaybackTrackPointResponse;
+import com.smart_logistics.backend.dto.response.TransportTaskPlaybackResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
@@ -13,6 +17,8 @@ import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.exception.GlobalExceptionHandler;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.TransportTaskReplanService;
+import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +54,10 @@ class TransportTaskControllerTest {
     private TaskTrackQueryService taskTrackQueryService;
     @Mock
     private EtaPlannedRouteService etaPlannedRouteService;
+    @Mock
+    private TransportTaskReplanService transportTaskReplanService;
+    @Mock
+    private TransportTaskPlaybackService transportTaskPlaybackService;
 
     private MockMvc mockMvc;
 
@@ -61,7 +71,8 @@ class TransportTaskControllerTest {
         methodValidation.afterPropertiesSet();
         Object controller = methodValidation.postProcessAfterInitialization(
                 new TransportTaskController(transportTaskService, taskTrackQueryService,
-                        etaPlannedRouteService),
+                        etaPlannedRouteService, transportTaskReplanService,
+                        transportTaskPlaybackService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
@@ -98,6 +109,40 @@ class TransportTaskControllerTest {
     }
 
     @Test
+    void playbackReturnsTaskScopedAggregateWithExplicitTrackCoordinates() throws Exception {
+        when(transportTaskPlaybackService.getPlayback(1L)).thenReturn(
+                new TransportTaskPlaybackResponse(
+                        response(TransportTaskStatus.COMPLETED),
+                        new PlaybackActualTrackResponse("WGS84", List.of(
+                                new PlaybackTrackPointResponse(106.580123, 29.620456,
+                                        0.0, 90.0,
+                                        OffsetDateTime.parse("2026-08-30T10:00:00+08:00")))),
+                        List.of(), List.of(), List.of(), List.of()));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/playback"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.task.id").value(1))
+                .andExpect(jsonPath("$.data.actualTrack.coordinateSystem").value("WGS84"))
+                .andExpect(jsonPath("$.data.actualTrack.points[0].longitude")
+                        .value(106.580123))
+                .andExpect(jsonPath("$.data.routeVersions").isArray())
+                .andExpect(jsonPath("$.data.alarms").isArray())
+                .andExpect(jsonPath("$.data.dispatchCommands").isArray())
+                .andExpect(jsonPath("$.data.events").isArray());
+    }
+
+    @Test
+    void playbackPreservesTaskDataScopeFailure() throws Exception {
+        when(transportTaskPlaybackService.getPlayback(1L)).thenThrow(
+                new BusinessException(ErrorCode.FORBIDDEN,
+                        "resource is outside current user data scope"));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/playback"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+    }
+
+    @Test
     void plannedRouteReturnsFrontendReadyGcj02Polyline() throws Exception {
         TransportTaskResponse task = response(TransportTaskStatus.WAITING);
         when(transportTaskService.getTransportTask(1L)).thenReturn(task);
@@ -122,6 +167,57 @@ class TransportTaskControllerTest {
                 .andExpect(jsonPath("$.data.points[0][0]").value(106.57))
                 .andExpect(jsonPath("$.data.points[0][1]").value(29.49))
                 .andExpect(jsonPath("$.data.points.length()").value(2));
+    }
+
+    @Test
+    void replanResponseIsImmediatelyVisibleThroughExistingPlannedRouteEndpoint()
+            throws Exception {
+        TransportTaskResponse task = response(TransportTaskStatus.TRANSPORTING);
+        PlannedRouteResponse replacement = new PlannedRouteResponse(
+                1L, "route_replanned", 4, TransportTaskRouteStatus.ACTIVE,
+                "sim_000", "AMAP", "GCJ02", 4_200, 540,
+                OffsetDateTime.parse("2026-08-28T16:00:00+08:00"),
+                List.of(List.of(106.58, 29.50), List.of(106.61, 29.52)));
+        when(transportTaskReplanService.replanFromLatestLocation(
+                org.mockito.ArgumentMatchers.eq(1L),
+                any(TransportTaskReplanRequest.class)))
+                .thenReturn(replacement);
+        when(transportTaskService.getTransportTask(1L)).thenReturn(task);
+        when(etaPlannedRouteService.getResponse(task)).thenReturn(replacement);
+
+        mockMvc.perform(post(
+                        "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validReplanJson()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_replanned"))
+                .andExpect(jsonPath("$.data.routeVersion").value(4))
+                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
+
+        mockMvc.perform(get("/api/v1/transport-tasks/1/planned-route"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value("route_replanned"))
+                .andExpect(jsonPath("$.data.routeVersion").value(4))
+                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
+    }
+
+    @Test
+    void replanRejectsUnsupportedCoordinateSystemAndPositionWithoutOffset()
+            throws Exception {
+        mockMvc.perform(post(
+                        "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validReplanJson().replace("WGS84", "GCJ02")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("coordinateSystem must be WGS84"));
+
+        mockMvc.perform(post(
+                        "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validReplanJson().replace("Z\"", "\"")))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(transportTaskReplanService);
     }
 
     @Test
@@ -447,6 +543,14 @@ class TransportTaskControllerTest {
                  "endLocation":"Beijing","endLongitude":106.759396,"endLatitude":29.620115,
                  "plannedStartTime":"2026-08-24T10:00:00+08:00",
                  "planEndTime":"2026-08-24T15:00:00+08:00"}
+                """;
+    }
+
+    private String validReplanJson() {
+        return """
+                {"vehicleDeviceCode":"sim_019","longitude":106.580123,
+                 "latitude":29.620456,"coordinateSystem":"WGS84",
+                 "positionAt":"2026-08-28T12:00:01.123Z"}
                 """;
     }
 

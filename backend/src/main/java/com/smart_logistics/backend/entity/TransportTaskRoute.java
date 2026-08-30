@@ -24,6 +24,8 @@ public class TransportTaskRoute {
     private Long durationSeconds;
     private Integer routeVersion;
     private String status;
+    private LocalDateTime activatedAt;
+    private LocalDateTime deactivatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -57,6 +59,14 @@ public class TransportTaskRoute {
     }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public LocalDateTime getActivatedAt() { return activatedAt; }
+    public void setActivatedAt(LocalDateTime activatedAt) {
+        this.activatedAt = activatedAt;
+    }
+    public LocalDateTime getDeactivatedAt() { return deactivatedAt; }
+    public void setDeactivatedAt(LocalDateTime deactivatedAt) {
+        this.deactivatedAt = deactivatedAt;
+    }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
