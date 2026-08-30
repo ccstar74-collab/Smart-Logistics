@@ -70,6 +70,17 @@ public class WarehouseService {
         return warehouse;
     }
 
+    public Warehouse requireWarehouseForUpdate(Long id) {
+        Warehouse warehouse = warehouseMapper.selectOne(new LambdaQueryWrapper<Warehouse>()
+                .eq(Warehouse::getId, id)
+                .last("FOR UPDATE"));
+        if (warehouse == null) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                    "warehouse not found");
+        }
+        return warehouse;
+    }
+
     public List<Warehouse> listActiveWarehousesByIds(Collection<Long> warehouseIds) {
         List<Long> ids = warehouseIds.stream()
                 .filter(java.util.Objects::nonNull)

@@ -111,6 +111,20 @@ class WarehouseServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void warehouseSnapshotLookupUsesRowLock() {
+        Warehouse active = warehouse(1L, "WH-001", "Central", WarehouseStatus.ACTIVE);
+        when(warehouseMapper.selectOne(any(Wrapper.class))).thenReturn(active);
+
+        assertEquals(active, warehouseService.requireWarehouseForUpdate(1L));
+
+        ArgumentCaptor<LambdaQueryWrapper<Warehouse>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(warehouseMapper).selectOne(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("FOR UPDATE"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void batchCandidateLookupAppliesIdsAndActiveStatusInOneQuery() {
         Warehouse active = warehouse(1L, "WH-001", "Central", WarehouseStatus.ACTIVE);
         when(warehouseMapper.selectList(any(Wrapper.class))).thenReturn(List.of(active));
