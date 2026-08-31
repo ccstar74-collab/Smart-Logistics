@@ -337,6 +337,7 @@ public class TransportTaskRouteService {
                 .toList());
         route.setDistanceMeters(plannedRoute.distanceMeters());
         route.setDurationSeconds(plannedRoute.referenceDuration().toSeconds());
+        route.setTrafficSnapshot(plannedRoute.trafficSnapshot());
         route.setRouteVersion(routeVersion);
         route.setStatus(status.name());
         if (status == TransportTaskRouteStatus.ACTIVE) {
@@ -359,6 +360,7 @@ public class TransportTaskRouteService {
                 route.getId(), route.getRouteId(), route.getTaskId(), route.getProvider(),
                 route.getCoordinateSystem(), route.getRoutePoints(),
                 route.getDistanceMeters(), route.getDurationSeconds(),
+                route.getTrafficSnapshot(),
                 route.getRouteVersion(), parseStatus(route.getStatus()),
                 toOffsetDateTime(route.getCreatedAt()),
                 toOffsetDateTime(route.getActivatedAt()),

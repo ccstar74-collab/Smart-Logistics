@@ -2,6 +2,7 @@ package com.smart_logistics.backend.service.eta;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smart_logistics.backend.dto.TrafficSnapshot;
 import com.smart_logistics.backend.service.route.MultiObjectiveRouteProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,7 @@ public class AmapEtaRouteProvider implements EtaRouteProvider, MultiObjectiveRou
 
     private static final int DEFAULT_STRATEGY = 0;
     private static final int MULTI_OBJECTIVE_STRATEGY = 11;
+    private static final String TRAFFIC_SOURCE = "AMAP_DRIVING_V3";
 
     private final String endpoint;
     private final String apiKey;
@@ -110,7 +112,7 @@ public class AmapEtaRouteProvider implements EtaRouteProvider, MultiObjectiveRou
                          int strategy) {
         String query = "origin=" + coordinate(startLongitude, startLatitude)
                 + "&destination=" + coordinate(endLongitude, endLatitude)
-                + "&strategy=" + strategy + "&extensions=base&key="
+                + "&strategy=" + strategy + "&extensions=all&key="
                 + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         return URI.create(endpoint + "?" + query);
     }
@@ -159,13 +161,57 @@ public class AmapEtaRouteProvider implements EtaRouteProvider, MultiObjectiveRou
             long distanceMeters = parsePositiveLong(path.path("distance"), "distance");
             long durationSeconds = parsePositiveLong(path.path("duration"), "duration");
             List<EtaCoordinate> polyline = parsePolyline(path.path("steps"));
+            TrafficSnapshot traffic = parseTraffic(path);
             return new EtaPlannedRoute(
-                    polyline, distanceMeters, Duration.ofSeconds(durationSeconds));
+                    polyline, distanceMeters, Duration.ofSeconds(durationSeconds), traffic);
         } catch (EtaProviderException exception) {
             throw exception;
         } catch (IllegalArgumentException exception) {
             throw new EtaProviderException("Invalid Amap route response", exception);
         }
+    }
+
+    private TrafficSnapshot parseTraffic(JsonNode path) {
+        String strategy = path.path("strategy").asText();
+        if (strategy.isBlank()) {
+            strategy = "UNKNOWN";
+        }
+        String restrictionValue = path.path("restriction").asText("0");
+        if (!"0".equals(restrictionValue) && !"1".equals(restrictionValue)) {
+            throw new EtaProviderException("Amap route restriction is invalid");
+        }
+        long trafficLightsValue = parseNonNegativeLong(
+                path.path("traffic_lights"), "traffic_lights");
+        if (trafficLightsValue > Integer.MAX_VALUE) {
+            throw new EtaProviderException("Amap route traffic_lights is invalid");
+        }
+
+        long unknown = 0;
+        long smooth = 0;
+        long slow = 0;
+        long congested = 0;
+        long severeCongested = 0;
+        JsonNode steps = path.path("steps");
+        if (steps.isArray()) {
+            for (JsonNode step : steps) {
+                JsonNode tmcs = step.path("tmcs");
+                if (!tmcs.isArray()) continue;
+                for (JsonNode tmc : tmcs) {
+                    long distance = parseNonNegativeLong(tmc.path("distance"),
+                            "tmc distance");
+                    switch (tmc.path("status").asText()) {
+                        case "畅通" -> smooth += distance;
+                        case "缓行" -> slow += distance;
+                        case "拥堵" -> congested += distance;
+                        case "严重拥堵" -> severeCongested += distance;
+                        default -> unknown += distance;
+                    }
+                }
+            }
+        }
+        return new TrafficSnapshot(TRAFFIC_SOURCE, strategy,
+                "1".equals(restrictionValue), (int) trafficLightsValue,
+                unknown, smooth, slow, congested, severeCongested);
     }
 
     private List<EtaCoordinate> parsePolyline(JsonNode steps) {
@@ -200,6 +246,18 @@ public class AmapEtaRouteProvider implements EtaRouteProvider, MultiObjectiveRou
         }
         long parsed = Math.round(Double.parseDouble(value));
         if (parsed <= 0) {
+            throw new EtaProviderException("Amap route response has invalid " + name);
+        }
+        return parsed;
+    }
+
+    private long parseNonNegativeLong(JsonNode node, String name) {
+        String value = node.asText();
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        long parsed = Math.round(Double.parseDouble(value));
+        if (parsed < 0) {
             throw new EtaProviderException("Amap route response has invalid " + name);
         }
         return parsed;

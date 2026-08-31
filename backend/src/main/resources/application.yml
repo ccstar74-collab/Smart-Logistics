@@ -49,6 +49,12 @@ app:
       key: ${AMAP_WEB_SERVICE_KEY:}
       endpoint: ${AMAP_ROUTE_ENDPOINT:https://restapi.amap.com/v3/direction/driving}
       request-timeout: ${AMAP_REQUEST_TIMEOUT:PT5S}
+  weather:
+    amap:
+      key: ${AMAP_WEB_SERVICE_KEY:}
+      regeo-endpoint: ${AMAP_REGEO_ENDPOINT:https://restapi.amap.com/v3/geocode/regeo}
+      weather-endpoint: ${AMAP_WEATHER_ENDPOINT:https://restapi.amap.com/v3/weather/weatherInfo}
+      request-timeout: ${AMAP_REQUEST_TIMEOUT:PT5S}
 
 # ============MQTT、InfluxDB配置============
 mqtt:

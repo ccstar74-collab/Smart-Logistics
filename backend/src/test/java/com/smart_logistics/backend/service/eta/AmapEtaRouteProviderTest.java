@@ -62,6 +62,7 @@ class AmapEtaRouteProviderTest {
                 106.571234, 29.493456, 106.612345, 29.523456).toString();
 
         assertTrue(uri.contains("strategy=11"));
+        assertTrue(uri.contains("extensions=all"));
     }
 
     @Test
@@ -94,6 +95,39 @@ class AmapEtaRouteProviderTest {
         assertEquals(3, routes.size());
         assertEquals(3500, routes.get(1).distanceMeters());
         assertEquals(Duration.ofSeconds(570), routes.get(2).referenceDuration());
+    }
+
+    @Test
+    void standardizesTrafficFactsFromEveryTmcSegment() {
+        EtaPlannedRoute route = provider.parseResponse("""
+                {
+                  "status":"1","route":{"paths":[{
+                    "distance":"1000","duration":"120",
+                    "strategy":"躲避拥堵","restriction":"1",
+                    "traffic_lights":"4",
+                    "steps":[{
+                      "polyline":"106.57,29.49;106.58,29.50",
+                      "tmcs":[
+                        {"status":"畅通","distance":"600"},
+                        {"status":"缓行","distance":"200"},
+                        {"status":"拥堵","distance":"100"},
+                        {"status":"严重拥堵","distance":"50"},
+                        {"status":"未知","distance":"50"}
+                      ]
+                    }]
+                  }]}
+                }
+                """);
+
+        assertEquals("AMAP_DRIVING_V3", route.trafficSnapshot().source());
+        assertEquals("躲避拥堵", route.trafficSnapshot().strategy());
+        assertTrue(route.trafficSnapshot().restriction());
+        assertEquals(4, route.trafficSnapshot().trafficLights());
+        assertEquals(600, route.trafficSnapshot().smoothDistanceMeters());
+        assertEquals(200, route.trafficSnapshot().slowDistanceMeters());
+        assertEquals(100, route.trafficSnapshot().congestedDistanceMeters());
+        assertEquals(50, route.trafficSnapshot().severeCongestedDistanceMeters());
+        assertEquals(50, route.trafficSnapshot().unknownDistanceMeters());
     }
 
     @Test
