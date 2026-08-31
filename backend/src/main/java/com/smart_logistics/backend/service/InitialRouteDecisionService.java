@@ -245,7 +245,7 @@ public class InitialRouteDecisionService {
                     route.route().trafficSnapshot())));
             candidate.setWeatherSnapshot(writeJson(weather));
             candidate.setPoints(writeJson(toPoints(route.route().polyline())));
-            candidate.setRank(route.rank());
+            candidate.setRankNo(route.rank());
             candidate.setTotalScore(route.totalScore());
             candidate.setScoreDetails(writeJson(route.scoreDetails()));
             candidate.setReasons(writeJson(reasonsByRouteId.getOrDefault(
@@ -309,7 +309,7 @@ public class InitialRouteDecisionService {
                 candidate.getTrafficSnapshot(), TrafficSnapshot.class);
         return new InitialRouteCandidateResponse(
                 candidate.getPreviewRouteId(), candidate.getDisplayName(),
-                candidate.getRank(), candidate.getTotalScore(),
+                candidate.getRankNo(), candidate.getTotalScore(),
                 candidate.getDistanceMeters(), candidate.getDurationSeconds(),
                 TrafficLevel.valueOf(candidate.getTrafficLevel()),
                 traffic.source(), candidate.getProvider(), candidate.getCoordinateSystem(),
@@ -324,7 +324,7 @@ public class InitialRouteDecisionService {
         return candidateMapper.selectList(
                 new LambdaQueryWrapper<InitialRouteCandidate>()
                         .eq(InitialRouteCandidate::getDecisionId, decisionId)
-                        .orderByAsc(InitialRouteCandidate::getRank));
+                        .orderByAsc(InitialRouteCandidate::getRankNo));
     }
 
     private void expireIfNecessary(InitialRouteDecision decision) {
