@@ -2,7 +2,6 @@ package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.common.ApiResponse;
 import com.smart_logistics.backend.common.PageResult;
-import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.WarehouseTransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.OriginRecommendationRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
@@ -38,6 +37,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -148,21 +148,6 @@ public class TransportTaskController {
         return ApiResponse.success(transportTaskService.listTransportTaskRoutes(id));
     }
 
-    @PostMapping("/{id}/routes")
-    @PreAuthorize("hasRole('DISPATCHER')")
-    public ApiResponse<TransportTaskRouteResponse> createReadyRoute(
-            @PathVariable @Positive Long id) {
-        return ApiResponse.success(transportTaskService.createReadyRoute(id));
-    }
-
-    @PostMapping("/{id}/routes/candidates")
-    @PreAuthorize("hasRole('DISPATCHER')")
-    public ApiResponse<List<TransportTaskRouteResponse>> createReadyRouteCandidates(
-            @PathVariable @Positive Long id) {
-        return ApiResponse.success(
-                multiObjectiveRoutePlanningService.createReadyCandidates(id));
-    }
-
     @GetMapping("/{id}/playback")
     @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<TransportTaskPlaybackResponse> getPlayback(
@@ -196,18 +181,15 @@ public class TransportTaskController {
                         driverId, ownerId, vehicleId, cargoId));
     }
 
-    @PostMapping
-    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
-    public ApiResponse<TransportTaskResponse> createTransportTask(
-            @Valid @RequestBody TransportTaskCreateRequest request) {
-        return ApiResponse.success(transportTaskService.createTransportTask(request));
-    }
-
     @PostMapping("/from-warehouse")
     @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public ApiResponse<TransportTaskResponse> createTransportTaskFromWarehouse(
+            @RequestHeader("Idempotency-Key")
+            @jakarta.validation.constraints.NotBlank
+            @Size(max = 128) String idempotencyKey,
             @Valid @RequestBody WarehouseTransportTaskCreateRequest request) {
-        return ApiResponse.success(warehouseTaskCreateService.createTransportTask(request));
+        return ApiResponse.success(
+                warehouseTaskCreateService.createTransportTask(request, idempotencyKey));
     }
 
     @PostMapping("/origin-recommendation")
