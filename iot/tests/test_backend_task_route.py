@@ -15,8 +15,22 @@ from route_planner import (  # noqa: E402
     parse_route_points,
     wgs84_to_gcj02,
 )
-from task_route import build_route_url, fetch_task_route, parse_task_route  # noqa: E402
-from mqtt_data_generator import advance_on_route, install_task_route  # noqa: E402
+from task_route import (  # noqa: E402
+    build_route_url,
+    fetch_task_route,
+    parse_task_route,
+    replan_task_route,
+)
+from mqtt_data_generator import (  # noqa: E402
+    advance_on_route,
+    advance_vehicle_position,
+    build_alert_payload,
+    build_alert_recovery_payload,
+    build_command_ack_payload,
+    build_reroute_anchor,
+    distance_between,
+    install_task_route,
+)
 
 
 class _JsonResponse:
@@ -39,6 +53,9 @@ def planned_route_response():
         "message": "success",
         "data": {
             "taskId": 1001,
+            "routeId": "route_v2",
+            "routeVersion": 2,
+            "routeStatus": "ACTIVE",
             "vehicleDeviceCode": "sim_000",
             "provider": "AMAP",
             "coordinateSystem": "GCJ02",
@@ -56,6 +73,22 @@ def planned_route_response():
 
 
 class BackendRouteTest(unittest.TestCase):
+    def test_alert_recovery_reuses_original_triggered_at(self):
+        triggered_at = "2026-08-28T01:30:00.000Z"
+        recovered_at = "2026-08-28T01:35:00.000Z"
+        alert = build_alert_payload(
+            "sim_002", "异常开箱", "运输途中检测到箱门开启", triggered_at
+        )
+        recovery = build_alert_recovery_payload(
+            "sim_002", "异常开箱", alert["timestamp"], recovered_at
+        )
+        self.assertEqual(alert["timestamp"], recovery["triggered_at"])
+        self.assertEqual("RECOVERED", recovery["condition_status"])
+        self.assertEqual("device", recovery["source"])
+        self.assertEqual("sim_002", recovery["vehicle_id"])
+        self.assertEqual("异常开箱", recovery["alert_type"])
+        self.assertEqual(recovered_at, recovery["recovered_at"])
+
     def test_wgs84_gcj02_round_trip_is_within_gps_noise(self):
         original = (106.730553, 29.613528)
         gcj = wgs84_to_gcj02(*original)
@@ -91,6 +124,9 @@ class BackendRouteTest(unittest.TestCase):
         self.assertEqual("sim_000", route["vehicle_id"])
         self.assertEqual(2943, route["total_distance_meters"])
         self.assertEqual(420, route["estimated_duration_seconds"])
+        self.assertEqual("route_v2", route["route_id"])
+        self.assertEqual(2, route["route_version"])
+        self.assertEqual("ACTIVE", route["route_status"])
         self.assertEqual(4, len(route["points"]))
 
     def test_missing_vehicle_device_code_is_rejected(self):
@@ -111,6 +147,54 @@ class BackendRouteTest(unittest.TestCase):
         request = opened.call_args.args[0]
         self.assertEqual("Bearer test-token", request.get_header("Authorization"))
         self.assertEqual("sim_000", route["vehicle_id"])
+
+    def test_replan_posts_to_latest_location_endpoint(self):
+        response = _JsonResponse(planned_route_response())
+        position = {
+            "vehicleDeviceCode": "sim_000",
+            "longitude": 106.580123,
+            "latitude": 29.620456,
+            "coordinateSystem": "WGS84",
+            "positionAt": "2026-08-28T04:00:00.123Z",
+        }
+        with patch("task_route.urllib.request.urlopen", return_value=response) as opened:
+            route = replan_task_route(
+                "http://server:8080",
+                1001,
+                token="test-token",
+                position=position,
+            )
+        request = opened.call_args.args[0]
+        self.assertEqual("POST", request.get_method())
+        self.assertEqual(
+            "http://server:8080/api/v1/transport-tasks/1001/"
+            "routes/replan-from-latest-location",
+            request.full_url,
+        )
+        self.assertEqual("Bearer test-token", request.get_header("Authorization"))
+        self.assertEqual(position, json.loads(request.data.decode("utf-8")))
+        self.assertEqual("route_v2", route["route_id"])
+
+    def test_reroute_anchor_reuses_exact_stopped_gps_coordinates_and_time(self):
+        vehicle = {
+            "vehicle_id": "sim_019",
+            "lat": 29.6204564,
+            "lon": 106.5801234,
+            "speed_kmh": 31.2,
+            "heading": 95.24,
+            "transport_status": "TRANSPORTING",
+        }
+        position_at = "2026-08-28T04:00:00.123Z"
+        gps, request = build_reroute_anchor(vehicle, position_at)
+
+        self.assertEqual(0.0, gps["speed_kmh"])
+        self.assertEqual(106.580123, gps["lon"])
+        self.assertEqual(29.620456, gps["lat"])
+        self.assertEqual(position_at, gps["timestamp"])
+        self.assertEqual(gps["lon"], request["longitude"])
+        self.assertEqual(gps["lat"], request["latitude"])
+        self.assertEqual(gps["timestamp"], request["positionAt"])
+        self.assertEqual("WGS84", request["coordinateSystem"])
 
     def test_vehicle_stops_at_destination_instead_of_looping(self):
         vehicle = {
@@ -159,6 +243,78 @@ class BackendRouteTest(unittest.TestCase):
         }
         self.assertTrue(install_task_route(vehicle, route))
         self.assertFalse(install_task_route(vehicle, route))
+
+    def test_route_deviation_changes_real_coordinates_off_polyline(self):
+        vehicle = {
+            "lat": 29.600000,
+            "lon": 106.700000,
+            "speed_kmh": 36.0,
+            "heading": 90.0,
+            "transport_status": "运输中",
+            "route_points": [
+                (29.600000, 106.700000),
+                (29.610000, 106.700000),
+            ],
+            "route_next_index": 1,
+            "route_complete": False,
+            "anomaly": "偏航",
+        }
+        advance_vehicle_position(vehicle, 100.0, rng=None)
+        lateral_distance = distance_between(
+            vehicle["lat"], vehicle["lon"], vehicle["lat"], 106.700000
+        )
+        self.assertGreater(lateral_distance, 95.0)
+        self.assertEqual(1, vehicle["route_next_index"])
+
+        distance_before_rejoin = distance_between(
+            vehicle["lat"], vehicle["lon"], 29.610000, 106.700000
+        )
+        vehicle["anomaly"] = None
+        advance_vehicle_position(vehicle, 50.0, rng=None)
+        distance_after_rejoin = distance_between(
+            vehicle["lat"], vehicle["lon"], 29.610000, 106.700000
+        )
+        self.assertLess(distance_after_rejoin, distance_before_rejoin)
+
+    def test_open_door_keeps_coordinates_unchanged(self):
+        vehicle = {
+            "lat": 29.600000,
+            "lon": 106.700000,
+            "speed_kmh": 0.0,
+            "heading": 90.0,
+            "route_points": [
+                (29.600000, 106.700000),
+                (29.610000, 106.700000),
+            ],
+            "route_next_index": 1,
+            "route_complete": False,
+            "anomaly": "异常开箱",
+            "door_open": True,
+        }
+        advance_vehicle_position(vehicle, 100.0, rng=None)
+        self.assertEqual(29.600000, vehicle["lat"])
+        self.assertEqual(106.700000, vehicle["lon"])
+        self.assertEqual(1, vehicle["route_next_index"])
+
+    def test_abnormal_stop_keeps_coordinates_unchanged(self):
+        vehicle = {
+            "lat": 29.600000,
+            "lon": 106.700000,
+            "speed_kmh": 0.0,
+            "heading": 90.0,
+            "route_points": [
+                (29.600000, 106.700000),
+                (29.610000, 106.700000),
+            ],
+            "route_next_index": 1,
+            "route_complete": False,
+            "anomaly": "异常停留",
+            "door_open": False,
+        }
+        advance_vehicle_position(vehicle, 100.0, rng=None)
+        self.assertEqual(29.600000, vehicle["lat"])
+        self.assertEqual(106.700000, vehicle["lon"])
+        self.assertEqual(1, vehicle["route_next_index"])
 
 
 if __name__ == "__main__":

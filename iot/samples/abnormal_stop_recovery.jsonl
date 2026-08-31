@@ -1,0 +1,2 @@
+{"delay_ms":0,"topic":"iot/carla/alert","qos":1,"retain":false,"payload":{"schema_version":"1.0","vehicle_id":"sim_002","alert_type":"异常停留","description":"车辆异常停留（模拟）","timestamp":"2026-08-28T02:33:07.289Z","source":"simulator"}}
+{"delay_ms":3000,"topic":"iot/carla/alert/recovery","qos":1,"retain":false,"payload":{"schema_version":"1.0","vehicle_id":"sim_002","alert_type":"异常停留","condition_status":"RECOVERED","triggered_at":"2026-08-28T02:33:07.289Z","recovered_at":"2026-08-28T02:33:10.289Z","source":"device"}}

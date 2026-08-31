@@ -32,11 +32,11 @@ Copy-Item .\iot\firmware\D14_smart_logistics_gps_mqtt\smart_logistics_config.exa
 ```
 
 3. 按BearPi-HM Nano工程原有方式构建并烧录。
-4. 串口出现有效GPS FIX后，D14将以 `real_001` 发布到：
+4. 串口出现有效GPS FIX后，D14将以 `sim_999` 发布到：
 
 ```text
-iot/carla/vehicle/real_001/gps
-iot/carla/vehicle/real_001/status
+iot/carla/vehicle/sim_999/gps
+iot/carla/vehicle/sim_999/status
 iot/carla/alert
 iot/carla/alert/recovery
 ```

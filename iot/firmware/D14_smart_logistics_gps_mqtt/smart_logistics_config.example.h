@@ -7,6 +7,6 @@
 #define SL_MQTT_PORT 1883
 #define SL_MQTT_USERNAME "<MQTT_USERNAME>"
 #define SL_MQTT_PASSWORD "<MQTT_PASSWORD>"
-#define SL_VEHICLE_ID "real_001"
+#define SL_VEHICLE_ID "sim_999"
 
 #endif

@@ -12,13 +12,14 @@ import os
 import pathlib
 import queue
 import random
+import sys
 import threading
 import time
 
 import paho.mqtt.client as mqtt
 
 from mqtt_credentials import load_mqtt_credentials
-from task_route import fetch_task_route
+from task_route import fetch_task_route, replan_task_route
 
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -27,6 +28,77 @@ EARTH_RADIUS_M = 6_371_000.0
 def now_iso():
     now = datetime.datetime.now(datetime.timezone.utc)
     return now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def build_alert_payload(vehicle_id, alert_type, description, triggered_at):
+    return {
+        "schema_version": "1.0",
+        "vehicle_id": vehicle_id,
+        "alert_type": alert_type,
+        "description": description,
+        "timestamp": triggered_at,
+        "source": "simulator",
+    }
+
+
+def build_alert_recovery_payload(vehicle_id, alert_type, triggered_at, recovered_at):
+    return {
+        "schema_version": "1.0",
+        "vehicle_id": vehicle_id,
+        "alert_type": alert_type,
+        "condition_status": "RECOVERED",
+        "triggered_at": triggered_at,
+        "recovered_at": recovered_at,
+        "source": "device",
+    }
+
+
+def build_reroute_anchor(vehicle, position_at):
+    """Build the immutable stopped GPS point used as the reroute origin."""
+    longitude = round(float(vehicle["lon"]), 6)
+    latitude = round(float(vehicle["lat"]), 6)
+    gps_payload = {
+        "schema_version": "1.0",
+        "vehicle_id": vehicle["vehicle_id"],
+        "timestamp": position_at,
+        "lat": latitude,
+        "lon": longitude,
+        "speed_kmh": 0.0,
+        "heading": round(float(vehicle["heading"]), 1),
+        "transport_status": vehicle["transport_status"],
+        "coordinate_system": "WGS84",
+    }
+    request_payload = {
+        "vehicleDeviceCode": vehicle["vehicle_id"],
+        "longitude": longitude,
+        "latitude": latitude,
+        "coordinateSystem": "WGS84",
+        "positionAt": position_at,
+    }
+    return gps_payload, request_payload
+
+
+def build_command_ack_payload(
+    command_id,
+    vehicle_id,
+    status,
+    message,
+    timestamp,
+    route_point_count=None,
+    command_type="TASK_ROUTE_READY",
+):
+    payload = {
+        "schema_version": "1.0",
+        "command_id": command_id,
+        "vehicle_id": vehicle_id,
+        "command_type": command_type,
+        "status": status,
+        "message": message,
+        "timestamp": timestamp,
+    }
+    if route_point_count is not None:
+        payload["route_point_count"] = route_point_count
+    return payload
 
 
 def move_point(lat, lon, distance_m, heading_deg):
@@ -103,6 +175,22 @@ def advance_on_route(vehicle, route_points, distance_m):
             distance_m = 0
 
 
+def advance_vehicle_position(vehicle, distance_m, rng):
+    """推进车辆；偏航期间故意脱离计划路线，结束后再向后续路线点回归。"""
+    if vehicle.get("door_open") or vehicle.get("anomaly") == "异常停留":
+        return
+    route_points = vehicle.get("route_points")
+    if route_points and vehicle.get("anomaly") != "偏航":
+        advance_on_route(vehicle, route_points, distance_m)
+        return
+
+    if vehicle.get("anomaly") != "偏航":
+        vehicle["heading"] = (vehicle["heading"] + rng.uniform(-4, 4)) % 360
+    vehicle["lat"], vehicle["lon"] = move_point(
+        vehicle["lat"], vehicle["lon"], distance_m, vehicle["heading"]
+    )
+
+
 def make_vehicle(index, vehicle_count, origin_lat, origin_lon, rng):
     lat, lon = move_point(origin_lat, origin_lon, rng.uniform(0, 2500), rng.uniform(0, 360))
     heading = rng.uniform(0, 360)
@@ -116,11 +204,19 @@ def make_vehicle(index, vehicle_count, origin_lat, origin_lon, rng):
         "transport_status": rng.choice(["已装货", "运输中", "运输中", "运输中"]),
         "anomaly": None,
         "anomaly_ticks": 0,
+        "door_open": False,
+        "active_alerts": {},
         "route_points": None,
         "route_complete": False,
         "active_task_id": None,
         "route_id": None,
         "route_version": 0,
+        "reroute_pending": False,
+        "reroute_hold": False,
+        "reroute_state": None,
+        "reroute_anchor": None,
+        "reroute_request_at": None,
+        "recovery_after_gps": None,
     }
     return vehicle
 
@@ -181,6 +277,12 @@ def main():
                         help="业务后端地址，例如http://server:8080或其/api/v1地址")
     parser.add_argument("--business-token-env", default="SMART_LOGISTICS_API_TOKEN",
                         help="保存业务API Bearer Token的环境变量名")
+    parser.add_argument(
+        "--reroute-ingest-wait",
+        type=float,
+        default=2.0,
+        help="偏航锚点GPS发布后、调用重规划接口前的入库缓冲秒数，默认2秒",
+    )
     parser.add_argument("--seed", type=int, default=42,
                         help="随机种子；相同种子可复现相同车流")
     parser.add_argument("--anomaly-rate", type=float, default=0.0,
@@ -188,7 +290,7 @@ def main():
     parser.add_argument(
         "--demo-anomaly",
         choices=("stop", "drift", "open"),
-        help="启动后在 sim_000 上确定性注入一次异常，便于演示和验收",
+        help="启动后在本次模拟车队的首辆车上确定性注入一次异常，便于演示和验收",
     )
     parser.add_argument("--alert-mode", choices=("precomputed", "raw"),
                         default="precomputed")
@@ -201,6 +303,11 @@ def main():
     parser.add_argument("--prefix", default="iot/carla", help="MQTT 主题前缀")
     parser.add_argument("--qos", type=int, choices=(0, 1, 2), default=1)
     parser.add_argument("--output", help="可选：同时保存成可回放 JSONL")
+    parser.add_argument(
+        "--control-stdin",
+        action="store_true",
+        help="从标准输入接收stop/drift/open运行时异常注入指令",
+    )
     args = parser.parse_args()
 
     credential_values = {}
@@ -222,6 +329,8 @@ def main():
         parser.error("--duration 不能小于 0")
     if args.interval <= 0:
         parser.error("--interval 必须大于 0")
+    if args.reroute_ingest_wait < 0:
+        parser.error("--reroute-ingest-wait不能小于0")
     if not 0 <= args.anomaly_rate <= 1:
         parser.error("--anomaly-rate 必须在 0 到 1 之间")
     if args.demo_anomaly == "open" and args.alert_mode == "raw":
@@ -285,6 +394,8 @@ def main():
     shutting_down = threading.Event()
     command_queue = queue.Queue()
     route_result_queue = queue.Queue()
+    reroute_result_queue = queue.Queue()
+    control_queue = queue.Queue()
     command_topic = f"{args.prefix}/vehicle/+/command"
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2,
@@ -340,6 +451,7 @@ def main():
 
     published = 0
     alert_count = 0
+    recovery_count = 0
     command_count = 0
     command_failure_count = 0
     processed_commands = {}
@@ -410,57 +522,309 @@ def main():
     def publish_alert(vehicle, alert_type, description):
         nonlocal alert_count
         if args.alert_mode == "raw":
-            return
-        publish("alert", {
-            "schema_version": "1.0",
-            "vehicle_id": vehicle["vehicle_id"],
-            "alert_type": alert_type,
-            "description": description,
-            "timestamp": now_iso(),
-            "source": "simulator",
-        })
+            return None
+        active_alerts = vehicle.setdefault("active_alerts", {})
+        if alert_type in active_alerts:
+            print(
+                f"[告警跳过] vehicle={vehicle['vehicle_id']} type={alert_type} "
+                f"已有ACTIVE事件 triggered_at={active_alerts[alert_type]}"
+            )
+            return active_alerts[alert_type]
+        triggered_at = now_iso()
+        info = publish(
+            "alert",
+            build_alert_payload(
+                vehicle["vehicle_id"], alert_type, description, triggered_at
+            ),
+        )
+        info.wait_for_publish(timeout=5)
+        active_alerts[alert_type] = triggered_at
         alert_count += 1
+        return triggered_at
 
-    def start_anomaly(vehicle, anomaly_type):
+    def publish_alert_recovery(vehicle, alert_type):
+        nonlocal recovery_count
+        active_alerts = vehicle.setdefault("active_alerts", {})
+        triggered_at = active_alerts.get(alert_type)
+        if triggered_at is None:
+            print(
+                f"[RECOVERY][SKIP] vehicle={vehicle['vehicle_id']} type={alert_type} "
+                "没有对应的ACTIVE告警"
+            )
+            return False
+        recovered_at = now_iso()
+        info = publish(
+            "alert/recovery",
+            build_alert_recovery_payload(
+                vehicle["vehicle_id"], alert_type, triggered_at, recovered_at
+            ),
+        )
+        info.wait_for_publish(timeout=5)
+        if active_alerts.get(alert_type) == triggered_at:
+            del active_alerts[alert_type]
+        recovery_count += 1
+        print(
+            f"[RECOVERY][PUBLISHED] vehicle={vehicle['vehicle_id']} "
+            f"type={alert_type} triggered_at={triggered_at} "
+            f"recovered_at={recovered_at}"
+        )
+        return True
+
+    def start_anomaly(vehicle, anomaly_type, hold=False):
         """在指定车辆上启动一个可观察、可复现的异常场景。"""
+        active_alerts = vehicle.setdefault("active_alerts", {})
+        current_anomaly = vehicle.get("anomaly")
+        if current_anomaly is not None or active_alerts:
+            active_type = current_anomaly or next(iter(active_alerts))
+            print(
+                f"[告警跳过] vehicle={vehicle['vehicle_id']} "
+                f"当前异常={active_type}，请先恢复后再开始新异常"
+            )
+            return False
         vehicle["anomaly"] = anomaly_type
         if anomaly_type == "异常停留":
             vehicle["speed_kmh"] = 0.0
-            vehicle["anomaly_ticks"] = max(2, round(8 / args.interval))
+            # 终端快捷键注入时持续停车，直到收到resume；
+            # 随机/启动演示模式仍在8秒后自动恢复。
+            vehicle["anomaly_ticks"] = -1 if hold else max(2, round(8 / args.interval))
             publish_alert(vehicle, "异常停留", "车辆异常停留（批量模拟）")
         elif anomaly_type == "偏航":
             vehicle["heading"] = (vehicle["heading"] + rng.uniform(60, 120)) % 360
-            vehicle["anomaly_ticks"] = max(2, round(5 / args.interval))
+            # 至少持续约20秒，使最低20km/h的车辆也能横向偏离约100米，
+            # 便于实时后端按路线距离阈值检测。手动注入保持ACTIVE直到resume，
+            # 随机/启动演示模式则20秒后自动恢复。
+            vehicle["anomaly_ticks"] = -1 if hold else max(2, round(20 / args.interval))
             publish_alert(vehicle, "偏航", "车辆偏离规划路线（批量模拟）")
         elif anomaly_type == "异常开箱":
-            vehicle["anomaly_ticks"] = max(2, round(5 / args.interval))
+            vehicle["door_open"] = True
+            vehicle["speed_kmh"] = 0.0
+            # 终端快捷键注入时保持开箱和停车，直到收到close；
+            # 随机/启动演示模式则20秒后自动关箱，避免无人值守时永久停驶。
+            vehicle["anomaly_ticks"] = -1 if hold else max(2, round(20 / args.interval))
             publish_alert(vehicle, "异常开箱", "运输途中检测到箱门开启（批量模拟）")
         else:
             raise ValueError(f"不支持的异常类型：{anomaly_type}")
+        return True
 
-    def publish_command_ack(command_id, vehicle_id, status, message, route_point_count=None):
-        payload = {
-            "schema_version": "1.0",
-            "command_id": command_id,
-            "vehicle_id": vehicle_id,
-            "command_type": "TASK_ROUTE_READY",
-            "status": status,
-            "message": message,
-            "timestamp": now_iso(),
+    def begin_deviation_reroute(vehicle):
+        task_id = vehicle.get("active_task_id")
+        if vehicle.get("reroute_pending"):
+            print(
+                f"[REROUTE][WAIT] vehicle={vehicle['vehicle_id']} 正在等待高德重规划"
+            )
+            return False
+        if not business_api_base or not business_api_token or not task_id:
+            print(
+                f"[REROUTE][BLOCKED] vehicle={vehicle['vehicle_id']} "
+                "缺少业务后端、Token或taskId；保持偏航ACTIVE，不追赶旧路线"
+            )
+            return False
+
+        vehicle["reroute_pending"] = True
+        vehicle["reroute_hold"] = True
+        vehicle["reroute_state"] = "ANCHOR_PENDING"
+        vehicle["reroute_anchor"] = None
+        vehicle["reroute_request_at"] = None
+        vehicle["speed_kmh"] = 0.0
+        vehicle["anomaly_ticks"] = -1
+        print(
+            f"[REROUTE][STOPPED] task={task_id} vehicle={vehicle['vehicle_id']} "
+            "已停车锁定偏航位置，下一条GPS作为重规划锚点"
+        )
+        return True
+
+    def finish_anomaly(vehicle, expected_type=None):
+        anomaly_type = vehicle.get("anomaly")
+        if anomaly_type is None:
+            print(f"[异常恢复] vehicle={vehicle['vehicle_id']} 当前没有ACTIVE异常")
+            return False
+        if expected_type is not None and anomaly_type != expected_type:
+            print(
+                f"[异常恢复] vehicle={vehicle['vehicle_id']} 当前异常={anomaly_type}，"
+                f"不能用{expected_type}恢复指令结束"
+            )
+            return False
+        if anomaly_type == "偏航":
+            return begin_deviation_reroute(vehicle)
+
+        vehicle["door_open"] = False
+        vehicle["anomaly"] = None
+        vehicle["anomaly_ticks"] = 0
+        if not vehicle.get("route_complete"):
+            vehicle["speed_kmh"] = rng.uniform(20, 45)
+        publish_alert_recovery(vehicle, anomaly_type)
+        print(
+            f"[异常恢复] vehicle={vehicle['vehicle_id']} type={anomaly_type} "
+            "已恢复车辆数据并发送recovery"
+        )
+        return True
+
+    def maybe_request_reroute(vehicle):
+        if vehicle.get("reroute_state") != "WAIT_INGEST":
+            return
+        request_at = vehicle.get("reroute_request_at")
+        if request_at is None or time.monotonic() < request_at:
+            return
+        task_id = vehicle.get("active_task_id")
+        anchor = vehicle.get("reroute_anchor")
+        if not task_id or not isinstance(anchor, dict):
+            vehicle["reroute_pending"] = False
+            vehicle["reroute_state"] = None
+            print(
+                f"[REROUTE][FAILED] vehicle={vehicle['vehicle_id']} "
+                "缺少锁定位置；车辆继续保持停车和偏航ACTIVE"
+            )
+            return
+
+        vehicle["reroute_state"] = "REQUESTING"
+
+        def replan_in_background():
+            try:
+                route = replan_task_route(
+                    business_api_base,
+                    task_id,
+                    token=business_api_token,
+                    position=anchor,
+                )
+                reroute_result_queue.put((vehicle["vehicle_id"], route, None))
+            except Exception as exc:
+                reroute_result_queue.put(
+                    (vehicle["vehicle_id"], None, str(exc))
+                )
+
+        threading.Thread(
+            target=replan_in_background,
+            name=f"reroute-{task_id}-{vehicle['vehicle_id']}",
+            daemon=True,
+        ).start()
+        print(
+            f"[REROUTE][REQUESTED] task={task_id} vehicle={vehicle['vehicle_id']} "
+            f"anchor=({anchor['longitude']},{anchor['latitude']}) "
+            f"positionAt={anchor['positionAt']}"
+        )
+
+    def drain_reroute_results():
+        while True:
+            try:
+                vehicle_id, route, error = reroute_result_queue.get_nowait()
+            except queue.Empty:
+                return
+            vehicle = vehicles_by_id.get(vehicle_id)
+            if vehicle is None:
+                continue
+            vehicle["reroute_pending"] = False
+            vehicle["reroute_state"] = None
+            if error:
+                vehicle["reroute_hold"] = True
+                print(
+                    f"[REROUTE][FAILED] vehicle={vehicle_id} {error}；"
+                    "保持停车和偏航ACTIVE，按R可重试"
+                )
+                continue
+            if route["vehicle_id"] != vehicle_id:
+                print(
+                    f"[REROUTE][FAILED] vehicle={vehicle_id} 后端返回车辆="
+                    f"{route['vehicle_id']}；保持偏航ACTIVE"
+                )
+                continue
+            installed = install_task_route(vehicle, route)
+            if not installed:
+                vehicle["reroute_hold"] = True
+                print(
+                    f"[REROUTE][FAILED] vehicle={vehicle_id} 后端没有返回"
+                    "更高版本的新ACTIVE路线；保持停车和偏航ACTIVE"
+                )
+                continue
+            vehicle["reroute_hold"] = False
+            vehicle["reroute_anchor"] = None
+            vehicle["reroute_request_at"] = None
+            vehicle["door_open"] = False
+            vehicle["anomaly"] = None
+            vehicle["anomaly_ticks"] = 0
+            if not vehicle.get("route_complete"):
+                vehicle["speed_kmh"] = rng.uniform(20, 45)
+            # Publish at least one normal GPS point on the new route before the
+            # recovery event, so downstream condition recovery observes actual
+            # recovered vehicle data rather than only a control message.
+            vehicle["recovery_after_gps"] = "偏航"
+            print(
+                f"[REROUTE][APPLIED] vehicle={vehicle_id} "
+                f"route={route['route_id']} version={route['route_version']}；"
+                "将在首条新路线GPS之后发布recovery"
+            )
+
+    def read_control_stdin():
+        for line in sys.stdin:
+            command = line.strip().lower()
+            if command:
+                control_queue.put(command)
+
+    def drain_control_commands():
+        anomaly_types = {
+            "stop": "异常停留",
+            "drift": "偏航",
+            "open": "异常开箱",
         }
-        if route_point_count is not None:
-            payload["route_point_count"] = route_point_count
+        while True:
+            try:
+                command = control_queue.get_nowait()
+            except queue.Empty:
+                return
+            if command == "close":
+                vehicle = vehicles[0]
+                finish_anomaly(vehicle, expected_type="异常开箱")
+                continue
+            if command == "resume":
+                vehicle = vehicles[0]
+                finish_anomaly(vehicle)
+                continue
+            anomaly_type = anomaly_types.get(command)
+            if anomaly_type is None:
+                print(f"[异常注入] 忽略未知控制指令：{command}")
+                continue
+            start_anomaly(
+                vehicles[0], anomaly_type, hold=command in {"open", "stop", "drift"}
+            )
+            print(
+                f"[异常注入] vehicle={vehicles[0]['vehicle_id']} type={anomaly_type}"
+            )
+
+    def publish_command_ack(
+        command_id,
+        vehicle_id,
+        status,
+        message,
+        route_point_count=None,
+        command_type="TASK_ROUTE_READY",
+    ):
+        payload = build_command_ack_payload(
+            command_id,
+            vehicle_id,
+            status,
+            message,
+            now_iso(),
+            route_point_count=route_point_count,
+            command_type=command_type,
+        )
         publish(f"vehicle/{vehicle_id}/command/ack", payload)
         return payload
 
-    def fail_command(command_id, vehicle_id, message):
+    def fail_command(
+        command_id, vehicle_id, message, command_type="TASK_ROUTE_READY"
+    ):
         nonlocal command_failure_count
         command_failure_count += 1
         if command_id:
             active_commands.discard(command_id)
         print(f"[指令失败] command_id={command_id}，vehicle_id={vehicle_id}：{message}")
         if command_id and vehicle_id:
-            ack = publish_command_ack(command_id, vehicle_id, "FAILED", message)
+            ack = publish_command_ack(
+                command_id,
+                vehicle_id,
+                "FAILED",
+                message,
+                command_type=command_type,
+            )
             processed_commands[command_id] = ack
 
     def process_command(topic, raw_payload):
@@ -503,22 +867,36 @@ def main():
         if command.get("schema_version") != "1.0":
             fail_command(command_id, vehicle_id, "schema_version必须为1.0")
             return
-        if command.get("command_type") != "TASK_ROUTE_READY":
-            fail_command(command_id, vehicle_id, "当前仅支持TASK_ROUTE_READY")
+        command_type = command.get("command_type")
+        if command_type != "TASK_ROUTE_READY":
+            fail_command(
+                command_id,
+                vehicle_id,
+                "当前仅支持TASK_ROUTE_READY；偏航停车只能在模拟器终端按R触发",
+            )
             return
         vehicle = vehicles_by_id.get(vehicle_id)
         if vehicle is None:
-            fail_command(command_id, vehicle_id, "模拟器中不存在该车辆")
+            fail_command(
+                command_id, vehicle_id, "模拟器中不存在该车辆",
+                command_type=command_type,
+            )
             return
 
         task_id = command.get("task_id")
         if (
             isinstance(task_id, bool) or not isinstance(task_id, int) or task_id <= 0
         ):
-            fail_command(command_id, vehicle_id, "task_id必须是正整数")
+            fail_command(
+                command_id, vehicle_id, "task_id必须是正整数",
+                command_type=command_type,
+            )
             return
         if not business_api_base:
-            fail_command(command_id, vehicle_id, "未配置业务后端API地址")
+            fail_command(
+                command_id, vehicle_id, "未配置业务后端API地址",
+                command_type=command_type,
+            )
             return
 
         active_commands.add(command_id)
@@ -562,9 +940,20 @@ def main():
             fail_command(command_id, vehicle_id, "planned-route返回的vehicleDeviceCode不一致")
             return
 
+        recovering_deviation = (
+            vehicle.get("anomaly") == "偏航"
+            and (vehicle.get("reroute_pending") or vehicle.get("reroute_hold"))
+        )
         installed = install_task_route(vehicle, route)
-        vehicle["anomaly"] = None
-        vehicle["anomaly_ticks"] = 0
+        if recovering_deviation and installed:
+            vehicle["reroute_pending"] = False
+            vehicle["reroute_hold"] = False
+            vehicle["reroute_state"] = None
+            vehicle["reroute_anchor"] = None
+            vehicle["reroute_request_at"] = None
+            vehicle["anomaly"] = None
+            vehicle["anomaly_ticks"] = 0
+            vehicle["recovery_after_gps"] = "偏航"
         vehicle["active_command_id"] = command_id
 
         active_commands.discard(command_id)
@@ -603,6 +992,12 @@ def main():
     online_status_pending.clear()
     for vehicle in vehicles:
         publish_status(vehicle, True)
+    if args.control_stdin:
+        threading.Thread(
+            target=read_control_stdin,
+            name="anomaly-control-stdin",
+            daemon=True,
+        ).start()
 
     started = time.monotonic()
     batch = 0
@@ -610,7 +1005,10 @@ def main():
         f"[启动] {args.vehicles} 辆车，间隔 {args.interval}s，"
         f"Broker={args.host}:{args.port}，异常概率={args.anomaly_rate}"
     )
-    print(f"[订阅] {command_topic}（接收TASK_ROUTE_READY任务路线刷新通知）")
+    print(
+        f"[订阅] {command_topic}"
+        "（仅接收TASK_ROUTE_READY路线刷新；偏航停车由终端R触发）"
+    )
     try:
         while args.duration == 0 or time.monotonic() - started < args.duration:
             if not wait_for_connection():
@@ -623,13 +1021,15 @@ def main():
             batch_started = time.monotonic()
             batch += 1
             drain_commands()
+            drain_reroute_results()
+            drain_control_commands()
             for vehicle in vehicles:
-                if vehicle["anomaly_ticks"] > 0:
-                    vehicle["anomaly_ticks"] -= 1
-                    if vehicle["anomaly_ticks"] == 0:
-                        vehicle["anomaly"] = None
-                        vehicle["speed_kmh"] = rng.uniform(20, 45)
-                elif batch == 1 and vehicle["vehicle_id"] == "sim_000" and args.demo_anomaly:
+                if vehicle["anomaly_ticks"] != 0:
+                    if vehicle["anomaly_ticks"] > 0:
+                        vehicle["anomaly_ticks"] -= 1
+                        if vehicle["anomaly_ticks"] == 0:
+                            finish_anomaly(vehicle)
+                elif batch == 1 and vehicle is vehicles[0] and args.demo_anomaly:
                     demo_types = {
                         "stop": "异常停留",
                         "drift": "偏航",
@@ -644,30 +1044,60 @@ def main():
 
                 if vehicle.get("route_complete"):
                     vehicle["speed_kmh"] = 0.0
-                elif vehicle["anomaly"] != "异常停留":
+                elif (not vehicle.get("door_open")
+                      and vehicle["anomaly"] != "异常停留"
+                      and not vehicle.get("reroute_pending")
+                      and not vehicle.get("reroute_hold")):
                     vehicle["speed_kmh"] = min(70, max(5, vehicle["speed_kmh"] + rng.uniform(-2, 2)))
                     distance_m = vehicle["speed_kmh"] / 3.6 * args.interval
-                    vehicle_route = vehicle.get("route_points")
-                    if vehicle_route:
-                        advance_on_route(vehicle, vehicle_route, distance_m)
-                    else:
-                        if vehicle["anomaly"] != "偏航":
-                            vehicle["heading"] = (vehicle["heading"] + rng.uniform(-4, 4)) % 360
-                        vehicle["lat"], vehicle["lon"] = move_point(
-                            vehicle["lat"], vehicle["lon"], distance_m, vehicle["heading"]
-                        )
+                    advance_vehicle_position(vehicle, distance_m, rng)
 
-                publish(f"vehicle/{vehicle['vehicle_id']}/gps", {
-                    "schema_version": "1.0",
-                    "vehicle_id": vehicle["vehicle_id"],
-                    "timestamp": now_iso(),
-                    "lat": round(vehicle["lat"], 6),
-                    "lon": round(vehicle["lon"], 6),
-                    "speed_kmh": round(vehicle["speed_kmh"], 1),
-                    "heading": round(vehicle["heading"], 1),
-                    "transport_status": vehicle["transport_status"],
-                    "coordinate_system": "WGS84",
-                })
+                gps_timestamp = now_iso()
+                anchor = None
+                if vehicle.get("reroute_state") == "ANCHOR_PENDING":
+                    gps_payload, anchor = build_reroute_anchor(
+                        vehicle, gps_timestamp
+                    )
+                else:
+                    gps_payload = {
+                        "schema_version": "1.0",
+                        "vehicle_id": vehicle["vehicle_id"],
+                        "timestamp": gps_timestamp,
+                        "lat": round(vehicle["lat"], 6),
+                        "lon": round(vehicle["lon"], 6),
+                        "speed_kmh": round(vehicle["speed_kmh"], 1),
+                        "heading": round(vehicle["heading"], 1),
+                        "transport_status": vehicle["transport_status"],
+                        "coordinate_system": "WGS84",
+                    }
+                gps_info = publish(
+                    f"vehicle/{vehicle['vehicle_id']}/gps", gps_payload
+                )
+                if anchor is not None:
+                    gps_info.wait_for_publish(timeout=5)
+                    vehicle["reroute_anchor"] = anchor
+                    vehicle["reroute_state"] = "WAIT_INGEST"
+                    vehicle["reroute_request_at"] = (
+                        time.monotonic() + args.reroute_ingest_wait
+                    )
+                    print(
+                        f"[REROUTE][ANCHOR_PUBLISHED] "
+                        f"vehicle={vehicle['vehicle_id']} "
+                        f"lon={anchor['longitude']} lat={anchor['latitude']} "
+                        f"positionAt={anchor['positionAt']}；"
+                        f"等待{args.reroute_ingest_wait:.1f}s后请求重规划"
+                    )
+
+                maybe_request_reroute(vehicle)
+                pending_recovery = vehicle.get("recovery_after_gps")
+                if pending_recovery:
+                    gps_info.wait_for_publish(timeout=5)
+                    if publish_alert_recovery(vehicle, pending_recovery):
+                        vehicle["recovery_after_gps"] = None
+                        print(
+                            f"[REROUTE][RECOVERED] vehicle={vehicle['vehicle_id']} "
+                            "新路线GPS已发布，recovery已发布"
+                        )
 
             print(f"[批次 {batch}] 已发布 {args.vehicles} 条 GPS，累计告警 {alert_count}")
             remaining = args.interval - (time.monotonic() - batch_started)
@@ -698,7 +1128,8 @@ def main():
 
     elapsed = time.monotonic() - started
     print(
-        f"[完成] 运行 {elapsed:.1f}s，共发布 {published} 条消息、{alert_count} 条告警，"
+        f"[完成] 运行 {elapsed:.1f}s，共发布 {published} 条消息、"
+        f"{alert_count} 条告警、{recovery_count} 条恢复，"
         f"执行指令 {command_count} 条、失败 {command_failure_count} 条"
     )
     if args.output:

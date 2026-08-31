@@ -313,7 +313,7 @@ Ctrl+C
 ```text
 业务后端：http://111.170.148.177:58080
 用户名：eta_service
-密码：shenyuxueshenyuxue
+密码：<请向业务后端负责人获取>
 角色：DISPATCHER
 ```
 
@@ -324,7 +324,7 @@ $apiBase = 'http://111.170.148.177:58080'
 
 $loginBody = @{
     username = 'eta_service'
-    password = 'shenyuxueshenyuxue'
+    password = '<业务后端密码>'
 } | ConvertTo-Json
 
 $response = Invoke-RestMethod `
@@ -563,7 +563,7 @@ $taskId = 9
 
 $loginBody = @{
     username = 'eta_service'
-    password = 'shenyuxueshenyuxue'
+    password = '<业务后端密码>'
 } | ConvertTo-Json
 
 $login = Invoke-RestMethod `
@@ -693,7 +693,7 @@ while ($true) {
 Set-Location -LiteralPath 'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
 
 .\tools\start_task_gps_fallback.ps1 `
-    -BusinessPassword 'shenyuxueshenyuxue' `
+    -BusinessPassword '<业务后端密码>' `
     -DryRun `
     -Once
 ```
@@ -716,7 +716,7 @@ Set-Location -LiteralPath 'D:\软综实训\5个课题选题\重庆交通大学\�
 Set-Location -LiteralPath 'D:\软综实训\5个课题选题\重庆交通大学\智慧物流'
 
 .\tools\start_task_gps_fallback.ps1 `
-    -BusinessPassword 'shenyuxueshenyuxue'
+    -BusinessPassword '<业务后端密码>'
 ```
 
 保持这个 PowerShell 窗口开启。发现需要模拟的任务时会显示：
@@ -761,7 +761,7 @@ Get-Content -Wait -Tail 30 `
 
 ```powershell
 .\tools\start_task_gps_fallback.ps1 `
-    -BusinessPassword 'shenyuxueshenyuxue' `
+    -BusinessPassword '<业务后端密码>' `
     -PollSeconds 1 `
     -FreshGpsSeconds 15
 ```
@@ -775,3 +775,76 @@ Get-Content -Wait -Tail 30 `
 ```
 
 后续扫描不会每 2 秒重复输出相同信息；任务条件变化后会重新判断。
+
+## 自动兜底脚本注入异常告警
+
+默认关闭异常，正常运行方式不变。需要每个新启动的模拟任务只注入一次异常开箱时：
+
+```powershell
+.\tools\start_task_gps_fallback.ps1 `
+    -BusinessPassword '<业务后端密码>' `
+    -DemoAnomaly Open
+```
+
+`-DemoAnomaly` 还支持 `Stop`、`Drift` 和默认的 `None`。需要随机注入三类异常时：
+
+```powershell
+.\tools\start_task_gps_fallback.ps1 `
+    -BusinessPassword '<业务后端密码>' `
+    -AnomalyRate 0.001
+```
+
+默认 `-AlertMode Precomputed` 会向 `iot/carla/alert` 发布标准告警消息。异常开箱没有 GPS 原始特征，所以不能与 `-AlertMode Raw` 同时使用。实时后端负责把 MQTT 中文告警类型映射为 Alarm 枚举并写入 MySQL；模拟器不直接修改业务实体。若兜底脚本已经运行，需要先按 `Ctrl+C` 停止并用新参数重新启动。
+
+### 运行时按键注入异常
+
+普通启动兜底脚本后，让焦点停留在 PowerShell 窗口，直接按键即可，无需回车：
+
+- `O`：当前全部兜底模拟车异常开箱并持续停车；
+- `C`：当前全部兜底模拟车关箱并恢复；
+- `S`：当前全部兜底模拟车持续异常停留；
+- `R`：恢复异常停留；若当前为偏航，则先停车发布锚点 GPS，再请求业务后端重规划；
+- `D`：当前兜底模拟车各注入一次路线偏离；
+- `T`：进入指定车辆命令模式；
+- `H`：显示快捷键帮助；
+- `Ctrl+C`：停止脚本。
+
+实际数据效果：`D` 会让车辆转开约 60~120 度并持续偏离。偏航状态按 `R` 后不会追赶旧路线，而是立即停车并锁定当前位置，先发布速度为 0 的锚点 GPS，默认等待 2 秒供后端写入 InfluxDB，再请求业务后端从当前位置规划到任务终点；新 ACTIVE 路线加载成功后才继续行驶。`S` 会保持速度 0 和相同坐标直到按 `R`；`O` 会发布开箱告警并停车，直到按 `C`。
+
+终端显示 `[ALERT][CONTROL]` 表示指令已经交给对应 publisher；若同时有多辆兜底模拟车，会对所有这些车辆注入一次，真实 GPS 设备不受影响。
+
+只控制指定车辆时先按 `T`，再按提示输入 `O sim_001`、`C sim_001`、`S sim_002`、`R sim_002` 或 `D sim_002` 并回车。
+
+### 告警恢复 MQTT
+
+默认 `Precomputed` 模式会为每辆车缓存当前 ACTIVE 异常的原始 `triggered_at`，同一异常恢复前不会重复触发。执行 `C sim_001` 或 `R sim_002` 时，模拟器恢复车辆数据并向 `iot/carla/alert/recovery` 发布 QoS 1、retain=false 的恢复消息，字段包括相同的 `vehicle_id`、相同的 `alert_type`、逐字符复用的原始 `triggered_at`、新的 `recovered_at`、`condition_status=RECOVERED` 和 `source=device`。
+
+成功日志为 `[RECOVERY][PUBLISHED]`；没有对应 ACTIVE 异常时为 `[RECOVERY][SKIP]`，不会重复发送。`Raw` 模式没有由模拟器保存的正式告警触发时间，因此不用于精确 recovery 联调。
+
+### 偏航停车、锚点 GPS 与重新规划
+
+偏航恢复的固定顺序如下：
+
+```text
+D 触发偏航
+→ 你在模拟器终端按 R
+→ 模拟器立即 speed_kmh=0 并锁定当前位置
+→ 发布一条 WGS84 锚点 GPS
+→ 默认等待 2 秒，期间继续发布相同坐标的停车 GPS
+→ POST /api/v1/transport-tasks/{taskId}/routes/replan-from-latest-location
+→ 加载后端返回的新 ACTIVE 路线
+→ 沿新路线发布一条正常 GPS
+→ 发布偏航 RECOVERED
+```
+
+锚点成功时终端会显示：
+
+```text
+[REROUTE][ANCHOR_PUBLISHED] vehicle=sim_019 lon=... lat=... positionAt=...；等待2.0s后请求重规划
+```
+
+重规划请求同时携带 `vehicleDeviceCode / longitude / latitude / coordinateSystem=WGS84 / positionAt`，用于业务后端验证从 InfluxDB 读取的最新位置不早于锚点。MQTT PUBACK 只能证明 Broker 已收到消息，不能单独证明 InfluxDB 已完成写入，因此业务后端仍应检查最新 GPS 的时间和坐标；未读到锚点时应短暂重试，而不是使用旧位置规划。
+
+业务后端不发布停车指令，也不能通过 MQTT 触发偏航恢复。`iot/carla/vehicle/{vehicleDeviceCode}/command` 仍只接受 `TASK_ROUTE_READY`，用于通知模拟器刷新一条已经由后端激活的新路线。
+
+重规划失败时车辆保持停车、偏航条件保持 ACTIVE，不发布 RECOVERED；修复后再次按 `R` 即可重试。异常停留和异常开箱不调用重规划接口，原有恢复逻辑不变。

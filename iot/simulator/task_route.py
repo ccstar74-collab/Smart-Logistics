@@ -54,14 +54,20 @@ def parse_task_route(payload):
         route.get("referenceDurationSeconds"), "referenceDurationSeconds"
     )
     points = parse_route_points(route.get("points"), coordinate_system)
+    route_id = route.get("routeId")
+    if not isinstance(route_id, str) or not route_id.strip():
+        route_id = f"TASK_{task_id}_{generated_at.strip()}"
+    raw_version = route.get("routeVersion", 1)
+    route_version = _positive_integer(raw_version, "routeVersion")
+    route_status = str(route.get("routeStatus") or "READY").upper()
+    if route_status not in {"READY", "ACTIVE"}:
+        raise ValueError("planned-route.routeStatus必须为READY或ACTIVE")
 
-    # ETA 当前按任务和起终点缓存路线，没有业务 routeId/routeVersion。
-    # generatedAt 可稳定区分同一任务重新规划出的新路线。
     return {
         "task_id": task_id,
-        "route_id": f"TASK_{task_id}_{generated_at.strip()}",
-        "route_version": 1,
-        "route_status": "READY",
+        "route_id": route_id.strip(),
+        "route_version": route_version,
+        "route_status": route_status,
         "vehicle_id": vehicle_code.strip(),
         "coordinate_system": coordinate_system,
         "total_distance_meters": distance_meters,
@@ -96,4 +102,45 @@ def fetch_task_route(api_base, task_id, token=None, timeout=15):
     parsed = parse_task_route(payload)
     if parsed["task_id"] != int(task_id):
         raise ValueError("planned-route返回的taskId与请求不一致")
+    return parsed
+
+
+def replan_task_route(api_base, task_id, token=None, position=None, timeout=30):
+    """Ask the business backend to plan current WGS84 GPS -> task destination."""
+    base = api_base.rstrip("/")
+    task_id = _positive_integer(task_id, "taskId")
+    if base.endswith("/api/v1"):
+        route_url = (
+            f"{base}/transport-tasks/{task_id}"
+            "/routes/replan-from-latest-location"
+        )
+    else:
+        route_url = (
+            f"{base}/api/v1/transport-tasks/{task_id}"
+            "/routes/replan-from-latest-location"
+        )
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "smart-logistics-demo/1.0",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    body = position if isinstance(position, dict) else {}
+    request = urllib.request.Request(
+        route_url,
+        data=json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(
+            f"请求偏航重规划接口失败：{type(exc).__name__}"
+        ) from exc
+    parsed = parse_task_route(payload)
+    if parsed["task_id"] != task_id:
+        raise ValueError("重规划接口返回的taskId与请求不一致")
     return parsed

@@ -21,7 +21,7 @@
     },
     "alert_type": {
       "type": "string",
-      "enum": ["异常开箱"]
+      "enum": ["偏航", "异常停留", "异常开箱"]
     },
     "condition_status": { "const": "RECOVERED" },
     "triggered_at": { "type": "string", "format": "date-time" },

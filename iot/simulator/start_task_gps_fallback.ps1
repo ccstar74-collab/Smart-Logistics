@@ -4,6 +4,12 @@ param(
     [string]$BusinessPassword = $env:SMART_LOGISTICS_API_PASSWORD,
     [double]$PollSeconds = 2,
     [double]$FreshGpsSeconds = 10,
+    [ValidateRange(0, 1)]
+    [double]$AnomalyRate = 0,
+    [ValidateSet('None', 'Stop', 'Drift', 'Open')]
+    [string]$DemoAnomaly = 'None',
+    [ValidateSet('Precomputed', 'Raw')]
+    [string]$AlertMode = 'Precomputed',
     [switch]$DryRun,
     [switch]$Once
 )
@@ -33,7 +39,15 @@ $arguments = @(
     $PollSeconds
     '--fresh-gps-seconds'
     $FreshGpsSeconds
+    '--anomaly-rate'
+    $AnomalyRate
+    '--alert-mode'
+    $AlertMode.ToLowerInvariant()
 )
+
+if ($DemoAnomaly -ne 'None') {
+    $arguments += @('--demo-anomaly', $DemoAnomaly.ToLowerInvariant())
+}
 
 if ($DryRun) {
     $arguments += '--dry-run'

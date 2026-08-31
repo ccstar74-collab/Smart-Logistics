@@ -67,6 +67,7 @@ class FakeProcess:
         self.pid = 1234
         self.returncode = None
         self.terminated = False
+        self.stdin = FakeStdin()
 
     def poll(self):
         return self.returncode
@@ -82,6 +83,21 @@ class FakeProcess:
         self.returncode = -9
 
 
+class FakeStdin:
+    def __init__(self):
+        self.values = []
+        self.closed = False
+
+    def write(self, value):
+        self.values.append(value)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
 class TaskGpsFallbackTest(unittest.TestCase):
     def test_only_transporting_tasks_are_selected(self):
         selected = select_transporting_tasks(
@@ -92,6 +108,7 @@ class TaskGpsFallbackTest(unittest.TestCase):
     def test_sim_start_index(self):
         self.assertEqual(19, sim_start_index("sim_019"))
         self.assertIsNone(sim_start_index("real_001"))
+        self.assertIsNone(sim_start_index("sim_1000"))
 
     def test_fresh_location_is_detected(self):
         now = dt.datetime(2026, 8, 27, 2, 0, tzinfo=dt.timezone.utc)
@@ -168,6 +185,56 @@ class TaskGpsFallbackTest(unittest.TestCase):
             self.assertEqual("19", command[command.index("--vehicle-start-index") + 1])
             manager.stop_all()
         self.assertTrue(fake_process.terminated)
+
+    def test_anomaly_options_are_forwarded_to_task_publisher(self):
+        client = FakeClient([task()], latest=None)
+        fake_process = FakeProcess()
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "task_gps_fallback.subprocess.Popen", return_value=fake_process
+        ) as popen:
+            manager = FallbackManager(
+                client,
+                SIMULATOR_DIR / "mqtt_data_generator.py",
+                pathlib.Path(directory) / "mqtt.env",
+                pathlib.Path(directory) / "runtime",
+                anomaly_rate=0.001,
+                demo_anomaly="open",
+                alert_mode="precomputed",
+            )
+            manager.reconcile()
+            command = popen.call_args.args[0]
+            self.assertEqual("0.001", command[command.index("--anomaly-rate") + 1])
+            self.assertEqual("open", command[command.index("--demo-anomaly") + 1])
+            self.assertEqual(
+                "precomputed", command[command.index("--alert-mode") + 1]
+            )
+            manager.stop_all()
+
+    def test_runtime_anomaly_is_sent_to_running_publisher(self):
+        client = FakeClient([task()], latest=None)
+        fake_process = FakeProcess()
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "task_gps_fallback.subprocess.Popen", return_value=fake_process
+        ):
+            manager = FallbackManager(
+                client,
+                SIMULATOR_DIR / "mqtt_data_generator.py",
+                pathlib.Path(directory) / "mqtt.env",
+                pathlib.Path(directory) / "runtime",
+            )
+            manager.reconcile()
+            self.assertEqual([], manager.inject_anomaly("stop", "sim_999"))
+            self.assertEqual(["sim_019"], manager.inject_anomaly("open"))
+            self.assertEqual(["sim_019"], manager.inject_anomaly("close"))
+            self.assertEqual(
+                ["sim_019"], manager.inject_anomaly("stop", "sim_019")
+            )
+            self.assertEqual(["sim_019"], manager.inject_anomaly("resume"))
+            self.assertEqual(
+                ["open\n", "close\n", "stop\n", "resume\n"],
+                fake_process.stdin.values,
+            )
+            manager.stop_all()
 
 
 if __name__ == "__main__":

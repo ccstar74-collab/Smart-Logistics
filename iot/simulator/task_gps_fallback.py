@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from task_route import parse_task_route
 
 
-SIM_CODE_PATTERN = re.compile(r"^sim_(\d+)$")
+SIM_CODE_PATTERN = re.compile(r"^sim_(\d{3})$")
 TERMINAL_STATUSES = {"COMPLETED", "CANCELLED"}
 
 
@@ -246,13 +246,17 @@ class ManagedPublisher:
 
 class FallbackManager:
     def __init__(self, client, simulator_path, mqtt_credentials, runtime_dir,
-                 freshness_seconds=10, interval=1.0, dry_run=False):
+                 freshness_seconds=10, interval=1.0, anomaly_rate=0.0,
+                 demo_anomaly=None, alert_mode="precomputed", dry_run=False):
         self.client = client
         self.simulator_path = pathlib.Path(simulator_path).resolve()
         self.mqtt_credentials = pathlib.Path(mqtt_credentials).resolve()
         self.runtime_dir = pathlib.Path(runtime_dir).resolve()
         self.freshness_seconds = freshness_seconds
         self.interval = interval
+        self.anomaly_rate = anomaly_rate
+        self.demo_anomaly = demo_anomaly
+        self.alert_mode = alert_mode
         self.dry_run = dry_run
         self.publishers = {}
         self.last_task_messages = {}
@@ -378,10 +382,15 @@ class FallbackManager:
             "--interval",
             str(self.interval),
             "--anomaly-rate",
-            "0",
+            str(self.anomaly_rate),
+            "--alert-mode",
+            self.alert_mode,
+            "--control-stdin",
             "--output",
             str(output_path),
         ]
+        if self.demo_anomaly:
+            command.extend(["--demo-anomaly", self.demo_anomaly])
         creation_flags = 0
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -390,8 +399,11 @@ class FallbackManager:
                 command,
                 cwd=str(self.simulator_path.parent),
                 env=child_env,
+                stdin=subprocess.PIPE,
                 stdout=stdout_handle,
                 stderr=stderr_handle,
+                text=True,
+                encoding="utf-8",
                 creationflags=creation_flags,
             )
         except Exception:
@@ -411,11 +423,47 @@ class FallbackManager:
             f"points={len(route['points'])} log={stdout_path}"
         )
 
+    def inject_anomaly(self, anomaly_type, vehicle_code=None):
+        if anomaly_type not in {"stop", "drift", "open", "close", "resume"}:
+            raise ValueError(f"不支持的异常控制指令：{anomaly_type}")
+        injected = []
+        for publisher in list(self.publishers.values()):
+            if vehicle_code and publisher.vehicle_code != vehicle_code:
+                continue
+            process = publisher.process
+            if process.poll() is not None or process.stdin is None:
+                continue
+            try:
+                process.stdin.write(anomaly_type + "\n")
+                process.stdin.flush()
+                injected.append(publisher.vehicle_code)
+            except (BrokenPipeError, OSError, ValueError):
+                continue
+        if injected:
+            print(
+                f"[ALERT][CONTROL] type={anomaly_type} vehicles={','.join(injected)}"
+            )
+        else:
+            target = f" vehicle={vehicle_code}" if vehicle_code else ""
+            managed = ",".join(
+                sorted(publisher.vehicle_code for publisher in self.publishers.values())
+            ) or "-"
+            print(
+                f"[ALERT][SKIP]{target} 当前没有可控制的目标；"
+                f"本脚本车辆={managed}"
+            )
+        return injected
+
     def stop_publisher(self, task_id, reason):
         publisher = self.publishers.pop(task_id, None)
         if publisher is None:
             return
         process = publisher.process
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
         if process.poll() is None:
             process.terminate()
             try:
@@ -449,10 +497,76 @@ def build_parser():
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--fresh-gps-seconds", type=float, default=10.0)
     parser.add_argument("--gps-interval", type=float, default=1.0)
+    parser.add_argument(
+        "--anomaly-rate",
+        type=float,
+        default=0.0,
+        help="每辆模拟车每批随机注入异常的概率；默认0表示关闭",
+    )
+    parser.add_argument(
+        "--demo-anomaly",
+        choices=("stop", "drift", "open"),
+        help="每个新启动的任务发布器在首批只注入一次指定异常",
+    )
+    parser.add_argument(
+        "--alert-mode",
+        choices=("precomputed", "raw"),
+        default="precomputed",
+        help="precomputed直接发标准告警；raw仅制造可由实时后端检测的GPS异常",
+    )
     parser.add_argument("--runtime-dir", type=pathlib.Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true", help="只扫描一次后退出")
     return parser
+
+
+def process_console_hotkeys(manager):
+    if os.name != "nt" or not sys.stdin.isatty():
+        return
+    import msvcrt
+
+    key_to_anomaly = {
+        "o": "open",
+        "c": "close",
+        "s": "stop",
+        "r": "resume",
+        "d": "drift",
+    }
+    while msvcrt.kbhit():
+        key = msvcrt.getwch().lower()
+        anomaly_type = key_to_anomaly.get(key)
+        if anomaly_type:
+            manager.inject_anomaly(anomaly_type)
+        elif key == "t":
+            process_target_console_command(manager)
+        elif key == "h":
+            print("[HOTKEY] O=全车开箱 C=全车关箱 S=全车停留 R=全车恢复 D=全车偏航 T=指定车辆 H=帮助 Ctrl+C=停止")
+
+
+def process_target_console_command(manager):
+    try:
+        raw = input(
+            "\n[TARGET] 输入命令，例如 S sim_002、O sim_001、R sim_002："
+        ).strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n[TARGET] 已取消")
+        return
+    parts = raw.split()
+    actions = {
+        "o": "open",
+        "c": "close",
+        "s": "stop",
+        "r": "resume",
+        "d": "drift",
+    }
+    if len(parts) != 2 or parts[0].lower() not in actions:
+        print("[TARGET][ERROR] 格式应为：O|C|S|R|D sim_000~sim_999")
+        return
+    vehicle_code = parts[1].lower()
+    if SIM_CODE_PATTERN.fullmatch(vehicle_code) is None:
+        print("[TARGET][ERROR] 车辆编号格式应为sim_000~sim_999")
+        return
+    manager.inject_anomaly(actions[parts[0].lower()], vehicle_code=vehicle_code)
 
 
 def main():
@@ -464,6 +578,10 @@ def main():
         parser.error("--fresh-gps-seconds不能小于0")
     if args.gps_interval <= 0:
         parser.error("--gps-interval必须大于0")
+    if not 0 <= args.anomaly_rate <= 1:
+        parser.error("--anomaly-rate必须在0到1之间")
+    if args.demo_anomaly == "open" and args.alert_mode == "raw":
+        parser.error("异常开箱没有GPS原始特征，必须使用--alert-mode precomputed")
     password = os.environ.get(args.business_password_env)
     if not password:
         parser.error(f"环境变量{args.business_password_env}未设置")
@@ -484,13 +602,20 @@ def main():
         runtime_dir,
         freshness_seconds=args.fresh_gps_seconds,
         interval=args.gps_interval,
+        anomaly_rate=args.anomaly_rate,
+        demo_anomaly=args.demo_anomaly,
+        alert_mode=args.alert_mode,
         dry_run=args.dry_run,
     )
     lock_path = runtime_dir / "task-gps-fallback.lock"
     print(
         f"[READY] 后端={args.business_api_base} poll={args.poll_seconds}s "
-        f"freshGPS={args.fresh_gps_seconds}s；只读任务，不修改状态"
+        f"freshGPS={args.fresh_gps_seconds}s anomalyRate={args.anomaly_rate} "
+        f"demoAnomaly={args.demo_anomaly or '-'} alertMode={args.alert_mode}；"
+        "只读任务，不修改状态"
     )
+    if os.name == "nt" and sys.stdin.isatty():
+        print("[HOTKEY] O=全车开箱 C=全车关箱 S=全车停留 R=全车恢复 D=全车偏航 T=指定车辆 H=帮助 Ctrl+C=停止")
     try:
         with SingleInstanceLock(lock_path):
             last_summary = None
@@ -510,7 +635,10 @@ def main():
                     print(f"[ERROR] 本轮扫描失败：{type(exc).__name__}: {exc}")
                     if args.once:
                         break
-                time.sleep(args.poll_seconds)
+                deadline = time.monotonic() + args.poll_seconds
+                while time.monotonic() < deadline:
+                    process_console_hotkeys(manager)
+                    time.sleep(min(0.1, max(0, deadline - time.monotonic())))
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] 正在停止本脚本启动的模拟器...")
     finally:
