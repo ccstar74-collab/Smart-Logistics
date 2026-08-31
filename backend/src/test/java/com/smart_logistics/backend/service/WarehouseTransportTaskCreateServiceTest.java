@@ -120,7 +120,7 @@ class WarehouseTransportTaskCreateServiceTest {
     }
 
     @Test
-    void confirmsDecisionAndCreatesTaskFromPersistedCandidateWithoutCallingProvider() {
+    void confirmsSingleCandidateDecisionAndCreatesUniqueInitialRoute() {
         TransportTaskResponse actual = service.createTransportTask(request(), "confirm-key");
 
         assertSame(expectedResponse, actual);

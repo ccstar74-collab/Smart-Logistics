@@ -8,6 +8,7 @@ import com.smart_logistics.backend.dto.request.InitialRouteDecisionCreateRequest
 import com.smart_logistics.backend.dto.response.InitialRouteCandidateResponse;
 import com.smart_logistics.backend.dto.response.InitialRouteDecisionResponse;
 import com.smart_logistics.backend.enums.InitialRouteDecisionStatus;
+import com.smart_logistics.backend.enums.InitialRouteDegradationReason;
 import com.smart_logistics.backend.enums.InitialRoutePlanningMode;
 import com.smart_logistics.backend.enums.InitialRoutePlanningResult;
 import com.smart_logistics.backend.enums.RecommendationSource;
@@ -70,6 +71,14 @@ class InitialRouteDecisionControllerTest {
                 .andExpect(jsonPath("$.data.status").value("PENDING"))
                 .andExpect(jsonPath("$.data.planningMode")
                         .value("INITIAL_MULTI_OBJECTIVE"))
+                .andExpect(jsonPath("$.data.planningResult")
+                        .value("MULTI_ROUTE"))
+                .andExpect(jsonPath("$.data.candidateCount").value(1))
+                .andExpect(jsonPath("$.data.degraded").value(true))
+                .andExpect(jsonPath("$.data.degradedReason")
+                        .value("SHORT_DISTANCE_SINGLE_ROUTE"))
+                .andExpect(jsonPath("$.data.recommendationSource")
+                        .value("SINGLE_ROUTE"))
                 .andExpect(jsonPath("$.data.recommendedRouteId")
                         .value("preview-route-1"))
                 .andExpect(jsonPath("$.data.routes[0].rank").value(1))
@@ -84,6 +93,9 @@ class InitialRouteDecisionControllerTest {
 
         mockMvc.perform(get("/api/v1/initial-route-decisions/decision-1"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidateCount").value(1))
+                .andExpect(jsonPath("$.data.degraded").value(true))
+                .andExpect(jsonPath("$.data.degradedMessage").isNotEmpty())
                 .andExpect(jsonPath("$.data.routes.length()").value(1));
 
         verify(decisionService).getDecision("decision-1");
@@ -142,8 +154,11 @@ class InitialRouteDecisionControllerTest {
                 "decision-1", InitialRouteDecisionStatus.PENDING,
                 InitialRoutePlanningMode.INITIAL_MULTI_OBJECTIVE,
                 InitialRoutePlanningResult.MULTI_ROUTE,
+                1, true,
+                InitialRouteDegradationReason.SHORT_DISTANCE_SINGLE_ROUTE,
+                InitialRouteDegradationReason.SHORT_DISTANCE_SINGLE_ROUTE.message(),
                 start, destination, "preview-route-1", null,
-                "initial-route-score-v1", RecommendationSource.RULE_FALLBACK,
+                "initial-route-score-v1", RecommendationSource.SINGLE_ROUTE,
                 now, now.plusMinutes(5), null, null, weather,
                 List.of(route), "综合评分推荐候选路线 A。");
     }

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smart_logistics.backend.dto.InitialRouteLocationSnapshot;
 import com.smart_logistics.backend.dto.InitialRouteScoreDetails;
@@ -17,6 +18,7 @@ import com.smart_logistics.backend.entity.InitialRouteCandidate;
 import com.smart_logistics.backend.entity.InitialRouteDecision;
 import com.smart_logistics.backend.entity.Warehouse;
 import com.smart_logistics.backend.enums.InitialRouteDecisionStatus;
+import com.smart_logistics.backend.enums.InitialRouteDegradationReason;
 import com.smart_logistics.backend.enums.InitialRoutePlanningMode;
 import com.smart_logistics.backend.enums.InitialRoutePlanningResult;
 import com.smart_logistics.backend.enums.RecommendationSource;
@@ -47,6 +49,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -130,19 +133,24 @@ public class InitialRouteDecisionService {
         requireDifferentCoordinates(warehouse.getLongitude(), warehouse.getLatitude(),
                 request.getEndLongitude(), request.getEndLatitude());
 
-        List<InitialRouteCandidateGenerator.GeneratedInitialRoute> generated =
+        InitialRouteCandidateGenerator.GenerationResult generation =
                 candidateGenerator.generate(
                         warehouse.getLongitude(), warehouse.getLatitude(),
                         request.getEndLongitude(), request.getEndLatitude(),
                         request.getCandidateCount());
+        List<InitialRouteCandidateGenerator.GeneratedInitialRoute> generated =
+                generation.routes();
         WeatherSnapshot weather = destinationWeather(
                 request.getEndLongitude(), request.getEndLatitude());
         List<InitialRouteScoringService.ScoredInitialRoute> scored =
                 scoringService.score(generated, weather);
 
         String decisionId = "ird_" + UUID.randomUUID().toString().replace("-", "");
-        InitialRouteExplanationPort.ExplanationResult explanation =
-                explanationPort.explain(new InitialRouteExplanationPort.ExplanationRequest(
+        InitialRouteExplanationPort.ExplanationResult explanation = generation.degraded()
+                ? singleRouteExplanation(scored.getFirst(),
+                generation.degradationReason())
+                : explanationPort.explain(
+                new InitialRouteExplanationPort.ExplanationRequest(
                         decisionId, InitialRoutePlanningMode.INITIAL_MULTI_OBJECTIVE.name(),
                         InitialRouteScoringService.RULE_VERSION, weather, scored));
         LocalDateTime now = LocalDateTime.now(API_TIME_ZONE);
@@ -165,12 +173,8 @@ public class InitialRouteDecisionService {
         decision.setRecommendedRouteId(scored.getFirst().previewRouteId());
         decision.setScoringRuleVersion(InitialRouteScoringService.RULE_VERSION);
         decision.setRecommendationSource(explanation.source().name());
-        decision.setInputSnapshot(writeJson(Map.of(
-                "originWarehouseId", warehouse.getId(),
-                "candidateCount", request.getCandidateCount(),
-                "planningMode", request.getPlanningMode(),
-                "start", start,
-                "destination", destination)));
+        decision.setInputSnapshot(writeJson(inputSnapshot(
+                warehouse, request, start, destination, generation)));
         decision.setWeatherSnapshot(writeJson(weather));
         decision.setExplanation(explanation.explanation());
         decision.setIdempotencyKey(normalizedKey);
@@ -180,7 +184,8 @@ public class InitialRouteDecisionService {
         decision.setUpdatedAt(now);
 
         List<InitialRouteCandidate> candidates = toEntities(
-                decisionId, scored, weather, explanation.reasonsByRouteId(), now);
+                decisionId, scored, weather, explanation.reasonsByRouteId(),
+                now, generated.size());
         try {
             InitialRouteDecisionResponse response = transactionOperations.execute(status -> {
                 if (decisionMapper.insert(decision) != 1) {
@@ -229,13 +234,14 @@ public class InitialRouteDecisionService {
             List<InitialRouteScoringService.ScoredInitialRoute> scored,
             WeatherSnapshot weather,
             Map<String, List<String>> reasonsByRouteId,
-            LocalDateTime createdAt) {
+            LocalDateTime createdAt,
+            int candidateCount) {
         List<InitialRouteCandidate> candidates = new ArrayList<>();
         for (InitialRouteScoringService.ScoredInitialRoute route : scored) {
             InitialRouteCandidate candidate = new InitialRouteCandidate();
             candidate.setDecisionId(decisionId);
             candidate.setPreviewRouteId(route.previewRouteId());
-            candidate.setDisplayName(displayName(route.rank()));
+            candidate.setDisplayName(displayName(route.rank(), candidateCount));
             candidate.setProvider(PROVIDER);
             candidate.setCoordinateSystem(COORDINATE_SYSTEM);
             candidate.setDistanceMeters(route.route().distanceMeters());
@@ -283,11 +289,14 @@ public class InitialRouteDecisionService {
     private InitialRouteDecisionResponse toResponse(
             InitialRouteDecision decision,
             List<InitialRouteCandidate> candidates) {
+        DegradationMetadata degradation = degradationMetadata(decision, candidates);
         return new InitialRouteDecisionResponse(
                 decision.getDecisionId(),
                 parseStatus(decision.getStatus()),
                 InitialRoutePlanningMode.valueOf(decision.getPlanningMode()),
                 InitialRoutePlanningResult.valueOf(decision.getPlanningResult()),
+                candidates.size(), degradation.degraded(), degradation.reason(),
+                degradation.message(),
                 readJson(decision.getStartSnapshot(), InitialRouteLocationSnapshot.class),
                 readJson(decision.getDestinationSnapshot(),
                         InitialRouteLocationSnapshot.class),
@@ -384,8 +393,65 @@ public class InitialRouteDecisionService {
         return value.trim();
     }
 
-    private String displayName(int rank) {
-        return "候选路线 " + (char) ('A' + rank - 1);
+    private Map<String, Object> inputSnapshot(
+            Warehouse warehouse,
+            InitialRouteDecisionCreateRequest request,
+            InitialRouteLocationSnapshot start,
+            InitialRouteLocationSnapshot destination,
+            InitialRouteCandidateGenerator.GenerationResult generation) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("originWarehouseId", warehouse.getId());
+        snapshot.put("requestedCandidateCount", request.getCandidateCount());
+        snapshot.put("candidateCount", generation.routes().size());
+        snapshot.put("planningMode", request.getPlanningMode());
+        snapshot.put("start", start);
+        snapshot.put("destination", destination);
+        snapshot.put("degraded", generation.degraded());
+        if (generation.degraded()) {
+            snapshot.put("degradedReason", generation.degradationReason().name());
+            snapshot.put("degradedMessage", generation.degradationReason().message());
+        }
+        return snapshot;
+    }
+
+    private InitialRouteExplanationPort.ExplanationResult singleRouteExplanation(
+            InitialRouteScoringService.ScoredInitialRoute route,
+            InitialRouteDegradationReason reason) {
+        return new InitialRouteExplanationPort.ExplanationResult(
+                RecommendationSource.SINGLE_ROUTE,
+                reason.message(),
+                Map.of(route.previewRouteId(), List.of(reason.message())));
+    }
+
+    private DegradationMetadata degradationMetadata(
+            InitialRouteDecision decision,
+            List<InitialRouteCandidate> candidates) {
+        if (candidates.size() != 1) {
+            return new DegradationMetadata(false, null, null);
+        }
+        InitialRouteDegradationReason reason =
+                InitialRouteDegradationReason.ROUTE_PROVIDER_SINGLE_RESULT;
+        String message = reason.message();
+        try {
+            JsonNode input = objectMapper.readTree(decision.getInputSnapshot());
+            String storedReason = input.path("degradedReason").asText();
+            if (StringUtils.hasText(storedReason)) {
+                reason = InitialRouteDegradationReason.valueOf(storedReason);
+            }
+            String storedMessage = input.path("degradedMessage").asText();
+            message = StringUtils.hasText(storedMessage)
+                    ? storedMessage : reason.message();
+        } catch (JsonProcessingException | IllegalArgumentException
+                 | NullPointerException ignored) {
+            // Legacy single-route decisions did not persist degradation metadata.
+        }
+        return new DegradationMetadata(true, reason, message);
+    }
+
+    private String displayName(int rank, int candidateCount) {
+        return candidateCount == 1
+                ? "规划路线"
+                : "候选路线 " + (char) ('A' + rank - 1);
     }
 
     private InitialRouteDecisionStatus parseStatus(String value) {
@@ -426,5 +492,10 @@ public class InitialRouteDecisionService {
 
     private OffsetDateTime toOffsetDateTime(LocalDateTime value) {
         return value == null ? null : value.atZone(API_TIME_ZONE).toOffsetDateTime();
+    }
+
+    private record DegradationMetadata(boolean degraded,
+                                       InitialRouteDegradationReason reason,
+                                       String message) {
     }
 }

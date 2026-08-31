@@ -2,6 +2,7 @@ package com.smart_logistics.backend.service.route;
 
 import com.smart_logistics.backend.dto.TrafficSnapshot;
 import com.smart_logistics.backend.enums.TrafficLevel;
+import com.smart_logistics.backend.enums.InitialRouteDegradationReason;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.service.eta.EtaCoordinate;
@@ -41,22 +42,52 @@ class InitialRouteCandidateGeneratorTest {
         when(provider.planCandidates(106.50, 29.50, 106.60, 29.60))
                 .thenReturn(List.of(first, duplicate, second));
 
-        List<InitialRouteCandidateGenerator.GeneratedInitialRoute> actual =
+        InitialRouteCandidateGenerator.GenerationResult result =
                 generator.generate(106.50, 29.50, 106.60, 29.60, 3);
+        List<InitialRouteCandidateGenerator.GeneratedInitialRoute> actual =
+                result.routes();
 
         assertEquals(2, actual.size());
+        assertEquals(false, result.degraded());
         assertEquals(TrafficLevel.FREE_FLOW, actual.getFirst().trafficLevel());
         assertNotEquals(actual.get(0).previewRouteId(), actual.get(1).previewRouteId());
         assertEquals(actual.getFirst().previewRouteId(),
                 generator.generate(106.50, 29.50, 106.60, 29.60, 3)
-                        .getFirst().previewRouteId());
+                        .routes().getFirst().previewRouteId());
     }
 
     @Test
-    void rejectsProviderResultWithFewerThanTwoDistinctRoutes() {
+    void acceptsShortSingleRouteAsDegradedResult() {
         EtaPlannedRoute route = route(1_000, 100, 29.50);
         when(provider.planCandidates(106.50, 29.50, 106.60, 29.60))
                 .thenReturn(List.of(route, route));
+
+        InitialRouteCandidateGenerator.GenerationResult result =
+                generator.generate(106.50, 29.50, 106.60, 29.60, 3);
+
+        assertEquals(1, result.routes().size());
+        assertEquals(true, result.degraded());
+        assertEquals(InitialRouteDegradationReason.SHORT_DISTANCE_SINGLE_ROUTE,
+                result.degradationReason());
+    }
+
+    @Test
+    void identifiesProviderSingleResultForLongRoute() {
+        EtaPlannedRoute route = route(9_000, 900, 29.50);
+        when(provider.planCandidates(106.50, 29.50, 106.60, 29.60))
+                .thenReturn(List.of(route));
+
+        InitialRouteCandidateGenerator.GenerationResult result =
+                generator.generate(106.50, 29.50, 106.60, 29.60, 3);
+
+        assertEquals(InitialRouteDegradationReason.ROUTE_PROVIDER_SINGLE_RESULT,
+                result.degradationReason());
+    }
+
+    @Test
+    void stillRejectsProviderResultWithNoRoute() {
+        when(provider.planCandidates(106.50, 29.50, 106.60, 29.60))
+                .thenReturn(List.of());
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> generator.generate(106.50, 29.50, 106.60, 29.60, 3));

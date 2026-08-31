@@ -1,6 +1,7 @@
 package com.smart_logistics.backend.service.route;
 
 import com.smart_logistics.backend.enums.TrafficLevel;
+import com.smart_logistics.backend.enums.InitialRouteDegradationReason;
 import com.smart_logistics.backend.exception.BusinessException;
 import com.smart_logistics.backend.exception.ErrorCode;
 import com.smart_logistics.backend.service.eta.EtaCoordinate;
@@ -21,6 +22,7 @@ public class InitialRouteCandidateGenerator {
 
     private static final int MINIMUM_CANDIDATE_COUNT = 2;
     private static final int MAXIMUM_CANDIDATE_COUNT = 3;
+    private static final long SHORT_DISTANCE_METERS = 5_000;
     private static final int SIMILARITY_SAMPLE_COUNT = 20;
     private static final double SIMILAR_POINT_DISTANCE_METERS = 50.0;
     private static final double SIMILARITY_THRESHOLD = 0.95;
@@ -35,7 +37,7 @@ public class InitialRouteCandidateGenerator {
         this.trafficLevelClassifier = trafficLevelClassifier;
     }
 
-    public List<GeneratedInitialRoute> generate(
+    public GenerationResult generate(
             double startLongitude, double startLatitude,
             double endLongitude, double endLatitude,
             int candidateCount) {
@@ -60,6 +62,11 @@ public class InitialRouteCandidateGenerator {
                             + exception.getMessage());
         }
 
+        if (providerRoutes == null || providerRoutes.isEmpty()) {
+            throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
+                    "route provider returned no usable candidate");
+        }
+
         List<EtaPlannedRoute> distinct = new ArrayList<>();
         for (EtaPlannedRoute route : providerRoutes) {
             if (distinct.stream().noneMatch(existing -> sameRoute(existing, route))) {
@@ -69,16 +76,25 @@ public class InitialRouteCandidateGenerator {
                 break;
             }
         }
-        if (distinct.size() < MINIMUM_CANDIDATE_COUNT) {
-            throw new BusinessException(ErrorCode.REALTIME_PROVIDER_UNAVAILABLE,
-                    "route provider returned fewer than two distinct candidates");
-        }
-
-        return distinct.stream()
+        List<GeneratedInitialRoute> generated = distinct.stream()
                 .map(route -> new GeneratedInitialRoute(
                         stablePreviewRouteId(route), route,
                         trafficLevelClassifier.classify(route.trafficSnapshot())))
                 .toList();
+        InitialRouteDegradationReason degradationReason = generated.size() == 1
+                ? degradationReason(providerRoutes, distinct.getFirst()) : null;
+        return new GenerationResult(generated, degradationReason);
+    }
+
+    private InitialRouteDegradationReason degradationReason(
+            List<EtaPlannedRoute> providerRoutes, EtaPlannedRoute onlyRoute) {
+        if (onlyRoute.distanceMeters() <= SHORT_DISTANCE_METERS) {
+            return InitialRouteDegradationReason.SHORT_DISTANCE_SINGLE_ROUTE;
+        }
+        if (providerRoutes.size() == 1) {
+            return InitialRouteDegradationReason.ROUTE_PROVIDER_SINGLE_RESULT;
+        }
+        return InitialRouteDegradationReason.ALTERNATIVES_FILTERED_AS_DUPLICATES;
     }
 
     private boolean sameRoute(EtaPlannedRoute left, EtaPlannedRoute right) {
@@ -154,5 +170,27 @@ public class InitialRouteCandidateGenerator {
     public record GeneratedInitialRoute(String previewRouteId,
                                         EtaPlannedRoute route,
                                         TrafficLevel trafficLevel) {
+    }
+
+    public record GenerationResult(List<GeneratedInitialRoute> routes,
+                                   InitialRouteDegradationReason degradationReason) {
+        public GenerationResult {
+            routes = List.copyOf(routes);
+            if (routes.isEmpty()) {
+                throw new IllegalArgumentException("routes must not be empty");
+            }
+            if (routes.size() == 1 && degradationReason == null) {
+                throw new IllegalArgumentException(
+                        "single route result requires a degradation reason");
+            }
+            if (routes.size() > 1 && degradationReason != null) {
+                throw new IllegalArgumentException(
+                        "multi route result must not have a degradation reason");
+            }
+        }
+
+        public boolean degraded() {
+            return degradationReason != null;
+        }
     }
 }
