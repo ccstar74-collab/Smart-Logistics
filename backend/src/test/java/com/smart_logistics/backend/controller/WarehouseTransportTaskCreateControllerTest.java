@@ -28,6 +28,7 @@ import java.time.OffsetDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -72,9 +73,11 @@ class WarehouseTransportTaskCreateControllerTest {
     void createsThroughStrictWarehouseContractAndReturnsOriginWarehouseId()
             throws Exception {
         when(warehouseTaskCreateService.createTransportTask(
-                any(WarehouseTransportTaskCreateRequest.class))).thenReturn(response());
+                any(WarehouseTransportTaskCreateRequest.class), eq("confirm-key")))
+                .thenReturn(response());
 
         mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
+                        .header("Idempotency-Key", "confirm-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJsonWithSpoofedUnknownFields()))
                 .andExpect(status().isOk())
@@ -86,7 +89,10 @@ class WarehouseTransportTaskCreateControllerTest {
 
         ArgumentCaptor<WarehouseTransportTaskCreateRequest> request =
                 ArgumentCaptor.forClass(WarehouseTransportTaskCreateRequest.class);
-        verify(warehouseTaskCreateService).createTransportTask(request.capture());
+        verify(warehouseTaskCreateService)
+                .createTransportTask(request.capture(), eq("confirm-key"));
+        assertEquals("decision-1", request.getValue().getRouteDecisionId());
+        assertEquals("preview-route-1", request.getValue().getSelectedRouteId());
         assertEquals(1L, request.getValue().getOriginWarehouseId());
         assertEquals(40L, request.getValue().getCargoTypeId());
         assertEquals(OffsetDateTime.parse("2026-08-31T08:00:00+08:00").toInstant(),
@@ -96,6 +102,7 @@ class WarehouseTransportTaskCreateControllerTest {
     @Test
     void rejectsMissingRequiredWarehouseField() throws Exception {
         mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
+                        .header("Idempotency-Key", "confirm-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJsonWithSpoofedUnknownFields()
                                 .replace("\"originWarehouseId\":1,", "")))
@@ -109,6 +116,7 @@ class WarehouseTransportTaskCreateControllerTest {
     @Test
     void rejectsInvalidDestinationCoordinates() throws Exception {
         mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
+                        .header("Idempotency-Key", "confirm-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJsonWithSpoofedUnknownFields()
                                 .replace("106.80", "180.000001")))
@@ -119,7 +127,9 @@ class WarehouseTransportTaskCreateControllerTest {
 
     private String validJsonWithSpoofedUnknownFields() {
         return """
-                {"ownerId":30,"cargoTypeId":40,"originWarehouseId":1,
+                {"routeDecisionId":"decision-1","selectedRouteId":"preview-route-1",
+                 "routeSelectionRemark":"仓库管理员人工确认",
+                 "ownerId":30,"cargoTypeId":40,"originWarehouseId":1,
                  "cargoId":10,"vehicleId":20,"endLocation":"Destination",
                  "endLongitude":106.80,"endLatitude":29.70,
                  "plannedStartTime":"2026-08-31T08:00:00+08:00",

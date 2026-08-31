@@ -1,5 +1,12 @@
 # 多目标候选路线测试说明
 
+> 状态说明（2026-08-31）：本文记录的是旧的 task-bound 候选路线测试流程，
+> 不再用于初始路线规划验收。新流程请按
+> [`api/frontend-initial-route-decision-integration.md`](api/frontend-initial-route-decision-integration.md)
+> 和
+> [`deployment/initial-route-decision-deployment.md`](deployment/initial-route-decision-deployment.md)
+> 执行。旧文的已存在任务路线切换状态机测试仍可作为回归参考。
+
 ## 一、测试前提
 
 - 使用 `integration/warehouse-route-ws`，或基于该集成分支创建的功能分支。

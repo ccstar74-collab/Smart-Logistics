@@ -1,5 +1,11 @@
 # 多目标候选路线前端联调说明
 
+> 状态说明（2026-08-31）：本文原有“创建任务后由调度员生成 READY 候选”的内容
+> 不再作为初始路线规划合同。新的初始规划请使用
+> [`frontend-initial-route-decision-integration.md`](frontend-initial-route-decision-integration.md)。
+> 本文的 `ROUTE_CHANGE → ACKNOWLEDGED → EXECUTING` 仍可作为已有任务普通路线
+> 切换的参考；调度员偏航恢复仍走 `FAST_RECOVERY`。
+
 本文档面向调度端、司机端和地图页面开发人员，说明多目标候选路线的页面流程、
 REST 接口、状态机、地图刷新规则及联调验收标准。
 

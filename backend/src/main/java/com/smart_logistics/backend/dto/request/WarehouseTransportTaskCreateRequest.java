@@ -12,6 +12,17 @@ import java.time.OffsetDateTime;
 
 public class WarehouseTransportTaskCreateRequest {
 
+    @NotBlank(message = "routeDecisionId must not be blank")
+    @Size(max = 64, message = "routeDecisionId must not exceed 64 characters")
+    private String routeDecisionId;
+
+    @NotBlank(message = "selectedRouteId must not be blank")
+    @Size(max = 80, message = "selectedRouteId must not exceed 80 characters")
+    private String selectedRouteId;
+
+    @Size(max = 500, message = "routeSelectionRemark must not exceed 500 characters")
+    private String routeSelectionRemark;
+
     @NotNull(message = "ownerId must not be null")
     @Positive(message = "ownerId must be greater than 0")
     private Long ownerId;
@@ -50,6 +61,18 @@ public class WarehouseTransportTaskCreateRequest {
     private OffsetDateTime planStartTime;
     private OffsetDateTime planEndTime;
 
+    public String getRouteDecisionId() { return routeDecisionId; }
+    public void setRouteDecisionId(String routeDecisionId) {
+        this.routeDecisionId = routeDecisionId;
+    }
+    public String getSelectedRouteId() { return selectedRouteId; }
+    public void setSelectedRouteId(String selectedRouteId) {
+        this.selectedRouteId = selectedRouteId;
+    }
+    public String getRouteSelectionRemark() { return routeSelectionRemark; }
+    public void setRouteSelectionRemark(String routeSelectionRemark) {
+        this.routeSelectionRemark = routeSelectionRemark;
+    }
     public Long getOwnerId() { return ownerId; }
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
     public Long getCargoTypeId() { return cargoTypeId; }

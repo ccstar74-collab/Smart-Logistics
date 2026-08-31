@@ -8,6 +8,7 @@ import com.smart_logistics.backend.service.CargoItemService;
 import com.smart_logistics.backend.service.CargoService;
 import com.smart_logistics.backend.service.CargoTypeService;
 import com.smart_logistics.backend.service.DispatchCommandService;
+import com.smart_logistics.backend.service.InitialRouteDecisionService;
 import com.smart_logistics.backend.service.DriverService;
 import com.smart_logistics.backend.service.OwnerService;
 import com.smart_logistics.backend.service.OriginRecommendationService;
@@ -82,6 +83,7 @@ class RbacAuthorizationIntegrationTest {
     @MockitoBean private TransportTaskStatusRecordService statusRecordService;
     @MockitoBean private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
     @MockitoBean private RouteWeatherService routeWeatherService;
+    @MockitoBean private InitialRouteDecisionService initialRouteDecisionService;
 
     @Test
     void phase5ReadEndpointsRequireAuthentication() throws Exception {
@@ -124,15 +126,9 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
-    void dispatcherCanCreateCandidatesAndRunFastRecovery() throws Exception {
+    void dispatcherCanRunFastRecovery() throws Exception {
         String token = token(UserRole.DISPATCHER);
 
-        mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
-                        .header("Authorization", token))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates")
-                        .header("Authorization", token))
-                .andExpect(status().isOk());
         mockMvc.perform(post(
                         "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
                         .header("Authorization", token)
@@ -144,21 +140,58 @@ class RbacAuthorizationIntegrationTest {
     @ParameterizedTest
     @EnumSource(value = UserRole.class,
             names = {"OWNER", "DRIVER", "WAREHOUSE_MANAGER", "ADMIN"})
-    void nonDispatcherCannotMutateRouteVersions(UserRole role) throws Exception {
+    void nonDispatcherCannotRunFastRecovery(UserRole role) throws Exception {
         String token = token(role);
 
-        mockMvc.perform(post("/api/v1/transport-tasks/1/routes")
-                        .header("Authorization", token))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/v1/transport-tasks/1/routes/candidates")
-                        .header("Authorization", token))
-                .andExpect(status().isForbidden());
         mockMvc.perform(post(
                         "/api/v1/transport-tasks/1/routes/replan-from-latest-location")
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replanJson()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void warehouseManagerCanCreateAndReadInitialRouteDecision() throws Exception {
+        String token = token(UserRole.WAREHOUSE_MANAGER);
+
+        mockMvc.perform(post("/api/v1/initial-route-decisions")
+                        .header("Authorization", token)
+                        .header("Idempotency-Key", "planning-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(initialRouteDecisionJson()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/initial-route-decisions/decision-1")
+                        .header("Authorization", token))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserRole.class,
+            names = {"OWNER", "DRIVER", "DISPATCHER", "ADMIN"})
+    void nonWarehouseManagerCannotUseInitialRouteDecision(UserRole role)
+            throws Exception {
+        mockMvc.perform(post("/api/v1/initial-route-decisions")
+                        .header("Authorization", token(role))
+                        .header("Idempotency-Key", "planning-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(initialRouteDecisionJson()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void deprecatedTaskBoundCandidateEndpointsAreNotRegistered() {
+        boolean registered = requestMappingHandlerMapping.getHandlerMethods().keySet()
+                .stream()
+                .filter(mapping -> mapping.getMethodsCondition().getMethods()
+                        .contains(RequestMethod.POST))
+                .flatMap(mapping -> mapping.getPatternValues().stream())
+                .anyMatch(pattern -> pattern.equals(
+                                "/api/v1/transport-tasks/{id}/routes")
+                        || pattern.equals(
+                                "/api/v1/transport-tasks/{id}/routes/candidates"));
+
+        assertFalse(registered);
     }
 
     @Test
@@ -226,9 +259,6 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(post("/api/v1/cargos").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON).content(cargoJson()))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/v1/transport-tasks").header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON).content(taskJson()))
-                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -260,9 +290,6 @@ class RbacAuthorizationIntegrationTest {
         mockMvc.perform(post("/api/v1/vehicles").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON).content(vehicleJson()))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/transport-tasks").header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON).content(taskJson()))
-                .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/transport-tasks/origin-recommendation")
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -270,6 +297,7 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
                         .header("Authorization", token)
+                        .header("Idempotency-Key", "confirm-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(warehouseTaskJson()))
                 .andExpect(status().isOk());
@@ -319,10 +347,11 @@ class RbacAuthorizationIntegrationTest {
     @ParameterizedTest
     @EnumSource(value = UserRole.class,
             names = {"OWNER", "DRIVER", "DISPATCHER", "ADMIN"})
-    void warehouseTaskCreateRejectsRolesWithoutLegacyCreatePermission(UserRole role)
+    void warehouseTaskCreateRejectsNonWarehouseManagers(UserRole role)
             throws Exception {
         mockMvc.perform(post("/api/v1/transport-tasks/from-warehouse")
                         .header("Authorization", token(role))
+                        .header("Idempotency-Key", "confirm-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(warehouseTaskJson()))
                 .andExpect(status().isForbidden());
@@ -390,9 +419,6 @@ class RbacAuthorizationIntegrationTest {
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/transport-tasks").header("Authorization", token))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/transport-tasks").header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON).content(taskJson()))
-                .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/v1/transport-tasks/1").header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON).content(taskBaseUpdateJson()))
                 .andExpect(status().isForbidden());
@@ -506,9 +532,18 @@ class RbacAuthorizationIntegrationTest {
     }
 
     private String warehouseTaskJson() {
-        return "{\"ownerId\":3,\"cargoTypeId\":10,\"originWarehouseId\":1,"
+        return "{\"routeDecisionId\":\"decision-1\","
+                + "\"selectedRouteId\":\"preview-route-1\","
+                + "\"ownerId\":3,\"cargoTypeId\":10,\"originWarehouseId\":1,"
                 + "\"cargoId\":10,\"vehicleId\":20,\"endLocation\":\"B\","
                 + "\"endLongitude\":106.759396,\"endLatitude\":29.620115}";
+    }
+
+    private String initialRouteDecisionJson() {
+        return "{\"originWarehouseId\":1,\"endLocation\":\"B\","
+                + "\"endLongitude\":106.759396,\"endLatitude\":29.620115,"
+                + "\"coordinateSystem\":\"GCJ02\",\"candidateCount\":3,"
+                + "\"planningMode\":\"INITIAL_MULTI_OBJECTIVE\"}";
     }
 
     private String cargoUpdateJson() {
