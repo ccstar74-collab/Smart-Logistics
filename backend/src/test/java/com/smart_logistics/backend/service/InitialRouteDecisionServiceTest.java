@@ -10,6 +10,8 @@ import com.smart_logistics.backend.entity.InitialRouteCandidate;
 import com.smart_logistics.backend.entity.InitialRouteDecision;
 import com.smart_logistics.backend.entity.Warehouse;
 import com.smart_logistics.backend.enums.InitialRouteDecisionStatus;
+import com.smart_logistics.backend.enums.InitialRouteDegradationReason;
+import com.smart_logistics.backend.enums.InitialRoutePlanningResult;
 import com.smart_logistics.backend.enums.RecommendationSource;
 import com.smart_logistics.backend.enums.TrafficLevel;
 import com.smart_logistics.backend.enums.UserRole;
@@ -42,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -101,7 +104,7 @@ class InitialRouteDecisionServiceTest {
     }
 
     @Test
-    void createsAndPersistsTaskIndependentDecisionWithFiveMinuteExpiry() {
+    void createsAndPersistsSingleRouteDecisionWithoutCallingAgent() {
         Warehouse warehouse = new Warehouse();
         warehouse.setId(1L);
         warehouse.setAddress("Central Warehouse");
@@ -110,15 +113,12 @@ class InitialRouteDecisionServiceTest {
         when(warehouseService.requireActiveWarehouse(1L)).thenReturn(warehouse);
         when(candidateGenerator.generate(
                 106.735012, 29.610634, 106.80, 29.70, 3))
-                .thenReturn(List.of(generated));
+                .thenReturn(new InitialRouteCandidateGenerator.GenerationResult(
+                        List.of(generated),
+                        InitialRouteDegradationReason.ROUTE_PROVIDER_SINGLE_RESULT));
         when(weatherProvider.getCurrentWeather(106.80, 29.70)).thenReturn(weather);
         when(scoringService.score(List.of(generated), weather))
                 .thenReturn(List.of(scored));
-        when(explanationPort.explain(any())).thenReturn(
-                new InitialRouteExplanationPort.ExplanationResult(
-                        RecommendationSource.RULE_FALLBACK,
-                        "综合评分推荐候选路线 A。",
-                        Map.of("preview-route-1", List.of("综合评分最高"))));
         when(decisionMapper.insert(any(InitialRouteDecision.class))).thenReturn(1);
         when(candidateMapper.insert(any(InitialRouteCandidate.class))).thenReturn(1);
 
@@ -126,6 +126,14 @@ class InitialRouteDecisionServiceTest {
                 request(), " planning-key ");
 
         assertEquals(InitialRouteDecisionStatus.PENDING, response.status());
+        assertEquals(InitialRoutePlanningResult.MULTI_ROUTE,
+                response.planningResult());
+        assertEquals(1, response.candidateCount());
+        assertTrue(response.degraded());
+        assertEquals(InitialRouteDegradationReason.ROUTE_PROVIDER_SINGLE_RESULT,
+                response.degradedReason());
+        assertEquals(RecommendationSource.SINGLE_ROUTE,
+                response.recommendationSource());
         assertEquals("preview-route-1", response.recommendedRouteId());
         assertEquals(1, response.routes().size());
         assertEquals("AMAP_DRIVING_V3",
@@ -140,14 +148,33 @@ class InitialRouteDecisionServiceTest {
         assertEquals(99L, decision.getValue().getCreatedBy());
         assertEquals(1L, decision.getValue().getOriginWarehouseId());
         assertTrue(decision.getValue().getDecisionId().startsWith("ird_"));
+        assertEquals(InitialRoutePlanningResult.MULTI_ROUTE.name(),
+                decision.getValue().getPlanningResult());
+        assertEquals(RecommendationSource.SINGLE_ROUTE.name(),
+                decision.getValue().getRecommendationSource());
+        assertTrue(decision.getValue().getInputSnapshot().contains(
+                "ROUTE_PROVIDER_SINGLE_RESULT"));
+        verifyNoInteractions(explanationPort);
 
         ArgumentCaptor<InitialRouteCandidate> candidate =
                 ArgumentCaptor.forClass(InitialRouteCandidate.class);
         verify(candidateMapper).insert(candidate.capture());
         assertEquals("preview-route-1", candidate.getValue().getPreviewRouteId());
-        assertEquals("候选路线 A", candidate.getValue().getDisplayName());
+        assertEquals("规划路线", candidate.getValue().getDisplayName());
         assertEquals("AMAP", candidate.getValue().getProvider());
         assertEquals("GCJ02", candidate.getValue().getCoordinateSystem());
+
+        when(decisionMapper.selectOne(any())).thenReturn(decision.getValue());
+        when(candidateMapper.selectList(any())).thenReturn(
+                List.of(candidate.getValue()));
+        InitialRouteDecisionResponse restored = service.getDecision(
+                decision.getValue().getDecisionId());
+        assertEquals(1, restored.candidateCount());
+        assertTrue(restored.degraded());
+        assertEquals(InitialRouteDegradationReason.ROUTE_PROVIDER_SINGLE_RESULT,
+                restored.degradedReason());
+        assertEquals(RecommendationSource.SINGLE_ROUTE,
+                restored.recommendationSource());
     }
 
     private InitialRouteDecisionCreateRequest request() {

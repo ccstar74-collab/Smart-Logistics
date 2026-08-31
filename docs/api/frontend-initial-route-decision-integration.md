@@ -8,7 +8,7 @@
 仓库管理员填写出库信息和终点
 → POST /initial-route-decisions 生成创建前决策
 → 后端从 originWarehouseId 读取权威起点
-→ 后端生成 2～3 条真实候选并聚合路况、天气
+→ 后端优先生成 2～3 条真实候选；客观上只有一条时降级成功
 → 后端按 40/20/30/10 固定规则评分、排序
 → 智能体或规则模板生成可读解释
 → 前端展示路线并默认选中 recommendedRouteId
@@ -68,6 +68,10 @@ Content-Type: application/json
     "status": "PENDING",
     "planningMode": "INITIAL_MULTI_OBJECTIVE",
     "planningResult": "MULTI_ROUTE",
+    "candidateCount": 2,
+    "degraded": false,
+    "degradedReason": null,
+    "degradedMessage": null,
     "start": {
       "location": "重庆中心仓",
       "longitude": 106.55187,
@@ -123,6 +127,41 @@ Content-Type: application/json
 - `AGENT_EXPLANATION`：智能体解释成功
 - `RULE_FALLBACK`：智能体不可用，后端使用规则模板；正式分数和排名仍有效，
   前端应允许继续创建任务
+- `SINGLE_ROUTE`：客观上只有一条真实路线，不调用智能体；该路线是唯一可选路线
+
+### 3.1 单路线降级响应
+
+短距离、道路结构单一、地图服务只返回一条，或其他候选高度重合时，接口仍返回
+HTTP 200。前端应显示提示并允许仓库管理员人工确认：
+
+```json
+{
+  "planningResult": "MULTI_ROUTE",
+  "candidateCount": 1,
+  "degraded": true,
+  "degradedReason": "SHORT_DISTANCE_SINGLE_ROUTE",
+  "degradedMessage": "起终点距离较近，未找到明显不同的备选路线，当前返回唯一可行路线。",
+  "recommendedRouteId": "preview_route_a",
+  "recommendationSource": "SINGLE_ROUTE",
+  "routes": [
+    {
+      "routeId": "preview_route_a",
+      "displayName": "规划路线"
+    }
+  ]
+}
+```
+
+`degradedReason` 可能为：
+
+- `SHORT_DISTANCE_SINGLE_ROUTE`
+- `NO_DISTINCT_ALTERNATIVE`
+- `ROUTE_PROVIDER_SINGLE_RESULT`
+- `ALTERNATIVES_FILTERED_AS_DUPLICATES`
+- `PARTIAL_ROUTE_PROVIDER_FAILURE`
+
+页面刷新后，GET 决策详情会返回相同的降级字段。确认创建接口允许选择这条唯一
+候选路线，仍会创建唯一的 `v1 ACTIVE`；不要因为 `routes.length === 1` 阻止提交。
 
 ## 4. 页面刷新或 POST 超时：查询决策
 
@@ -213,7 +252,7 @@ recommendedRouteId
 | 404 / 40401 | 决策、候选或业务资源不存在 | 刷新资源并重新预规划 |
 | 409 / 40901、40902 | 已确认、上下文改变、资源占用或并发冲突 | 查询决策和资源最新状态 |
 | 410 / 41001 | 决策超过 `expiresAt` | 保留出库表单，用新 Key 重新 POST |
-| 503 / 50301 | 未获得至少两条真实候选，或路线服务不可用 | 提示稍后重试，不伪造重复路线 |
+| 503 / 50301 | 未获得任何可用路线，或路线服务整体不可用 | 提示稍后重试，不伪造路线 |
 
 ## 8. 已退出初始规划的旧接口
 
@@ -234,7 +273,7 @@ POST /api/v1/transport-tasks/{taskId}/routes/replan-from-latest-location
 ## 9. 前端验收清单
 
 - 预规划前数据库中没有新任务；
-- 返回至少两条不同路线，能在地图同时绘制；
+- 正常情况返回 2～3 条不同路线；单路线降级时返回 1 条并允许确认；
 - 默认选中推荐路线但可人工改选；
 - 刷新后可通过 GET 恢复同一决策；
 - 重复点击不会生成重复决策或任务；
