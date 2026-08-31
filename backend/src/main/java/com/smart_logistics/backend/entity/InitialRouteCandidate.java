@@ -25,7 +25,7 @@ public class InitialRouteCandidate {
     private String weatherSnapshot;
     private String points;
     @TableField("rank_no")
-    private Integer rank;
+    private Integer rankNo;
     private BigDecimal totalScore;
     private String scoreDetails;
     private String reasons;
@@ -67,8 +67,8 @@ public class InitialRouteCandidate {
     }
     public String getPoints() { return points; }
     public void setPoints(String points) { this.points = points; }
-    public Integer getRank() { return rank; }
-    public void setRank(Integer rank) { this.rank = rank; }
+    public Integer getRankNo() { return rankNo; }
+    public void setRankNo(Integer rankNo) { this.rankNo = rankNo; }
     public BigDecimal getTotalScore() { return totalScore; }
     public void setTotalScore(BigDecimal totalScore) { this.totalScore = totalScore; }
     public String getScoreDetails() { return scoreDetails; }
