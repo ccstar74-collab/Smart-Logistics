@@ -30,6 +30,12 @@ def now_iso():
     return now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def normalize_heading(value, digits=1):
+    """Round a heading while keeping the MQTT contract range at [0, 360)."""
+    rounded = round(float(value) % 360.0, digits)
+    return 0.0 if rounded >= 360.0 else rounded
+
+
 def build_alert_payload(vehicle_id, alert_type, description, triggered_at):
     return {
         "schema_version": "1.0",
@@ -64,7 +70,7 @@ def build_reroute_anchor(vehicle, position_at):
         "lat": latitude,
         "lon": longitude,
         "speed_kmh": 0.0,
-        "heading": round(float(vehicle["heading"]), 1),
+        "heading": normalize_heading(vehicle["heading"]),
         "transport_status": vehicle["transport_status"],
         "coordinate_system": "WGS84",
     }
@@ -1066,7 +1072,7 @@ def main():
                         "lat": round(vehicle["lat"], 6),
                         "lon": round(vehicle["lon"], 6),
                         "speed_kmh": round(vehicle["speed_kmh"], 1),
-                        "heading": round(vehicle["heading"], 1),
+                        "heading": normalize_heading(vehicle["heading"]),
                         "transport_status": vehicle["transport_status"],
                         "coordinate_system": "WGS84",
                     }

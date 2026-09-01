@@ -30,6 +30,7 @@ from mqtt_data_generator import (  # noqa: E402
     build_reroute_anchor,
     distance_between,
     install_task_route,
+    normalize_heading,
 )
 
 
@@ -73,6 +74,11 @@ def planned_route_response():
 
 
 class BackendRouteTest(unittest.TestCase):
+    def test_heading_rounding_never_emits_360(self):
+        self.assertEqual(0.0, normalize_heading(359.96))
+        self.assertEqual(0.0, normalize_heading(360.0))
+        self.assertEqual(359.9, normalize_heading(-0.1))
+
     def test_alert_recovery_reuses_original_triggered_at(self):
         triggered_at = "2026-08-28T01:30:00.000Z"
         recovered_at = "2026-08-28T01:35:00.000Z"
