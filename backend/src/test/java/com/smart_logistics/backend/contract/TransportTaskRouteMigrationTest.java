@@ -32,4 +32,15 @@ class TransportTaskRouteMigrationTest {
         assertTrue(migration.contains("(task_id, activated_at, route_version)"));
         assertTrue(!migration.toUpperCase().contains("UPDATE TRANSPORT_TASK_ROUTE"));
     }
+
+    @Test
+    void trafficMigrationAddsNullableSourceAwareSnapshotWithoutFakeBackfill()
+            throws Exception {
+        String migration = Files.readString(Path.of("..", "docs", "sql",
+                "015_route_traffic_snapshot.sql"));
+
+        assertTrue(migration.contains("traffic_snapshot LONGTEXT NULL"));
+        assertTrue(migration.contains("source, strategy, restriction and TMC distances"));
+        assertTrue(!migration.toUpperCase().contains("UPDATE TRANSPORT_TASK_ROUTE"));
+    }
 }

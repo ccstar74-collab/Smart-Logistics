@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.smart_logistics.backend.dto.TrafficSnapshot;
+import com.smart_logistics.backend.mapper.TrafficSnapshotTypeHandler;
 import com.smart_logistics.backend.mapper.TransportTaskRoutePointsTypeHandler;
 
 import java.time.LocalDateTime;
@@ -22,6 +24,8 @@ public class TransportTaskRoute {
     private List<List<Double>> routePoints;
     private Long distanceMeters;
     private Long durationSeconds;
+    @TableField(typeHandler = TrafficSnapshotTypeHandler.class)
+    private TrafficSnapshot trafficSnapshot;
     private Integer routeVersion;
     private String status;
     private LocalDateTime activatedAt;
@@ -52,6 +56,10 @@ public class TransportTaskRoute {
     public Long getDurationSeconds() { return durationSeconds; }
     public void setDurationSeconds(Long durationSeconds) {
         this.durationSeconds = durationSeconds;
+    }
+    public TrafficSnapshot getTrafficSnapshot() { return trafficSnapshot; }
+    public void setTrafficSnapshot(TrafficSnapshot trafficSnapshot) {
+        this.trafficSnapshot = trafficSnapshot;
     }
     public Integer getRouteVersion() { return routeVersion; }
     public void setRouteVersion(Integer routeVersion) {

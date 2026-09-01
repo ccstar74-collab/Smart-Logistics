@@ -13,6 +13,8 @@ public class CargoResponse {
     private final String description;
     private final BigDecimal weight;
     private final BigDecimal volume;
+    private final Long cargoTypeId;
+    private final Long warehouseId;
     private final Long ownerId;
     private final String ownerName;
     private final CargoStatus status;
@@ -20,7 +22,8 @@ public class CargoResponse {
     private final OffsetDateTime updatedAt;
 
     public CargoResponse(Long id, String cargoNo, String name, String description,
-                         BigDecimal weight, BigDecimal volume, Long ownerId,
+                         BigDecimal weight, BigDecimal volume, Long cargoTypeId,
+                         Long warehouseId, Long ownerId,
                          String ownerName, CargoStatus status, OffsetDateTime createdAt,
                          OffsetDateTime updatedAt) {
         this.id = id;
@@ -29,11 +32,21 @@ public class CargoResponse {
         this.description = description;
         this.weight = weight;
         this.volume = volume;
+        this.cargoTypeId = cargoTypeId;
+        this.warehouseId = warehouseId;
         this.ownerId = ownerId;
         this.ownerName = ownerName;
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    public CargoResponse(Long id, String cargoNo, String name, String description,
+                         BigDecimal weight, BigDecimal volume, Long ownerId,
+                         String ownerName, CargoStatus status, OffsetDateTime createdAt,
+                         OffsetDateTime updatedAt) {
+        this(id, cargoNo, name, description, weight, volume, null, null, ownerId,
+                ownerName, status, createdAt, updatedAt);
     }
 
     public Long getId() {
@@ -58,6 +71,14 @@ public class CargoResponse {
 
     public BigDecimal getVolume() {
         return volume;
+    }
+
+    public Long getCargoTypeId() {
+        return cargoTypeId;
+    }
+
+    public Long getWarehouseId() {
+        return warehouseId;
     }
 
     public Long getOwnerId() {

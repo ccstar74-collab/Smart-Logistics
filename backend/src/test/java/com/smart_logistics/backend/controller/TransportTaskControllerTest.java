@@ -1,7 +1,6 @@
 package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.common.PageResult;
-import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.response.ArrivalEligibilityResponse;
@@ -23,6 +22,7 @@ import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +60,8 @@ class TransportTaskControllerTest {
     private TransportTaskReplanService transportTaskReplanService;
     @Mock
     private TransportTaskPlaybackService transportTaskPlaybackService;
+    @Mock
+    private MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
     private MockMvc mockMvc;
 
@@ -74,28 +76,13 @@ class TransportTaskControllerTest {
         Object controller = methodValidation.postProcessAfterInitialization(
                 new TransportTaskController(transportTaskService, taskTrackQueryService,
                         etaPlannedRouteService, transportTaskReplanService,
-                        transportTaskPlaybackService),
+                        transportTaskPlaybackService, multiObjectiveRoutePlanningService),
                 "transportTaskController");
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .build();
-    }
-
-    @Test
-    void createReturnsGeneratedTaskNumberAndWaitingStatus() throws Exception {
-        when(transportTaskService.createTransportTask(any(TransportTaskCreateRequest.class)))
-                .thenReturn(response(TransportTaskStatus.WAITING));
-
-        mockMvc.perform(post("/api/v1/transport-tasks")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(validCreateJson()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.message").value("success"))
-                .andExpect(jsonPath("$.data.taskNo").value("T202608230001"))
-                .andExpect(jsonPath("$.data.status").value("WAITING"));
     }
 
     @Test
@@ -263,29 +250,6 @@ class TransportTaskControllerTest {
     }
 
     @Test
-    void createReadyRouteReturnsVersionedSnapshot() throws Exception {
-        when(transportTaskService.createReadyRoute(1L)).thenReturn(
-                routeResponse("route_v2", 2, TransportTaskRouteStatus.READY));
-
-        mockMvc.perform(post("/api/v1/transport-tasks/1/routes"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
-                .andExpect(jsonPath("$.data.routeVersion").value(2))
-                .andExpect(jsonPath("$.data.routeStatus").value("READY"));
-    }
-
-    @Test
-    void activateRouteReturnsNewActiveSnapshot() throws Exception {
-        when(transportTaskService.activateReadyRoute(1L, "route_v2")).thenReturn(
-                routeResponse("route_v2", 2, TransportTaskRouteStatus.ACTIVE));
-
-        mockMvc.perform(put("/api/v1/transport-tasks/1/routes/route_v2/activate"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.routeId").value("route_v2"))
-                .andExpect(jsonPath("$.data.routeStatus").value("ACTIVE"));
-    }
-
-    @Test
     void routeListPreservesTaskDataScopeFailure() throws Exception {
         when(transportTaskService.listTransportTaskRoutes(1L)).thenThrow(
                 new BusinessException(ErrorCode.FORBIDDEN,
@@ -294,99 +258,6 @@ class TransportTaskControllerTest {
         mockMvc.perform(get("/api/v1/transport-tasks/1/routes"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(40301));
-    }
-
-    @Test
-    void createRejectsMissingCargoId() throws Exception {
-        mockMvc.perform(post("/api/v1/transport-tasks")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
-                                 "startLongitude":106.735012,"startLatitude":29.610634,
-                                 "endLocation":"Beijing",
-                                 "endLongitude":106.759396,"endLatitude":29.620115}
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001))
-                .andExpect(jsonPath("$.message").value("cargoId must not be null"));
-    }
-
-    @Test
-    void createRejectsMissingOwnerId() throws Exception {
-        mockMvc.perform(post("/api/v1/transport-tasks")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"cargoId":10,"vehicleId":20,"startLocation":"Shanghai",
-                                 "startLongitude":106.735012,"startLatitude":29.610634,
-                                 "endLocation":"Beijing",
-                                 "endLongitude":106.759396,"endLatitude":29.620115}
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001))
-                .andExpect(jsonPath("$.message").value("ownerId must not be null"));
-    }
-
-    @Test
-    void createRejectsBlankStartLocation() throws Exception {
-        mockMvc.perform(post("/api/v1/transport-tasks")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":" ",
-                                 "startLongitude":106.735012,"startLatitude":29.610634,
-                                 "endLocation":"Beijing",
-                                 "endLongitude":106.759396,"endLatitude":29.620115}
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001))
-                .andExpect(jsonPath("$.message").value("startLocation must not be blank"));
-    }
-
-    @Test
-    void createRejectsMissingStartLongitude() throws Exception {
-        assertCreateCoordinateValidation(
-                "\"startLatitude\":29.610634,\"endLongitude\":106.759396,"
-                        + "\"endLatitude\":29.620115,",
-                "startLongitude must not be null");
-    }
-
-    @Test
-    void createRejectsMissingStartLatitude() throws Exception {
-        assertCreateCoordinateValidation(
-                "\"startLongitude\":106.735012,\"endLongitude\":106.759396,"
-                        + "\"endLatitude\":29.620115,",
-                "startLatitude must not be null");
-    }
-
-    @Test
-    void createRejectsMissingEndLongitude() throws Exception {
-        assertCreateCoordinateValidation(
-                "\"startLongitude\":106.735012,\"startLatitude\":29.610634,"
-                        + "\"endLatitude\":29.620115,",
-                "endLongitude must not be null");
-    }
-
-    @Test
-    void createRejectsMissingEndLatitude() throws Exception {
-        assertCreateCoordinateValidation(
-                "\"startLongitude\":106.735012,\"startLatitude\":29.610634,"
-                        + "\"endLongitude\":106.759396,",
-                "endLatitude must not be null");
-    }
-
-    @Test
-    void createRejectsLongitudeOutsideRange() throws Exception {
-        assertCreateCoordinateValidation(
-                "\"startLongitude\":180.000001,\"startLatitude\":29.610634,"
-                        + "\"endLongitude\":106.759396,\"endLatitude\":29.620115,",
-                "startLongitude must not exceed 180");
-    }
-
-    @Test
-    void createRejectsLatitudeOutsideRange() throws Exception {
-        assertCreateCoordinateValidation(
-                "\"startLongitude\":106.735012,\"startLatitude\":-90.000001,"
-                        + "\"endLongitude\":106.759396,\"endLatitude\":29.620115,",
-                "startLatitude must be at least -90");
     }
 
     @Test
@@ -555,35 +426,12 @@ class TransportTaskControllerTest {
                 .andExpect(jsonPath("$.data.status").value(statusValue.name()));
     }
 
-    private String validCreateJson() {
-        return """
-                {"cargoId":10,"ownerId":30,"vehicleId":20,"startLocation":"Shanghai",
-                 "startLongitude":106.735012,"startLatitude":29.610634,
-                 "endLocation":"Beijing","endLongitude":106.759396,"endLatitude":29.620115,
-                 "plannedStartTime":"2026-08-24T10:00:00+08:00",
-                 "planEndTime":"2026-08-24T15:00:00+08:00"}
-                """;
-    }
-
     private String validReplanJson() {
         return """
                 {"vehicleDeviceCode":"sim_019","longitude":106.580123,
                  "latitude":29.620456,"coordinateSystem":"WGS84",
                  "positionAt":"2026-08-28T12:00:01.123Z"}
                 """;
-    }
-
-    private void assertCreateCoordinateValidation(String coordinateFields,
-                                                  String expectedMessage) throws Exception {
-        String body = "{\"cargoId\":10,\"ownerId\":30,\"vehicleId\":20,"
-                + "\"startLocation\":\"Shanghai\"," + coordinateFields
-                + "\"endLocation\":\"Beijing\"}";
-        mockMvc.perform(post("/api/v1/transport-tasks")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(40001))
-                .andExpect(jsonPath("$.message").value(expectedMessage));
     }
 
     private TransportTaskResponse response(TransportTaskStatus status) {

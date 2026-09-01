@@ -22,6 +22,9 @@ public final class WsSessionAttributes {
     /** Long，司机身份id（DRIVER推送过滤用，可能不存在） */
     public static final String DRIVER_ID = "ws.driverId";
 
+    /** Long，用户账号id（/ws/notifications按用户精确推送用） */
+    public static final String USER_ID = "ws.userId";
+
     private WsSessionAttributes() {
     }
 }

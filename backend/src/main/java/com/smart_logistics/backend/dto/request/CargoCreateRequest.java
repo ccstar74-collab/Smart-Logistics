@@ -29,6 +29,12 @@ public class CargoCreateRequest {
     @Positive(message = "ownerId must be greater than 0")
     private Long ownerId;
 
+    @Positive(message = "cargoTypeId must be greater than 0")
+    private Long cargoTypeId;
+
+    @Positive(message = "warehouseId must be greater than 0")
+    private Long warehouseId;
+
     public String getCargoNo() {
         return cargoNo;
     }
@@ -75,5 +81,21 @@ public class CargoCreateRequest {
 
     public void setOwnerId(Long ownerId) {
         this.ownerId = ownerId;
+    }
+
+    public Long getCargoTypeId() {
+        return cargoTypeId;
+    }
+
+    public void setCargoTypeId(Long cargoTypeId) {
+        this.cargoTypeId = cargoTypeId;
+    }
+
+    public Long getWarehouseId() {
+        return warehouseId;
+    }
+
+    public void setWarehouseId(Long warehouseId) {
+        this.warehouseId = warehouseId;
     }
 }

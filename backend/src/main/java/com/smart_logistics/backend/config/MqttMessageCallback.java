@@ -87,15 +87,41 @@ public class MqttMessageCallback implements MqttCallback {
     }
 
     @Override
-    public void messageArrived(String topic, MqttMessage message) throws Exception {
+    public void messageArrived(String topic, MqttMessage message) {
         String payload = new String(message.getPayload());
         log.info("收到MQTT消息 topic={}, payload={}", topic, payload);
         try {
             dispatchMessage(topic, payload);
         } catch (Exception e) {
-            log.error("消息处理异常 topic={}", topic, e);
-            throw e;
+            // 外层兜底（含数据库DuplicateKeyException等）：只打日志、跳过该消息，
+            // 绝不抛到Paho回调——抛异常会触发connectionLost，
+            // 导致单条坏消息让整个MQTT客户端断开。
+            // 网络IO类异常同样不主动断开，链路恢复交给Paho的
+            // keepAlive检测 + setAutomaticReconnect自动重连机制。
+            if (isNetworkIoFailure(e)) {
+                log.error("MQTT消息处理遇网络IO异常，跳过该消息，链路恢复交给Paho自动重连 topic={}", topic, e);
+            } else {
+                log.error("MQTT消息处理异常，跳过该消息 topic={}", topic, e);
+            }
         }
+    }
+
+    /**
+     * 沿异常链判断是否为网络IO故障（连接重置、超时等）。
+     * 仅用于区分日志语义，不影响"绝不上抛"的行为。
+     */
+    private boolean isNetworkIoFailure(Throwable throwable) {
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if (current instanceof java.net.SocketException
+                    || current instanceof java.net.SocketTimeoutException
+                    || current instanceof java.io.EOFException) {
+                return true;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+        }
+        return false;
     }
 
     @Override

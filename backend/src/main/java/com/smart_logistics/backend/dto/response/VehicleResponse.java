@@ -14,6 +14,7 @@ public class VehicleResponse {
     private final VehicleStatus status;
     private final Long driverId;
     private final String driverName;
+    private final Long warehouseId;
     private final String simCode;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime updatedAt;
@@ -23,7 +24,7 @@ public class VehicleResponse {
 
     public VehicleResponse(Long id, String plateNumber, String type, BigDecimal capacity,
                            VehicleStatus status, Long driverId, String driverName,
-                           String simCode,
+                           Long warehouseId, String simCode,
                            OffsetDateTime createdAt,
                            OffsetDateTime updatedAt, BigDecimal lastLongitude,
                            BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt) {
@@ -34,12 +35,22 @@ public class VehicleResponse {
         this.status = status;
         this.driverId = driverId;
         this.driverName = driverName;
+        this.warehouseId = warehouseId;
         this.simCode = simCode;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.lastLongitude = lastLongitude;
         this.lastLatitude = lastLatitude;
         this.lastUpdatedAt = lastUpdatedAt;
+    }
+
+    public VehicleResponse(Long id, String plateNumber, String type, BigDecimal capacity,
+                           VehicleStatus status, Long driverId, String driverName,
+                           String simCode, OffsetDateTime createdAt,
+                           OffsetDateTime updatedAt, BigDecimal lastLongitude,
+                           BigDecimal lastLatitude, OffsetDateTime lastUpdatedAt) {
+        this(id, plateNumber, type, capacity, status, driverId, driverName, null,
+                simCode, createdAt, updatedAt, lastLongitude, lastLatitude, lastUpdatedAt);
     }
 
     public Long getId() {
@@ -68,6 +79,10 @@ public class VehicleResponse {
 
     public String getDriverName() {
         return driverName;
+    }
+
+    public Long getWarehouseId() {
+        return warehouseId;
     }
 
     public String getSimCode() {

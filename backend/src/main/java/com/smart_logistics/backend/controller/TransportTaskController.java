@@ -2,29 +2,34 @@ package com.smart_logistics.backend.controller;
 
 import com.smart_logistics.backend.common.ApiResponse;
 import com.smart_logistics.backend.common.PageResult;
-import com.smart_logistics.backend.dto.request.TransportTaskCreateRequest;
+import com.smart_logistics.backend.dto.request.WarehouseTransportTaskCreateRequest;
+import com.smart_logistics.backend.dto.request.OriginRecommendationRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskReplanRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskStatusUpdateRequest;
 import com.smart_logistics.backend.dto.request.TransportTaskUpdateRequest;
 import com.smart_logistics.backend.dto.response.ArrivalEligibilityResponse;
 import com.smart_logistics.backend.dto.response.PlannedRouteResponse;
+import com.smart_logistics.backend.dto.response.OriginRecommendationResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskPlaybackResponse;
 import com.smart_logistics.backend.dto.response.TransportTaskRouteResponse;
 import com.smart_logistics.backend.dto.response.VehicleLocationResponse;
 import com.smart_logistics.backend.enums.TransportTaskStatus;
 import com.smart_logistics.backend.service.TransportTaskService;
+import com.smart_logistics.backend.service.WarehouseTransportTaskCreateService;
+import com.smart_logistics.backend.service.OriginRecommendationService;
 import com.smart_logistics.backend.service.TransportTaskPlaybackService;
 import com.smart_logistics.backend.service.TransportTaskReplanService;
 import com.smart_logistics.backend.service.TaskTrackQueryService;
 import com.smart_logistics.backend.service.eta.EtaPlannedRouteService;
+import com.smart_logistics.backend.service.route.MultiObjectiveRoutePlanningService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,6 +37,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,17 +54,76 @@ public class TransportTaskController {
     private final EtaPlannedRouteService etaPlannedRouteService;
     private final TransportTaskReplanService transportTaskReplanService;
     private final TransportTaskPlaybackService transportTaskPlaybackService;
+    private final OriginRecommendationService originRecommendationService;
+    private final WarehouseTransportTaskCreateService warehouseTaskCreateService;
+    private final MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService;
 
+    @Autowired
     public TransportTaskController(TransportTaskService transportTaskService,
                                    TaskTrackQueryService taskTrackQueryService,
                                    EtaPlannedRouteService etaPlannedRouteService,
                                    TransportTaskReplanService transportTaskReplanService,
-                                   TransportTaskPlaybackService transportTaskPlaybackService) {
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   OriginRecommendationService originRecommendationService,
+                                   WarehouseTransportTaskCreateService warehouseTaskCreateService,
+                                   MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService) {
         this.transportTaskService = transportTaskService;
         this.taskTrackQueryService = taskTrackQueryService;
         this.etaPlannedRouteService = etaPlannedRouteService;
         this.transportTaskReplanService = transportTaskReplanService;
         this.transportTaskPlaybackService = transportTaskPlaybackService;
+        this.originRecommendationService = originRecommendationService;
+        this.warehouseTaskCreateService = warehouseTaskCreateService;
+        this.multiObjectiveRoutePlanningService = multiObjectiveRoutePlanningService;
+    }
+
+    public TransportTaskController(TransportTaskService transportTaskService,
+                                   TaskTrackQueryService taskTrackQueryService,
+                                   EtaPlannedRouteService etaPlannedRouteService,
+                                   TransportTaskReplanService transportTaskReplanService,
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   OriginRecommendationService originRecommendationService) {
+        this(transportTaskService,
+                taskTrackQueryService,
+                etaPlannedRouteService,
+                transportTaskReplanService,
+                transportTaskPlaybackService,
+                originRecommendationService,
+                null,
+                null);
+    }
+
+    public TransportTaskController(TransportTaskService transportTaskService,
+                                   TaskTrackQueryService taskTrackQueryService,
+                                   EtaPlannedRouteService etaPlannedRouteService,
+                                   TransportTaskReplanService transportTaskReplanService,
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   OriginRecommendationService originRecommendationService,
+                                   WarehouseTransportTaskCreateService warehouseTaskCreateService) {
+        this(transportTaskService,
+                taskTrackQueryService,
+                etaPlannedRouteService,
+                transportTaskReplanService,
+                transportTaskPlaybackService,
+                originRecommendationService,
+                warehouseTaskCreateService,
+                null);
+    }
+
+    public TransportTaskController(TransportTaskService transportTaskService,
+                                   TaskTrackQueryService taskTrackQueryService,
+                                   EtaPlannedRouteService etaPlannedRouteService,
+                                   TransportTaskReplanService transportTaskReplanService,
+                                   TransportTaskPlaybackService transportTaskPlaybackService,
+                                   MultiObjectiveRoutePlanningService multiObjectiveRoutePlanningService) {
+        this(transportTaskService,
+                taskTrackQueryService,
+                etaPlannedRouteService,
+                transportTaskReplanService,
+                transportTaskPlaybackService,
+                null,
+                null,
+                multiObjectiveRoutePlanningService);
     }
 
     @GetMapping("/{id}/track-points")
@@ -83,13 +148,6 @@ public class TransportTaskController {
         return ApiResponse.success(transportTaskService.listTransportTaskRoutes(id));
     }
 
-    @PostMapping("/{id}/routes")
-    @PreAuthorize("hasRole('DISPATCHER')")
-    public ApiResponse<TransportTaskRouteResponse> createReadyRoute(
-            @PathVariable @Positive Long id) {
-        return ApiResponse.success(transportTaskService.createReadyRoute(id));
-    }
-
     @GetMapping("/{id}/playback")
     @PreAuthorize("hasAnyRole('OWNER','DRIVER','WAREHOUSE_MANAGER','DISPATCHER','ADMIN')")
     public ApiResponse<TransportTaskPlaybackResponse> getPlayback(
@@ -105,14 +163,6 @@ public class TransportTaskController {
             @Valid @RequestBody TransportTaskReplanRequest request) {
         return ApiResponse.success(
                 transportTaskReplanService.replanFromLatestLocation(id, request));
-    }
-
-    @PutMapping("/{id}/routes/{routeId}/activate")
-    @PreAuthorize("hasRole('DISPATCHER')")
-    public ApiResponse<TransportTaskRouteResponse> activateReadyRoute(
-            @PathVariable @Positive Long id,
-            @PathVariable @NotBlank @Size(max = 64) String routeId) {
-        return ApiResponse.success(transportTaskService.activateReadyRoute(id, routeId));
     }
 
     @GetMapping
@@ -131,11 +181,22 @@ public class TransportTaskController {
                         driverId, ownerId, vehicleId, cargoId));
     }
 
-    @PostMapping
+    @PostMapping("/from-warehouse")
     @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
-    public ApiResponse<TransportTaskResponse> createTransportTask(
-            @Valid @RequestBody TransportTaskCreateRequest request) {
-        return ApiResponse.success(transportTaskService.createTransportTask(request));
+    public ApiResponse<TransportTaskResponse> createTransportTaskFromWarehouse(
+            @RequestHeader("Idempotency-Key")
+            @jakarta.validation.constraints.NotBlank
+            @Size(max = 128) String idempotencyKey,
+            @Valid @RequestBody WarehouseTransportTaskCreateRequest request) {
+        return ApiResponse.success(
+                warehouseTaskCreateService.createTransportTask(request, idempotencyKey));
+    }
+
+    @PostMapping("/origin-recommendation")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
+    public ApiResponse<List<OriginRecommendationResponse>> recommendOrigin(
+            @Valid @RequestBody OriginRecommendationRequest request) {
+        return ApiResponse.success(originRecommendationService.recommend(request));
     }
 
     @GetMapping("/{id}")

@@ -11,6 +11,7 @@ public class TransportTaskResponse {
     private final String taskNo;
     private final Long cargoId;
     private final Long vehicleId;
+    private final Long originWarehouseId;
     private final Long driverId;
     private final String driverName;
     private final String plateNumber;
@@ -73,10 +74,31 @@ public class TransportTaskResponse {
                                  Long driverId, String driverName, String plateNumber,
                                  String routeId, Integer routeVersion,
                                  TransportTaskRouteStatus routeStatus) {
+        this(id, taskNo, cargoId, vehicleId, startLocation, startLongitude,
+                startLatitude, endLocation, endLongitude, endLatitude,
+                planStartTime, planEndTime, actualStartTime, actualEndTime,
+                status, estimatedArrivalTime, etaCalculatedAt, createdAt, updatedAt,
+                driverId, driverName, plateNumber, routeId, routeVersion, routeStatus, null);
+    }
+
+    public TransportTaskResponse(Long id, String taskNo, Long cargoId, Long vehicleId,
+                                 String startLocation, Double startLongitude,
+                                 Double startLatitude, String endLocation,
+                                 Double endLongitude, Double endLatitude,
+                                 OffsetDateTime planStartTime, OffsetDateTime planEndTime,
+                                 OffsetDateTime actualStartTime, OffsetDateTime actualEndTime,
+                                 TransportTaskStatus status, OffsetDateTime estimatedArrivalTime,
+                                 OffsetDateTime etaCalculatedAt,
+                                 OffsetDateTime createdAt, OffsetDateTime updatedAt,
+                                 Long driverId, String driverName, String plateNumber,
+                                 String routeId, Integer routeVersion,
+                                 TransportTaskRouteStatus routeStatus,
+                                 Long originWarehouseId) {
         this.id = id;
         this.taskNo = taskNo;
         this.cargoId = cargoId;
         this.vehicleId = vehicleId;
+        this.originWarehouseId = originWarehouseId;
         this.driverId = driverId;
         this.driverName = driverName;
         this.plateNumber = plateNumber;
@@ -104,6 +126,7 @@ public class TransportTaskResponse {
     public String getTaskNo() { return taskNo; }
     public Long getCargoId() { return cargoId; }
     public Long getVehicleId() { return vehicleId; }
+    public Long getOriginWarehouseId() { return originWarehouseId; }
     public Long getDriverId() { return driverId; }
     public String getDriverName() { return driverName; }
     public String getPlateNumber() { return plateNumber; }

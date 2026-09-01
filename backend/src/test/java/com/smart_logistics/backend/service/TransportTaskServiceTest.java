@@ -193,6 +193,44 @@ class TransportTaskServiceTest {
     }
 
     @Test
+    void sharedPersistencePrimitiveStoresWarehouseOriginSnapshotAndInitialRoute() {
+        Cargo lockedCargo = cargo(CargoStatus.WAITING);
+        TransportTask[] holder = new TransportTask[1];
+        when(transportTaskMapper.selectCount(any())).thenReturn(0L);
+        when(transportTaskMapper.insert(any(TransportTask.class))).thenAnswer(invocation -> {
+            TransportTask inserted = invocation.getArgument(0);
+            inserted.setId(1L);
+            holder[0] = inserted;
+            return 1;
+        });
+        when(transportTaskMapper.selectById(1L)).thenAnswer(invocation -> holder[0]);
+
+        TransportTaskResponse response = service.persistTransportTaskWithInitialRoute(
+                new TransportTaskService.CreateValues(
+                        30L, 10L, 20L, 1L, "Central Warehouse",
+                        106.735012, 29.610634, "Destination",
+                        106.759396, 29.620115,
+                        OffsetDateTime.parse("2026-08-31T08:00:00+08:00"),
+                        OffsetDateTime.parse("2026-08-31T10:00:00+08:00")),
+                lockedCargo, plannedRoute());
+
+        ArgumentCaptor<TransportTask> taskCaptor =
+                ArgumentCaptor.forClass(TransportTask.class);
+        verify(transportTaskMapper).insert(taskCaptor.capture());
+        TransportTask task = taskCaptor.getValue();
+        assertEquals(1L, task.getOriginWarehouseId());
+        assertEquals("Central Warehouse", task.getStartLocation());
+        assertEquals(106.735012, task.getStartLongitude());
+        assertEquals(29.610634, task.getStartLatitude());
+        assertEquals(TransportTaskStatus.WAITING.name(), task.getStatus());
+        assertNull(task.getActualStartTime());
+        assertNull(task.getActualEndTime());
+        assertEquals(1L, response.getOriginWarehouseId());
+        verify(cargoService).bindOwnerForTransport(lockedCargo, 30L);
+        verify(taskRouteService).persistInitialActiveRoute(1L, plannedRoute());
+    }
+
+    @Test
     void createTransportTaskRejectsMissingCargo() {
         when(cargoService.getCargoForTransport(10L)).thenThrow(
                 new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "cargo not found"));
@@ -609,20 +647,6 @@ class TransportTaskServiceTest {
     }
 
     @Test
-    void activateReadyRouteDelegatesAfterTaskAccessCheck() {
-        TransportTask task = task(1L, TransportTaskStatus.TRANSPORTING);
-        when(transportTaskMapper.selectById(1L)).thenReturn(task);
-        when(taskRouteService.activateReadyRoute(1L, "route_v2")).thenReturn(
-                routeSnapshot(8L, "route_v2", 2, TransportTaskRouteStatus.ACTIVE));
-
-        TransportTaskRouteResponse response = service.activateReadyRoute(1L, "route_v2");
-
-        assertEquals("route_v2", response.routeId());
-        assertEquals(TransportTaskRouteStatus.ACTIVE, response.routeStatus());
-        verify(dataScopeService).requireTaskAccess(task);
-    }
-
-    @Test
     void waitingToTransportingUpdatesTaskCargoAndVehicleAndActualStart() {
         stubTransition(TransportTaskStatus.WAITING, TransportTaskStatus.TRANSPORTING);
 
@@ -836,6 +860,59 @@ class TransportTaskServiceTest {
         assertEquals(20L, response.getVehicleId());
         assertEquals(TransportTaskStatus.WAITING, response.getStatus());
         assertEquals("New Start", response.getStartLocation());
+    }
+
+    @Test
+    void warehouseOriginUpdateRejectsChangedStartSnapshot() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setOriginWarehouseId(1L);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation("Spoofed Warehouse");
+        request.setEndLocation(waiting.getEndLocation());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.updateTransportTask(1L, request));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(transportTaskMapper, never()).updateById(any(TransportTask.class));
+    }
+
+    @Test
+    void warehouseOriginUpdateRejectsChangedStartCoordinates() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setOriginWarehouseId(1L);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setStartLongitude(1.0);
+        request.setStartLatitude(1.0);
+        request.setEndLocation(waiting.getEndLocation());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.updateTransportTask(1L, request));
+
+        assertEquals(ErrorCode.STATE_CONFLICT, exception.getErrorCode());
+        verify(transportTaskMapper, never()).updateById(any(TransportTask.class));
+    }
+
+    @Test
+    void warehouseOriginUpdateAllowsIdenticalStartSnapshotAsNoOp() {
+        TransportTask waiting = task(1L, TransportTaskStatus.WAITING);
+        waiting.setOriginWarehouseId(1L);
+        when(transportTaskMapper.selectById(1L)).thenReturn(waiting);
+        when(transportTaskMapper.updateById(any(TransportTask.class))).thenReturn(1);
+        TransportTaskUpdateRequest request = new TransportTaskUpdateRequest();
+        request.setStartLocation(waiting.getStartLocation());
+        request.setStartLongitude(waiting.getStartLongitude());
+        request.setStartLatitude(waiting.getStartLatitude());
+        request.setEndLocation(waiting.getEndLocation());
+
+        TransportTaskResponse response = service.updateTransportTask(1L, request);
+
+        assertEquals(waiting.getStartLocation(), response.getStartLocation());
+        assertEquals(waiting.getStartLongitude(), response.getStartLongitude());
+        assertEquals(1L, response.getOriginWarehouseId());
     }
 
     @Test
