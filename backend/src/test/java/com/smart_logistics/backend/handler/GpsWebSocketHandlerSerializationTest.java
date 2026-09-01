@@ -123,6 +123,7 @@ class GpsWebSocketHandlerSerializationTest {
         assertEquals(29.50, root.get("latitude").asDouble());
         assertEquals(30.0, root.get("speed").asDouble());
         assertEquals(90.0, root.get("direction").asDouble());
+        assertEquals("WGS84", root.get("coordinateSystem").asText());
         assertTrue(root.get("collectedAt").isTextual());
         assertEquals("2026-08-26T12:00:00+08:00", root.get("collectedAt").asText());
     }

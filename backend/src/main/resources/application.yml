@@ -26,6 +26,8 @@ app:
     gps-merge-tolerance: ${GPS_MERGE_TOLERANCE:PT1S}
     latest-lookback: ${GPS_LATEST_LOOKBACK:PT24H}
     online-threshold: ${GPS_ONLINE_THRESHOLD:PT2M}
+    # 云端已有 smart-logistics-gps-recorder 时设为 false，避免同一 MQTT GPS 双写。
+    mqtt-write-influx: ${GPS_MQTT_WRITE_INFLUX:true}
   geofence:
     arrival-radius-meters: ${ARRIVAL_GEOFENCE_RADIUS_METERS:200}
   realtime-anomaly:

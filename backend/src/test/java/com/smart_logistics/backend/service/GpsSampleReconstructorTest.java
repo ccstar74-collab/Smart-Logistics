@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 class GpsSampleReconstructorTest {
     private final GpsSampleReconstructor reconstructor =
@@ -73,7 +72,20 @@ class GpsSampleReconstructorTest {
         assertEquals(2, result.size());
         assertEquals(121.50, result.get(0).longitude());
         assertEquals(121.60, result.get(1).longitude());
-        assertNull(result.get(0).speed());
+        assertEquals(0.0, result.get(0).speed());
+        assertEquals(0.0, result.get(0).direction());
+    }
+
+    @Test
+    void suppliesFrontendSafeDefaultsAndNormalizesNorthHeading() {
+        List<GpsSample> result = reconstructor.reconstruct(List.of(
+                row("sim_999", "lat", 29.61, 0),
+                row("sim_999", "lon", 106.50, 0),
+                row("sim_999", "heading", 360.0, 0)));
+
+        assertEquals(1, result.size());
+        assertEquals(0.0, result.getFirst().speed());
+        assertEquals(0.0, result.getFirst().direction());
     }
 
     @Test

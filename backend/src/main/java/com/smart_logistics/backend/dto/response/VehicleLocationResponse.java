@@ -12,6 +12,7 @@ public class VehicleLocationResponse {
     private final OffsetDateTime collectedAt;
     private final boolean online;
     private final Long taskId;
+    private final String coordinateSystem;
 
     public VehicleLocationResponse(Long vehicleId, String plateNumber,
                                    Double longitude, Double latitude,
@@ -27,6 +28,7 @@ public class VehicleLocationResponse {
         this.collectedAt = collectedAt;
         this.online = online;
         this.taskId = taskId;
+        this.coordinateSystem = "WGS84";
     }
 
     public Long getVehicleId() { return vehicleId; }
@@ -38,4 +40,5 @@ public class VehicleLocationResponse {
     public OffsetDateTime getCollectedAt() { return collectedAt; }
     public boolean isOnline() { return online; }
     public Long getTaskId() { return taskId; }
+    public String getCoordinateSystem() { return coordinateSystem; }
 }

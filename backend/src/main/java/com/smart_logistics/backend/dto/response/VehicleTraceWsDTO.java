@@ -25,4 +25,7 @@ public class VehicleTraceWsDTO {
 
     // sim卡编号，输出驼峰 simCode，不要加任何JsonProperty注解
     private String simCode;
+
+    // 设备与模拟器统一上报 WGS84，前端显示到高德地图前仅转换一次。
+    private String coordinateSystem = "WGS84";
 }

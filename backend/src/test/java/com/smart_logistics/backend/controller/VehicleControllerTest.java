@@ -292,6 +292,7 @@ class VehicleControllerTest {
                 .andExpect(jsonPath("$.data.vehicleId").value(1))
                 .andExpect(jsonPath("$.data.longitude").value(121.5))
                 .andExpect(jsonPath("$.data.direction").value(90.0))
+                .andExpect(jsonPath("$.data.coordinateSystem").value("WGS84"))
                 .andExpect(jsonPath("$.data.collectedAt")
                         .value("2026-08-25T10:00:00+08:00"))
                 .andExpect(jsonPath("$.data.taskId").value(10));

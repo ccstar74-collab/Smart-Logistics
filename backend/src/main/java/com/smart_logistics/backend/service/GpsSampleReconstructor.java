@@ -127,8 +127,15 @@ public class GpsSampleReconstructor {
         }
 
         private GpsSample toSample() {
+            double speed = values.getOrDefault("speed", 0.0d);
+            double direction = normalizeDirection(values.getOrDefault("direction", 0.0d));
             return new GpsSample(vehicleId, values.get("longitude"), values.get("latitude"),
-                    values.get("speed"), values.get("direction"), latest);
+                    speed, direction, latest);
+        }
+
+        private double normalizeDirection(double direction) {
+            double normalized = direction % 360.0d;
+            return normalized < 0.0d ? normalized + 360.0d : normalized;
         }
     }
 }

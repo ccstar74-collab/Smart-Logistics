@@ -15,6 +15,7 @@ import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -39,6 +40,9 @@ public class MqttMessageCallback implements MqttCallback {
 
     @Autowired
     private GpsInfluxService gpsInfluxService;
+
+    @Value("${app.realtime.mqtt-write-influx:true}")
+    private boolean mqttWriteInflux;
 
     @Autowired
     private MqttAlertMessageHandler mqttAlertMessageHandler;
@@ -123,7 +127,8 @@ public class MqttMessageCallback implements MqttCallback {
             double lat = ((Number) map.get("lat")).doubleValue();
             double lon = ((Number) map.get("lon")).doubleValue();
             double speed_kmh = ((Number) map.getOrDefault("speed_kmh", 0d)).doubleValue();
-            double heading = ((Number) map.getOrDefault("heading", 0d)).doubleValue();
+            double heading = normalizeHeading(
+                    ((Number) map.getOrDefault("heading", 0d)).doubleValue());
 
             String timestamp = String.valueOf(map.get("timestamp"));
             long ts = Instant.parse(timestamp).toEpochMilli();
@@ -147,8 +152,10 @@ public class MqttMessageCallback implements MqttCallback {
             internalDto.setHeading(heading);
             internalDto.setTimestamp(ts);
 
-            gpsInfluxService.writeGpsPoint(simCode, Double.toString(lat),
-                    Double.toString(lon), speed_kmh, heading, ts);
+            if (mqttWriteInflux) {
+                gpsInfluxService.writeGpsPoint(simCode, Double.toString(lat),
+                        Double.toString(lon), speed_kmh, heading, ts);
+            }
 
             VehicleTraceWsDTO outDto = new VehicleTraceWsDTO();
             outDto.setLatitude(internalDto.getLat());
@@ -198,5 +205,10 @@ public class MqttMessageCallback implements MqttCallback {
         // topic format: iot/carla/vehicle/{simCode}/gps or iot/carla/vehicle/{simCode}/status
         String[] parts = topic.split("/");
         return parts.length >= 4 ? parts[3] : null;
+    }
+
+    private double normalizeHeading(double heading) {
+        double normalized = heading % 360.0d;
+        return normalized < 0.0d ? normalized + 360.0d : normalized;
     }
 }
