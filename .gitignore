@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env.local
+.env.*.local
+
+# Logs and editor files
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Credentials and SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+whdmw_*_ed25519*

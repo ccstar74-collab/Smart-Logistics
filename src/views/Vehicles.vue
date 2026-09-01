@@ -1,0 +1,56 @@
+<script setup>
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import PageHeader from '../components/PageHeader.vue'
+import { api, extractList } from '../api/http'
+import { isPositiveNumber } from '../utils/validation'
+const loading=ref(false), rows=ref([]), drivers=ref([]), warehouses=ref([]), keyword=ref(''), dialogVisible=ref(false), editingId=ref(null), page=ref(1), pageSize=ref(10), total=ref(0)
+const form=reactive({plateNumber:'',simCode:'',type:'VAN',capacity:null,status:'IDLE',driverId:null,warehouseId:null})
+const statusText={IDLE:'空闲',TRANSPORTING:'运输中',MAINTENANCE:'维修',DISABLED:'停用'}
+const normalize=v=>({...v,vehicleId:v.vehicleId??v.vehicle_id??v.id,driverId:v.driverId??v.driver_id??v.driver?.id??null,warehouseId:v.warehouseId??v.warehouse_id??v.warehouse?.id??null,warehouseName:v.warehouseName??v.warehouse_name??v.warehouse?.name??'',plateNumber:v.plateNumber??v.plate_number??v.licensePlate??v.license_plate??'-',simCode:v.simCode??v.sim_code??'',driverName:v.driverName??v.driver_name??v.driver?.name??'-',type:v.type??v.vehicleType??v.vehicle_type??'-',capacity:v.capacity??v.loadCapacity??v.load_capacity??'-',status:v.status??'IDLE'})
+const optionId=item=>item.id??item.driverId??item.userId??item.value
+const optionAccount=item=>item.username??item.account??item.userName??item.label??''
+const driverMap=computed(()=>Object.fromEntries(drivers.value.map(item=>[Number(optionId(item)),item])))
+const warehouseMap=computed(()=>Object.fromEntries(warehouses.value.map(item=>[Number(item.id),item])))
+const driverLabel=item=>{if(!item)return'未绑定';const name=item.name??item.driverName??item.realName??'';return name||optionAccount(item)||'已绑定司机'}
+const rowDriverLabel=row=>driverLabel(driverMap.value[Number(row.driverId)]||{id:row.driverId,name:row.driverName==='-'?'':row.driverName})
+const list=computed(()=>rows.value.filter(v=>{const w=keyword.value.trim().toLowerCase();return!w||[v.plateNumber,v.driverName,v.type,v.status,statusText[v.status],v.warehouseName,warehouseMap.value[Number(v.warehouseId)]?.name].some(x=>String(x||'').toLowerCase().includes(w))}))
+const statusTagType=value=>value==='DISABLED'?'danger':value==='IDLE'?'success':value==='TRANSPORTING'?'primary':'warning'
+async function load(){loading.value=true;try{const result=await api.vehicles.list({page:page.value,pageSize:pageSize.value});rows.value=extractList(result).map(normalize);total.value=Number(result?.total??rows.value.length)}catch(e){ElMessage.error(e.message)}finally{loading.value=false}}
+async function loadDrivers(){try{drivers.value=extractList(await api.drivers.options())}catch(e){ElMessage.error(`司机账号加载失败：${e.message}`)}}
+function openCreate(){editingId.value=null;Object.assign(form,{plateNumber:'',simCode:'',type:'VAN',capacity:null,status:'IDLE',driverId:null,warehouseId:warehouses.value[0]?.id??null});dialogVisible.value=true}
+function openEdit(v){editingId.value=v.vehicleId;Object.assign(form,v);dialogVisible.value=true}
+async function save(){if(!form.plateNumber?.trim()||!form.type)return ElMessage.warning('请填写车牌号和车型');if(!form.warehouseId)return ElMessage.warning('请选择车辆所属仓库');if(!isPositiveNumber(form.capacity))return ElMessage.warning('车辆载重必须大于 0');if(form.simCode&&!/^[A-Za-z0-9_-]{2,64}$/.test(form.simCode.trim()))return ElMessage.warning('GPS 设备编码仅支持 2–64 位字母、数字、下划线和短横线');const body={plateNumber:form.plateNumber.trim(),simCode:form.simCode.trim()||null,type:form.type,capacity:Number(form.capacity),warehouseId:Number(form.warehouseId)};if(editingId.value)body.status=form.status;try{let vehicleId=editingId.value;if(vehicleId)await api.vehicles.update(vehicleId,body);else{const created=await api.vehicles.create(body);vehicleId=created?.id??created?.vehicleId;if(!vehicleId){await load();vehicleId=rows.value.find(v=>v.plateNumber===form.plateNumber)?.vehicleId}}if(vehicleId&&form.driverId!=null)await api.vehicles.bindDriver(vehicleId,form.driverId);ElMessage.success(editingId.value?'车辆修改成功':'车辆已新增到所选仓库');dialogVisible.value=false;await load()}catch(e){ElMessage.error(e.message)}}
+async function detail(row){try{const v=normalize(await api.vehicles.get(row.vehicleId));const warehouse=v.warehouseName||warehouseMap.value[Number(v.warehouseId)]?.name||`仓库 #${v.warehouseId??'—'}`;await ElMessageBox.alert(`所属仓库：${warehouse}<br>车型：${v.type}<br>载重：${v.capacity} kg<br>司机账号：${rowDriverLabel(v)}<br>状态：${statusText[v.status]||v.status}`,`${v.plateNumber} · 车辆详情`,{dangerouslyUseHTMLString:true})}catch(e){ElMessage.error(e.message)}}
+async function disable(row){try{await ElMessageBox.confirm(`确定停用车辆 ${row.plateNumber} 吗？`,'停用确认',{type:'warning'});await api.vehicles.remove(row.vehicleId);ElMessage.success('车辆已停用');await load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'停用失败')}}
+async function loadWarehouses(){try{warehouses.value=extractList(await api.warehouses.list({page:1,pageSize:100})).filter(item=>!item.status||item.status==='ACTIVE')}catch(e){ElMessage.error(`仓库列表加载失败：${e.message}`)}}
+onMounted(()=>Promise.all([load(),loadDrivers(),loadWarehouses()]))
+</script>
+<template>
+  <PageHeader title="车辆管理" subtitle="车辆按仓库归属管理，新增与编辑时必须选择所属仓库" />
+  <section class="panel page-panel">
+    <div class="toolbar"><el-input v-model="keyword" clearable placeholder="搜索车牌、车型、设备编码或状态" style="width:360px"/><el-button @click="load">刷新</el-button><el-button type="primary" @click="openCreate">+ 新增车辆</el-button></div>
+    <el-table v-loading="loading" :data="list" stripe empty-text="暂无车辆数据">
+      <el-table-column prop="plateNumber" label="车牌" min-width="120"/>
+      <el-table-column prop="simCode" label="GPS 设备编码" min-width="140"><template #default="s">{{s.row.simCode||'未配置'}}</template></el-table-column>
+      <el-table-column label="所属仓库" min-width="170"><template #default="s">{{s.row.warehouseName||warehouseMap[Number(s.row.warehouseId)]?.name||`仓库 #${s.row.warehouseId??'—'}`}}</template></el-table-column>
+      <el-table-column prop="type" label="车型"/><el-table-column prop="capacity" label="载重(kg)"/>
+      <el-table-column label="司机账号" min-width="180"><template #default="s">{{rowDriverLabel(s.row)}}</template></el-table-column>
+      <el-table-column label="状态"><template #default="s"><el-tag :type="statusTagType(s.row.status)" effect="light">{{statusText[s.row.status]||s.row.status}}</el-tag></template></el-table-column>
+      <el-table-column label="操作" width="210"><template #default="s"><el-button link type="primary" @click="detail(s.row)">详情</el-button><el-button link type="primary" @click="openEdit(s.row)">编辑</el-button><el-button link type="danger" :disabled="s.row.status==='DISABLED'" @click="disable(s.row)">停用</el-button></template></el-table-column>
+    </el-table>
+    <div style="padding:16px;display:flex;justify-content:flex-end"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" layout="total, prev, pager, next" :total="total" @current-change="load"/></div>
+  </section>
+  <el-dialog v-model="dialogVisible" :title="editingId?'修改车辆':'新增车辆'" width="520px">
+    <el-form label-width="120px">
+      <el-form-item label="所属仓库" required><el-select v-model="form.warehouseId" filterable placeholder="请选择车辆归属仓库" style="width:100%"><el-option v-for="warehouse in warehouses" :key="warehouse.id" :value="warehouse.id" :label="`${warehouse.name} · ${warehouse.address||warehouse.warehouseNo||''}`"/></el-select></el-form-item>
+      <el-form-item label="车牌号" required><el-input v-model="form.plateNumber"/></el-form-item>
+      <el-form-item label="GPS 设备编码"><el-input v-model="form.simCode" placeholder="例如 sim_008，需与 GPS vehicleId 一致"/></el-form-item>
+      <el-form-item label="车型" required><el-select v-model="form.type" style="width:100%"><el-option label="厢式货车 VAN" value="VAN"/><el-option label="卡车 TRUCK" value="TRUCK"/><el-option label="冷链车 REFRIGERATED" value="REFRIGERATED"/></el-select></el-form-item>
+      <el-form-item label="载重(kg)" required><el-input-number v-model="form.capacity" :min="0" style="width:100%"/></el-form-item>
+      <el-form-item label="司机账号"><el-select v-model="form.driverId" clearable filterable placeholder="选择已注册司机账号" style="width:100%"><el-option v-for="driver in drivers" :key="optionId(driver)" :value="optionId(driver)" :label="driverLabel(driver)"/></el-select></el-form-item>
+      <el-form-item v-if="editingId" label="状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="(label,value) in statusText" :key="value" :label="label" :value="value"/></el-select></el-form-item>
+    </el-form>
+    <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" @click="save">保存</el-button></template>
+  </el-dialog>
+</template>
