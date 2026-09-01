@@ -23,6 +23,9 @@ const routeLoading = ref(false)
 const replanning = ref(false)
 const newRouteId = ref(null)
 const routePreviewVisible = ref(false)
+const deviationCompareVisible = ref(false)
+const deviationOriginalRoute = ref(null)
+const deviationReplannedRoute = ref(null)
 const contextAlarmId = ref(null)
 const contextAlarm = ref(null)
 const statusFilter = ref('')
@@ -160,6 +163,25 @@ const routeDifferenceText = computed(() => {
     ? `与当前路线相比：${differences.join('，')}。`
     : '当前接口暂未返回足够的距离/耗时字段；路线几何差异以后可在地图路线对比中展示。'
 })
+const deviationDifferenceText = computed(() => {
+  const original = deviationOriginalRoute.value
+  const replanned = deviationReplannedRoute.value
+  if (!original || !replanned) return ''
+  const parts = []
+  if (original.distanceMeters != null && replanned.distanceMeters != null) {
+    const difference = replanned.distanceMeters - original.distanceMeters
+    parts.push(Math.abs(difference) < 1
+      ? '距离基本一致'
+      : `距离${difference > 0 ? '增加' : '减少'} ${formatDistance(Math.abs(difference))}`)
+  }
+  if (original.durationSeconds != null && replanned.durationSeconds != null) {
+    const difference = replanned.durationSeconds - original.durationSeconds
+    parts.push(Math.abs(difference) < 30
+      ? '预计用时基本一致'
+      : `预计用时${difference > 0 ? '增加' : '减少'} ${formatDuration(Math.abs(difference))}`)
+  }
+  return parts.length ? `与原路线相比：${parts.join('，')}。` : '原路线与新路线的几何走向已在地图中同时展示。'
+})
 
 function routeOptionText(route) {
   const parts = [`方案 v${route.routeVersion ?? '—'}`]
@@ -195,7 +217,10 @@ async function applyDispatchContext() {
     }
     // 第五阶段偏航恢复由模拟器按 R 后调用 replan；调度员仅创建关联告警的 TEXT 指令。
     // 只有调用方显式指定 commandType 时，才进入普通 READY 路线切换流程。
-    form.commandType = String(route.query.commandType || 'TEXT')
+    form.commandType = contextAlarm.value.alarmType === 'ROUTE_DEVIATION'
+      ? 'TEXT'
+      : String(route.query.commandType || 'TEXT')
+    if (contextAlarm.value.alarmType === 'ROUTE_DEVIATION') form.routeId = null
     form.content = contextAlarm.value.alarmType === 'ROUTE_DEVIATION'
       ? '车辆发生偏航，请执行当前位置重新规划并恢复运输'
       : `车辆触发“${alarmText[contextAlarm.value.alarmType] || contextAlarm.value.alarmType || '运输异常'}”告警，请确认现场情况并处理`
@@ -240,28 +265,62 @@ async function loadRoutes(taskId) {
   }
 }
 
-async function replanRoutes() {
+async function replanFromLatestLocation() {
   const taskId = form.taskId
   if (taskId == null) return ElMessage.warning('请先选择运输任务')
-  replanning.value = true
-  const before = new Set(readyRoutes.value.map(route => String(route.id)))
+  const vehicle = selectedVehicle.value
+  const vehicleId = vehicle?.id ?? vehicle?.vehicleId ?? vehicle?.vehicle_id
+  const vehicleDeviceCode = vehicle?.simCode ?? vehicle?.sim_code ?? vehicle?.deviceCode ?? vehicle?.device_code
+  if (vehicleId == null) return ElMessage.warning('该任务未关联有效车辆')
+  if (!vehicleDeviceCode) return ElMessage.warning('该车辆未配置 GPS 设备编码，无法按最新位置重规划')
+
   try {
-    // 合同：POST /transport-tasks/{taskId}/routes 无 RequestBody，成功后刷新 READY 路线。
-    await api.transportTasks.routes.create(taskId)
-    await loadRoutes(taskId)
-    const generated = readyRoutes.value.find(route => !before.has(String(route.id)))
-      || [...readyRoutes.value].sort((a, b) => (numeric(b.routeVersion) ?? 0) - (numeric(a.routeVersion) ?? 0))[0]
-      || null
-    if (generated) {
-      form.routeId = generated.id
-      newRouteId.value = generated.id
-      routePreviewVisible.value = true
-      ElMessage.success(`已生成并选中备用路线 v${generated.routeVersion ?? '—'}，请核对路线信息后下发指令`)
-    } else {
-      ElMessage.warning('重新规划请求已完成，但后端未返回新的 READY 路线，请稍后刷新')
+    await ElMessageBox.confirm(
+      '请确认车辆已经停车，并且停车后的最新 GPS 已上传。重规划成功后，新路线会直接成为当前路线。',
+      '按最新位置重规划',
+      { confirmButtonText: '确认重规划', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  replanning.value = true
+  try {
+    const originalActive = activeRoute.value
+    deviationOriginalRoute.value = originalActive
+      ? { ...originalActive, routePoints: [...(originalActive.routePoints?.length >= 2 ? originalActive.routePoints : plannedRoutePoints.value)] }
+      : {
+          routeVersion: null,
+          routePoints: [...plannedRoutePoints.value],
+          coordinateSystem: 'GCJ02',
+          distanceMeters: null,
+          durationSeconds: null,
+          provider: ''
+        }
+    // 偏航恢复合同：先读取正式单车 latest，再把同一 WGS84 anchor 提交给专用 replan 接口。
+    const latest = await api.vehicles.latestLocation(vehicleId)
+    const longitude = numeric(latest?.longitude ?? latest?.lon ?? latest?.lng)
+    const latitude = numeric(latest?.latitude ?? latest?.lat)
+    const positionAt = latest?.collectedAt ?? latest?.collected_at ?? latest?.timestamp ?? latest?.collectTime
+    if (longitude == null || latitude == null || !positionAt) {
+      throw new Error('车辆最新位置缺少有效的经纬度或采集时间')
     }
+    await api.transportTasks.routes.replanFromLatestLocation(taskId, {
+      vehicleDeviceCode: String(vehicleDeviceCode),
+      longitude,
+      latitude,
+      coordinateSystem: 'WGS84',
+      positionAt
+    })
+    await loadRoutes(taskId)
+    const replanned = activeRoute.value
+    deviationReplannedRoute.value = replanned
+      ? { ...replanned, routePoints: [...(replanned.routePoints?.length >= 2 ? replanned.routePoints : plannedRoutePoints.value)] }
+      : null
+    if (deviationReplannedRoute.value) deviationCompareVisible.value = true
+    ElMessage.success('已按车辆最新位置完成重规划，新路线已成为当前路线')
   } catch (cause) {
-    ElMessage.error(`路线重新规划失败：${cause.message}`)
+    ElMessage.error(`按最新位置重规划失败：${cause.message}`)
   } finally {
     replanning.value = false
   }
@@ -289,12 +348,13 @@ async function load() {
 }
 
 async function send() {
+  const commandType = isDeviationRecovery.value ? 'TEXT' : form.commandType
   if (!form.taskId) return ElMessage.warning('请选择要调度的运输任务')
-  if (!form.commandType) return ElMessage.warning('请选择调度类型')
+  if (!commandType) return ElMessage.warning('请选择调度类型')
   if (!form.content.trim()) return ElMessage.warning('请输入调度指令内容')
   if (!selectedVehicle.value) return ElMessage.warning('该任务未关联车辆，无法下发指令')
   if (selectedDriverId.value == null) return ElMessage.warning('该任务车辆未绑定司机，无法下发指令')
-  if (form.commandType === 'ROUTE_CHANGE') {
+  if (commandType === 'ROUTE_CHANGE') {
     if (form.routeId == null || form.routeId === '') return ElMessage.warning('请选择要切换到的 READY 备用路线')
     const target = readyRoutes.value.find(route => String(route.id) === String(form.routeId))
     if (!target) return ElMessage.warning('所选路线不是 READY 状态，无法切换')
@@ -302,9 +362,9 @@ async function send() {
   saving.value = true
   try {
     // 后端统一按 taskId → Task.vehicleId → Vehicle.driverId 推导目标车辆与司机，前端不提交 driverId / vehicleId。
-    const body = { taskId: form.taskId, commandType: form.commandType, content: form.content.trim() }
+    const body = { taskId: form.taskId, commandType, content: form.content.trim() }
     if (contextAlarmId.value != null) body.alarmId = contextAlarmId.value
-    if (form.commandType === 'ROUTE_CHANGE') body.routeId = form.routeId
+    if (commandType === 'ROUTE_CHANGE') body.routeId = form.routeId
     await api.dispatchCommands.create(body)
     ElMessage.success(contextAlarmId.value != null ? '调度指令已发送，关联告警已同步进入处理中' : '调度指令已发送')
     Object.assign(form, { taskId: null, commandType: 'TEXT', content: '', routeId: null })
@@ -361,12 +421,16 @@ onMounted(async () => {
           <small>本次下发会携带 alarmId，与告警管理中的该条告警保持同一处理链路。</small>
         </div>
         <label>关联运输任务<select v-model.number="form.taskId"><option :value="null">请选择运输任务</option><option v-for="task in tasks" :key="task.id" :value="task.id">{{ task.taskNo }} · {{ task.startLocation }} → {{ task.endLocation }}</option></select></label>
-        <label>调度类型<select v-model="form.commandType"><option value="TEXT">文字指令 TEXT</option><option value="ROUTE_CHANGE">路线切换 ROUTE_CHANGE</option></select></label>
+        <label v-if="isDeviationRecovery">调度类型<input value="文字指令（偏航处理）" disabled /></label>
+        <label v-else>调度类型<select v-model="form.commandType"><option value="TEXT">文字指令</option><option value="ROUTE_CHANGE">路线切换</option></select></label>
 
         <div v-if="isDeviationRecovery" class="dispatch-route-section">
           <div class="dispatch-route-label-row">
             <span class="dispatch-route-field-label">偏航快速恢复路线</span>
-            <button type="button" class="mini" :disabled="routeLoading || !form.taskId" @click="loadRoutes(form.taskId)">{{ routeLoading ? '刷新中…' : '刷新当前路线' }}</button>
+            <div class="dispatch-route-actions">
+              <button type="button" class="mini" :disabled="routeLoading || replanning || !form.taskId" @click="loadRoutes(form.taskId)">{{ routeLoading ? '刷新中…' : '刷新当前路线' }}</button>
+              <button type="button" class="mini" :disabled="routeLoading || replanning || !form.taskId" @click="replanFromLatestLocation">{{ replanning ? '重规划中…' : '按最新位置重规划' }}</button>
+            </div>
           </div>
           <div class="dispatch-route-card current">
             <div class="dispatch-route-card-head">
@@ -375,11 +439,11 @@ onMounted(async () => {
             </div>
             <p>{{ routeEndpointText }}</p>
             <small>{{ currentRouteMeta }}</small>
-            <em>调度员仅发送关联告警的 TEXT 指令。司机进入 EXECUTING 后，由模拟器按 R 停车并调用当前位置重规划；成功后点击刷新即可读取新的 ACTIVE 路线。</em>
+            <em>司机进入执行中且车辆停车、最新定位上传后，可按车辆最新位置重规划；成功后新路线会直接成为当前路线。</em>
           </div>
         </div>
 
-        <template v-if="form.commandType === 'ROUTE_CHANGE'">
+        <template v-if="form.commandType === 'ROUTE_CHANGE' && !isDeviationRecovery">
           <div class="dispatch-route-section">
             <span class="dispatch-route-field-label">当前路线</span>
             <div class="dispatch-route-card current">
@@ -396,13 +460,13 @@ onMounted(async () => {
           <div class="dispatch-route-section">
             <div class="dispatch-route-label-row">
               <span class="dispatch-route-field-label">目标备用路线</span>
-              <button type="button" class="mini" :disabled="routeLoading || replanning || !form.taskId" @click="replanRoutes">{{ replanning ? '规划中…' : '重新规划路线' }}</button>
+              <button type="button" class="mini" :disabled="routeLoading || !form.taskId" @click="loadRoutes(form.taskId)">{{ routeLoading ? '刷新中…' : '刷新备用路线' }}</button>
             </div>
             <select :value="form.routeId" :disabled="routeLoading || !readyRoutes.length" @change="handleRouteSelection($event.target.value)">
-              <option :value="null">{{ routeLoading ? '正在加载路线…' : readyRoutes.length ? '请选择一个备用路线方案' : '暂无备用路线，请先重新规划' }}</option>
+              <option :value="null">{{ routeLoading ? '正在加载路线…' : readyRoutes.length ? '请选择一个备用路线方案' : '暂无可切换的备用路线' }}</option>
               <option v-for="route in readyRoutes" :key="route.id" :value="route.id">{{ routeOptionText(route) }}</option>
             </select>
-            <div v-if="!routeLoading && !readyRoutes.length" class="dispatch-route-empty">当前还没有可切换的 READY 备用路线。点击“重新规划路线”后，后端生成的新路线会出现在这里。</div>
+            <div v-if="!routeLoading && !readyRoutes.length" class="dispatch-route-empty">当前没有可切换的备用路线。偏航恢复请使用上方“按最新位置重规划”。</div>
             <div v-if="selectedReadyRoute" class="dispatch-route-card candidate" :class="{ fresh: String(newRouteId) === String(selectedReadyRoute.id) }">
               <div class="dispatch-route-card-head">
                 <strong>备用方案 v{{ selectedReadyRoute.routeVersion ?? '—' }}</strong>
@@ -476,9 +540,44 @@ onMounted(async () => {
       <el-empty v-else description="该备用方案已有距离/耗时信息，但后端暂未返回 polyline / routePoints，当前无法绘制路线地图" />
     </div>
   </el-dialog>
+
+  <el-dialog v-model="deviationCompareVisible" title="偏航重规划路线对比" width="960px" destroy-on-close>
+    <div v-if="deviationOriginalRoute && deviationReplannedRoute" class="route-preview-dialog">
+      <div class="deviation-route-comparison">
+        <div class="deviation-route-summary original">
+          <span>原路线</span>
+          <strong>第 {{ deviationOriginalRoute.routeVersion ?? '—' }} 版</strong>
+          <small>{{ deviationOriginalRoute.distanceMeters != null ? formatDistance(deviationOriginalRoute.distanceMeters) : '距离未返回' }} · {{ deviationOriginalRoute.durationSeconds != null ? formatDuration(deviationOriginalRoute.durationSeconds) : '用时未返回' }}</small>
+        </div>
+        <div class="deviation-route-arrow">→</div>
+        <div class="deviation-route-summary replanned">
+          <span>重规划后</span>
+          <strong>第 {{ deviationReplannedRoute.routeVersion ?? '—' }} 版（当前路线）</strong>
+          <small>{{ deviationReplannedRoute.distanceMeters != null ? formatDistance(deviationReplannedRoute.distanceMeters) : '距离未返回' }} · {{ deviationReplannedRoute.durationSeconds != null ? formatDuration(deviationReplannedRoute.durationSeconds) : '用时未返回' }}</small>
+        </div>
+      </div>
+      <div class="route-preview-compare">{{ deviationDifferenceText }}</div>
+      <div v-if="deviationReplannedRoute.routePoints?.length >= 2" class="route-preview-map">
+        <AMapView
+          :selected-task-id="form.taskId"
+          :initial-route="deviationOriginalRoute.routePoints"
+          :initial-route-coordinate-system="deviationOriginalRoute.coordinateSystem || 'GCJ02'"
+          :planned-route="deviationReplannedRoute.routePoints"
+          :planned-route-coordinate-system="deviationReplannedRoute.coordinateSystem || 'GCJ02'"
+          :route-start-label="selectedTask?.startLocation || '起点'"
+          :route-end-label="selectedTask?.endLocation || '终点'"
+          :external-vehicles="[]"
+          :show-facilities="false"
+          :show-track="false"
+        />
+      </div>
+      <el-empty v-else description="重规划已成功，但后端没有返回可绘制的路线坐标" />
+    </div>
+  </el-dialog>
 </template>
 
 <style scoped>
 .driver-dispatch-grid{grid-template-columns:minmax(0,1fr)}.driver-dispatch-grid .dispatch-task-panel{min-height:calc(100vh - 150px)}.dispatch-filter-bar{padding:16px 20px 8px}.driver-dispatch-grid .command-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:16px 20px 24px}.driver-dispatch-grid .command-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;padding:18px;border:1px solid #e4eaf2;border-radius:12px;background:#fff}.driver-dispatch-grid .command-row:last-child{border-bottom:1px solid #e4eaf2}.driver-dispatch-grid .command-status-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:230px}@media(max-width:1100px){.driver-dispatch-grid .command-list{grid-template-columns:1fr}}@media(max-width:720px){.driver-dispatch-grid .command-row{grid-template-columns:1fr}.driver-dispatch-grid .command-status-actions{justify-content:flex-start;max-width:none}}
 .dispatch-alarm-link{margin:0 0 16px;padding:12px 14px;border:1px solid #ffd8d1;border-radius:12px;background:#fff8f6;display:flex;flex-direction:column;gap:4px}.dispatch-alarm-link strong{color:#cf4b37}.dispatch-alarm-link span{color:#26364f}.dispatch-alarm-link small{color:#8390a5}.route-preview-button{margin-top:10px;align-self:flex-start}.route-preview-summary{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px}.route-preview-summary>div{padding:12px 14px;border:1px solid #e5eaf2;border-radius:12px;background:#fafcff;display:flex;flex-direction:column;gap:5px}.route-preview-summary span{color:#8090a7}.route-preview-summary strong{color:#17253c}.route-preview-compare{padding:10px 12px;margin-bottom:12px;border-radius:10px;background:#f2f6ff;color:#52709c}.route-preview-map{height:430px;border:1px solid #e3e8f0;border-radius:14px;overflow:hidden}.route-preview-map :deep(.amap-shell),.route-preview-map :deep(.amap-container){height:100%;min-height:430px}.route-preview-map :deep(.amap-info-chip){display:none}@media (max-width:900px){.route-preview-summary{grid-template-columns:1fr 1fr}.route-preview-map{height:360px}.route-preview-map :deep(.amap-shell),.route-preview-map :deep(.amap-container){min-height:360px}}
+.deviation-route-comparison{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch;gap:14px;margin-bottom:12px}.deviation-route-summary{padding:14px 16px;border:1px solid #e3e8f0;border-radius:12px;display:flex;flex-direction:column;gap:5px}.deviation-route-summary.original{background:#f7f9fc}.deviation-route-summary.replanned{background:#f1f6ff;border-color:#bfd1ff}.deviation-route-summary span,.deviation-route-summary small{color:#718199}.deviation-route-summary strong{color:#17253c}.deviation-route-arrow{align-self:center;color:#4774df;font-size:24px;font-weight:700}@media(max-width:700px){.deviation-route-comparison{grid-template-columns:1fr}.deviation-route-arrow{transform:rotate(90deg)}}
 </style>
